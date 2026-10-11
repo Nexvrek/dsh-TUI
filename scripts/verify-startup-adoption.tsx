@@ -159,6 +159,31 @@ const notices = (channel: { rows: readonly { kind: string; text: string }[] }): 
   channel.releaseContributions()
 }
 
+// ── the adoption tail throwing after a successful open ────────────────
+// The tail segment runs inside binding.adopt(); its rollback contract
+// closes the candidate and releases the channel on any tail throw, which
+// trips the failure funnel's "released" early exit. So what must hold for
+// a tail throw: no unhandled rejection (the pre-fix crash), the opened
+// candidate is closed (no leak), and the channel never reports ready.
+{
+  const rejections: unknown[] = []
+  const onRejection = (reason: unknown): void => { rejections.push(reason) }
+  process.on('unhandledRejection', onRejection)
+  const open = deferred()
+  const channel = createChannel(ctx, createStartingSession('claude', LAUNCH), launch(open.promise))
+  const boom = fakeSession('abababab-abab-4aba-8aba-abababababab', LAUNCH)
+  // The adoption tail reads candidate.cwd into channel state; a getter
+  // that throws fails the tail segment after the open succeeded.
+  Object.defineProperty(boom, 'cwd', { get() { throw new Error('tail exploded') } })
+  open.resolve({ session: boom, history: [] })
+  await sleep(50)
+  check('a tail throw closes the opened candidate', boom.disposed)
+  check('the channel never becomes ready', channel.ready === false)
+  check('no unhandled rejection escapes the tail', rejections.length === 0, JSON.stringify(rejections.map(String)))
+  process.off('unhandledRejection', onRejection)
+  channel.releaseContributions()
+}
+
 // ── released mid-open ─────────────────────────────────────────────────
 {
   const open = deferred()

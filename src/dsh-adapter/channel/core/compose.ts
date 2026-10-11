@@ -906,46 +906,12 @@ export function createCoreChannel(
     let route: ChannelStartup['route']
     let agentPreset: string | undefined
     const backend = state.backendCapabilities.backendLabel
-    void binding.prepare(adoption, async () => {
-      const opened = await startup
-      history = opened.history
-      route = opened.route
-      agentPreset = opened.agentPreset
-      return opened.session
-    }).then(candidate => {
-      const previousCwd = state.cwd
-      binding.adopt(candidate, adoption, (_previous, disposePrevious) => {
-        feed.resetProjection()
-        if (activityOwned()) {
-          activity.reset()
-          state.subagentControl = subagentControlFor(candidate)
-        }
-        state.agentId = candidate.ref.sessionId
-        state.sessionId = candidate.ref.sessionId
-        // A resumed session runs where it was recorded, known only now.
-        state.cwd = candidate.cwd
-        state.displayCwd = host.workspaceService.describe(candidate.cwd).description ?? candidate.cwd
-        state.backendCapabilities = snapshotOf(candidate)
-        // Route and preset the opener resolved only now; written before the
-        // extensions attach, so theirs win.
-        if (route !== undefined) {
-          state.provider = route.provider
-          state.model = route.model
-        }
-        if (agentPreset !== undefined) state.agentPreset = agentPreset
-        controls.reset()
-        attachOnAdopt(candidate)
-        state.ready = true
-        state.startupFailure = undefined
-        feed.bind(history)
-        disposePrevious('dispose')
-        state.emit()
-      })
-      if (state.cwd !== previousCwd) resetIdeSelection()
-      refreshGitBranch()
-      markBoot('startup-adopted')
-    }, (error: unknown) => {
+    // The shared open-failure funnel: also the tail segment's, so a throw
+    // after a successful open can never escape as an unhandled rejection.
+    const onOpenFailed = (error: unknown): void => {
       // Released, or a `/new` / `/resume` replaced the placeholder first.
+      // A tail throw released the channel (binding.adopt's rollback), so it
+      // takes this same early exit.
       if (!owner.current() || binding.session !== adoption.session) return
       logForDebugging(`channel: startup session failed to open (${error instanceof Error ? error.message : String(error)})`)
       // A notice is one line: the reason's first line, and the way out on a
@@ -955,7 +921,57 @@ export function createCoreChannel(
       state.rows.push({ id: rowIds.value++, kind: 'notice', text: t('startup-open-failed', { backend, err: reason }) })
       state.rows.push({ id: rowIds.value++, kind: 'notice', text: error instanceof StartupOpenError ? error.hint : t('startup-open-failed-hint') })
       state.emit()
-    })
+    }
+    void binding.prepare(adoption, async () => {
+      const opened = await startup
+      history = opened.history
+      route = opened.route
+      agentPreset = opened.agentPreset
+      return opened.session
+    }).then(async candidate => {
+      try {
+        const previousCwd = state.cwd
+        binding.adopt(candidate, adoption, (_previous, disposePrevious) => {
+          feed.resetProjection()
+          if (activityOwned()) {
+            activity.reset()
+            state.subagentControl = subagentControlFor(candidate)
+          }
+          state.agentId = candidate.ref.sessionId
+          state.sessionId = candidate.ref.sessionId
+          // A resumed session runs where it was recorded, known only now.
+          state.cwd = candidate.cwd
+          state.displayCwd = host.workspaceService.describe(candidate.cwd).description ?? candidate.cwd
+          state.backendCapabilities = snapshotOf(candidate)
+          // Route and preset the opener resolved only now; written before the
+          // extensions attach, so theirs win.
+          if (route !== undefined) {
+            state.provider = route.provider
+            state.model = route.model
+          }
+          if (agentPreset !== undefined) state.agentPreset = agentPreset
+          controls.reset()
+          attachOnAdopt(candidate)
+          state.ready = true
+          state.startupFailure = undefined
+          feed.bind(history)
+          disposePrevious('dispose')
+          state.emit()
+        })
+        if (state.cwd !== previousCwd) resetIdeSelection()
+        refreshGitBranch()
+        markBoot('startup-adopted')
+      } catch (error) {
+        // The tail segment runs after the open succeeded; its throws take
+        // the open-failure funnel below instead of an unhandled rejection.
+        // binding.adopt() already revoked a failed transaction (the candidate
+        // is closed, the channel released); a throw from before that point
+        // still owns a prepared candidate, so hand it back for closing.
+        logForDebugging(`channel: startup adoption tail failed (${error instanceof Error ? error.message : String(error)})`)
+        try { await binding.abandon(candidate) } catch { /* a failed close must not mask the setup error */ }
+        throw error
+      }
+    }).catch(onOpenFailed)
   }
   /** A fresh session in another directory (the session browser's new-session
    *  card, `/workspace`'s handoff): the core `/new` with a target. */
