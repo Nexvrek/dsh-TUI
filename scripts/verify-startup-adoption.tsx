@@ -176,8 +176,10 @@ const notices = (channel: { rows: readonly { kind: string; text: string }[] }): 
   // that throws fails the tail segment after the open succeeded.
   Object.defineProperty(boom, 'cwd', { get() { throw new Error('tail exploded') } })
   open.resolve({ session: boom, history: [] })
+  check('a tail throw closes the opened candidate', await settled(() => boom.disposed))
+  // 固定窗:探针 a leaked rejection lands in its own turn: this window is what
+  // asserts the failure never flips `ready` nor escapes as a rejection.
   await sleep(50)
-  check('a tail throw closes the opened candidate', boom.disposed)
   check('the channel never becomes ready', channel.ready === false)
   check('no unhandled rejection escapes the tail', rejections.length === 0, JSON.stringify(rejections.map(String)))
   process.off('unhandledRejection', onRejection)
