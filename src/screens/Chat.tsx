@@ -778,9 +778,15 @@ export function Chat({
     setLaunchpadCaret(cursor)
   }
   const launchpadBindingGeneration = resolveBindingGeneration(channel)
+  const launchpadSessionRef = React.useRef(channel.agentId)
   React.useEffect(() => {
-    setLaunchpadDraft('')
-    setLaunchpadCaret(0)
+    const previousSessionId = launchpadSessionRef.current
+    launchpadSessionRef.current = channel.agentId
+    // The first real session adopts what was typed into its placeholder.
+    if (previousSessionId !== '' || channel.agentId === '') {
+      setLaunchpadDraft('')
+      setLaunchpadCaret(0)
+    }
     const bindings = launchpadImagesRef.current
     return () => {
       for (const stageId of bindings.values()) channel.discardStagedImage(stageId)
@@ -2002,8 +2008,9 @@ export function Chat({
     }
   }, [])
   const draftSessionId = channel.agentId
-  /** Session the effect below last reconciled against; a change is a switch. */
-  const draftSessionRef = React.useRef(draftSessionId)
+  const draftBindingGeneration = resolveBindingGeneration(channel)
+  /** Last reconciled binding; an empty id belongs to the startup draft. */
+  const draftSessionRef = React.useRef({ id: draftSessionId, generation: draftBindingGeneration })
   /**
    * The session a fill Chat itself requested belongs to, if one is in flight.
    *
@@ -2029,8 +2036,22 @@ export function Chat({
    * answered by the snapshot's owner fields.
    */
   React.useLayoutEffect(() => {
-    if (draftSessionRef.current === draftSessionId) return
-    draftSessionRef.current = draftSessionId
+    const previous = draftSessionRef.current
+    draftSessionRef.current = { id: draftSessionId, generation: draftBindingGeneration }
+    if (previous.id === draftSessionId) return
+    if (previous.id === '') {
+      // Startup adoption gives the existing draft its first conversation.
+      // A covered composer has parked that draft in the owner slot instead.
+      const snapshot = promptDraftRef.current.current
+      if (snapshot?.ownerAgentId === '' && snapshot.bindingGeneration === previous.generation) {
+        promptDraftRef.current.current = {
+          ...snapshot,
+          ownerAgentId: String(draftSessionId),
+          bindingGeneration: draftBindingGeneration,
+        }
+      }
+      return
+    }
     // A stored draft can only belong to the conversation being replaced: the
     // composer is the one that writes it, and it writes it on the way out.
     promptDraftRef.current.current = null
@@ -2039,7 +2060,7 @@ export function Chat({
       return
     }
     promptControllerRef.current?.clear()
-  }, [draftSessionId])
+  }, [draftSessionId, draftBindingGeneration])
   const previewGallery = activePreview === null ? [] : activePreview.peek
     ? promptControllerRef.current?.previewImages?.() ?? [activePreview]
     : overlay.kind === 'image-preview' ? overlay.gallery ?? [activePreview] : []

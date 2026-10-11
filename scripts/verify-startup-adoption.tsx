@@ -9,6 +9,7 @@
  */
 import './lib/fake-home.mjs'
 process.env.FORCE_COLOR = '3'
+process.env.DSH_TUI_LANG = 'en'
 
 const [{ Writable, PassThrough }, React, { Terminal: XTerm }, ui, { Chat }, { QuestionStore }, { ApprovalStore }, { createChannel }, { createStartingSession }, { setLang, t }, { default: instances }, { settled, sleep, viewportLines }, { kernelEntriesOf }, { listBackends }] =
   await Promise.all([
@@ -31,6 +32,7 @@ import type { AgentEvent, AgentEventMeta } from '../src/agent/events.js'
 import type { AgentInput, AgentSession, SubmitPlacement } from '../src/agent/session.js'
 import type { SessionCapabilities } from '../src/agent/capabilities.js'
 import type { ChannelLaunchOptions } from '../src/dsh-adapter/channel.js'
+import type { PromptController } from '../src/components/PromptInput.js'
 
 setLang('en')
 let passed = 0
@@ -212,8 +214,8 @@ const notices = (channel: { rows: readonly { kind: string; text: string }[] }): 
 }
 
 // ── the real Chat over a not-ready channel ────────────────────────────
-// Twice: once in the chat composer, once on the landing page (first boot),
-// whose Enter reaches the channel through its own submit path.
+// Both the composer and landing page, inline/fullscreen and narrow/wide.
+// A covered composer also exercises the parked draft's ownership transfer.
 const notReady = t('startup-not-ready', { backend: 'Claude' })
 class FakeStdin extends PassThrough {
   isTTY = true
@@ -221,11 +223,11 @@ class FakeStdin extends PassThrough {
   ref() { return this }
   unref() { return this }
 }
-async function screenCase(surface: 'composer' | 'launchpad' | 'launchpad-failed', sessionId: string): Promise<void> {
-  const label = (text: string): string => `${surface}: ${text}`
+async function screenCase(surface: 'composer' | 'launchpad' | 'launchpad-failed', sessionId: string, fullscreen = false, columns = 100, covered = false): Promise<void> {
+  const label = (text: string): string => `${surface}${covered ? ' covered' : ''} ${fullscreen ? 'fullscreen' : 'inline'} ${columns} cols: ${text}`
   const open = deferred()
   const channel = createChannel(ctx, createStartingSession('claude', process.cwd()), { ...launch(open.promise), cwd: process.cwd() })
-  const COLS = 100
+  const COLS = columns
   const ROWS = 30
   const term = new XTerm({ cols: COLS, rows: ROWS, scrollback: 200, allowProposedApi: true })
   class FakeStdout extends Writable {
@@ -237,19 +239,22 @@ async function screenCase(surface: 'composer' | 'launchpad' | 'launchpad-failed'
   const stdin = new FakeStdin()
   const stdout = new FakeStdout()
   const screen = (): string => viewportLines(term, ROWS).join('\n')
+  const controllerRef: { current: PromptController | null } = { current: null }
+  const chat = React.createElement(Chat, {
+    channel: channel as never,
+    questionStore: new QuestionStore(),
+    approvalStore: new ApprovalStore(),
+    onExit: () => undefined,
+    fullscreen,
+    trajectorySeen: true,
+    promptControllerRef: controllerRef,
+    // The composition root's kernel list: the notices name the kernel by its
+    // short label ("Claude"), not the backend id.
+    kernelEntries: kernelEntriesOf(listBackends()),
+    ...(surface !== 'composer' ? { launchpadOnBoot: true } : {}),
+  })
   const instance = await ui.render(
-    React.createElement(Chat, {
-      channel: channel as never,
-      questionStore: new QuestionStore(),
-      approvalStore: new ApprovalStore(),
-      onExit: () => undefined,
-      fullscreen: false,
-      trajectorySeen: true,
-      // The composition root's kernel list: the notices name the kernel by its
-      // short label ("Claude"), not the backend id.
-      kernelEntries: kernelEntriesOf(listBackends()),
-      ...(surface !== 'composer' ? { launchpadOnBoot: true } : {}),
-    }),
+    fullscreen ? React.createElement(ui.AlternateScreen, null, chat) : chat,
     { stdout: stdout as never, stdin: stdin as never, stderr: stdout as never, exitOnCtrlC: false, patchConsole: false },
   )
   for (const value of instances.values()) instances.set(process.stdout, value)
@@ -309,21 +314,48 @@ async function screenCase(surface: 'composer' | 'launchpad' | 'launchpad-failed'
     stdin.write('\x1b')
     // 固定窗:pacing Esc is a standalone key only after the escape timeout.
     await sleep(200)
-    open.resolve({ session: real, history: [] })
+    await clearLine()
+    await typeLine('draft loading')
+    check(label('typing before ready is visible'), await settled(() => screen().includes('draft loading')), screen())
+    stdin.write('\x1b[D')
+    // 固定窗:pacing caret movement has no observable text change.
+    await sleep(60)
+    if (covered) {
+      stdin.write('\x01')
+      check(label('the composer parks its draft behind the dashboard'), await settled(() => controllerRef.current === null && screen().includes('Subagent Dashboard')), screen())
+    }
+    open.resolve({ session: real, history: [], route: { provider: 'fixture', model: 'READY' } })
     check(label('the channel becomes ready'), await settled(() => channel.ready))
+    if (covered) stdin.write('\x1b')
+    check(label('the ready session is rendered'), await settled(() => screen().includes('READY')), screen())
+    check(label('adoption preserves the unsent draft'), screen().includes('draft loading'), screen())
+    check(label('adoption does not submit the draft'), real.submits.length === 0)
+    stdin.write('X')
+    check(label('typing after adoption preserves the caret'), await settled(() => screen().includes('draft loadinXg')), screen())
+    stdin.write('\r')
+    check(label('the preserved draft reaches the real session'), await settled(() => real.submits.some(item => item.input.text === 'draft loadinXg')), JSON.stringify(real.submits.map(item => item.input.text)))
     await clearLine()
     await typeLine('hello ready')
     stdin.write('\r')
     check(label('after the adoption Enter sends to the real session'), await settled(() => real.submits.some(item => item.input.text === 'hello ready')), JSON.stringify(real.submits.map(item => item.input.text)))
     // A refused line must not be queued and forwarded once the session opens.
     check(label('the refused early line never reaches the session'), !real.submits.some(item => item.input.text === 'hello early'), JSON.stringify(real.submits.map(item => item.input.text)))
+    await typeLine('old session draft')
+    check(label('a draft in the ready session is visible'), await settled(() => screen().includes('old session draft')), screen())
+    check(label('/new replaces the real session'), await channel.newSession())
+    check(label('a real session switch clears the draft'), await settled(() => !screen().includes('old session draft')), screen())
   } finally {
     instance.unmount()
     channel.releaseContributions()
   }
 }
-await screenCase('composer', '77777777-7777-4777-8777-777777777777')
-await screenCase('launchpad', '88888888-8888-4888-8888-888888888888')
+for (const fullscreen of [false, true]) {
+  for (const columns of [100, 42]) {
+    await screenCase('composer', '77777777-7777-4777-8777-777777777777', fullscreen, columns)
+    await screenCase('launchpad', '88888888-8888-4888-8888-888888888888', fullscreen, columns)
+  }
+}
+await screenCase('composer', '77777777-7777-4777-8777-777777777777', true, 42, true)
 await screenCase('launchpad-failed', '99999999-9999-4999-8999-999999999999')
 console.log(`\nverify-startup-adoption: ${passed} checks passed`)
 process.exit(0)
