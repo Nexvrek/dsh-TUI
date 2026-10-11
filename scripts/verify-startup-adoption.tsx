@@ -272,8 +272,8 @@ class FakeStdin extends PassThrough {
   ref() { return this }
   unref() { return this }
 }
-async function screenCase(surface: 'composer' | 'launchpad' | 'launchpad-failed', sessionId: string, fullscreen = false, columns = 100, covered = false): Promise<void> {
-  const label = (text: string): string => `${surface}${covered ? ' covered' : ''} ${fullscreen ? 'fullscreen' : 'inline'} ${columns} cols: ${text}`
+async function screenCase(surface: 'composer' | 'launchpad' | 'launchpad-failed', sessionId: string, fullscreen = false, columns = 100, covered = false, outcome: 'adoption' | 'new' = 'adoption'): Promise<void> {
+  const label = (text: string): string => `${surface}${covered ? ' covered' : ''}${outcome === 'new' ? ' /new' : ''} ${fullscreen ? 'fullscreen' : 'inline'} ${columns} cols: ${text}`
   const open = deferred()
   const channel = createChannel(ctx, createStartingSession('claude', process.cwd()), { ...launch(open.promise), cwd: process.cwd() })
   const COLS = columns
@@ -375,6 +375,24 @@ async function screenCase(surface: 'composer' | 'launchpad' | 'launchpad-failed'
       stdin.write('\x01')
       check(label('the composer parks its draft behind the dashboard'), await settled(() => controllerRef.current === null && screen().includes('Subagent Dashboard')), screen())
     }
+    if (outcome === 'new') {
+      const before = opened.length
+      check(label('/new explicitly replaces the placeholder'), await channel.newSession())
+      const replacement = opened[before]!
+      channel.notify('replacement ready')
+      if (covered) stdin.write('\x1b')
+      check(label('the explicit replacement is rendered'), await settled(() => screen().includes('replacement ready')), screen())
+      check(label('the explicit replacement clears the old text and image token'), !screen().includes('draft loading') && !screen().includes('[Image #1]'), screen())
+      if (surface === 'composer') check(label('the composer owns an empty draft'), controllerRef.current?.text?.() === '', controllerRef.current?.text?.())
+      await typeLine('after new')
+      stdin.write('\r')
+      check(label('only new text reaches the replacement session'), await settled(() => replacement.submits.some(item => item.input.text === 'after new')), JSON.stringify(replacement.submits))
+      check(label('the replacement inherits no old image'), replacement.submits.every(item => !hasStartupImage(item.input)), JSON.stringify(replacement.submits))
+      open.resolve({ session: real, history: [] })
+      check(label('the late startup session is closed'), await settled(() => real.disposed))
+      check(label('the replacement remains bound'), channel.agentId === replacement.ref.sessionId)
+      return
+    }
     open.resolve({ session: real, history: [], route: { provider: 'fixture', model: 'READY' } })
     check(label('the channel becomes ready'), await settled(() => channel.ready))
     if (covered) stdin.write('\x1b')
@@ -408,6 +426,9 @@ for (const fullscreen of [false, true]) {
   }
 }
 await screenCase('composer', '77777777-7777-4777-8777-777777777777', true, 42, true)
+await screenCase('launchpad', '88888888-8888-4888-8888-888888888888', true, 42, false, 'new')
+await screenCase('composer', '77777777-7777-4777-8777-777777777777', false, 100, false, 'new')
+await screenCase('composer', '77777777-7777-4777-8777-777777777777', true, 42, true, 'new')
 await screenCase('launchpad-failed', '99999999-9999-4999-8999-999999999999')
 console.log(`\nverify-startup-adoption: ${passed} checks passed`)
 process.exit(0)

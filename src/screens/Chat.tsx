@@ -778,7 +778,10 @@ export function Chat({
     setLaunchpadCaret(cursor)
   }
   const launchpadBindingGeneration = resolveBindingGeneration(channel)
-  const launchpadSessionRef = React.useRef(channel.agentId)
+  // Capture the image epoch with each session binding. Automatic startup keeps
+  // it; explicit replacement revokes it before publishing the new binding.
+  const composerImageGeneration = channel.stagedImageGeneration?.() ?? 0
+  const launchpadSessionRef = React.useRef({ id: channel.agentId, imageGeneration: composerImageGeneration })
   const discardLaunchpadImages = (): void => {
     for (const stageId of launchpadImagesRef.current.values()) channel.discardStagedImage(stageId)
     launchpadImagesRef.current.clear()
@@ -787,10 +790,9 @@ export function Chat({
   // the same draft, including the capabilities behind its image tokens.
   React.useEffect(() => discardLaunchpadImages, [channel])
   React.useEffect(() => {
-    const previousSessionId = launchpadSessionRef.current
-    launchpadSessionRef.current = channel.agentId
-    // The first real session adopts what was typed into its placeholder.
-    if (previousSessionId === '' && channel.agentId !== '') return
+    const previous = launchpadSessionRef.current
+    launchpadSessionRef.current = { id: channel.agentId, imageGeneration: composerImageGeneration }
+    if (previous.id === '' && channel.agentId !== '' && previous.imageGeneration === composerImageGeneration) return
     setLaunchpadDraft('')
     setLaunchpadCaret(0)
     discardLaunchpadImages()
@@ -2011,8 +2013,8 @@ export function Chat({
   }, [])
   const draftSessionId = channel.agentId
   const draftBindingGeneration = resolveBindingGeneration(channel)
-  /** Last reconciled binding; an empty id belongs to the startup draft. */
-  const draftSessionRef = React.useRef({ id: draftSessionId, generation: draftBindingGeneration })
+  /** Last reconciled binding; its image epoch distinguishes adoption from replacement. */
+  const draftSessionRef = React.useRef({ id: draftSessionId, generation: draftBindingGeneration, imageGeneration: composerImageGeneration })
   /**
    * The session a fill Chat itself requested belongs to, if one is in flight.
    *
@@ -2039,9 +2041,9 @@ export function Chat({
    */
   React.useLayoutEffect(() => {
     const previous = draftSessionRef.current
-    draftSessionRef.current = { id: draftSessionId, generation: draftBindingGeneration }
+    draftSessionRef.current = { id: draftSessionId, generation: draftBindingGeneration, imageGeneration: composerImageGeneration }
     if (previous.id === draftSessionId) return
-    if (previous.id === '') {
+    if (previous.id === '' && previous.imageGeneration === composerImageGeneration) {
       // Startup adoption gives the existing draft its first conversation.
       // A covered composer has parked that draft in the owner slot instead.
       const snapshot = promptDraftRef.current.current
