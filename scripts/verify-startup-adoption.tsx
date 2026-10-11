@@ -8,8 +8,12 @@
  * Run: node --import tsx/esm scripts/verify-startup-adoption.tsx
  */
 import './lib/fake-home.mjs'
+import { writeFileSync } from 'node:fs'
+import { createHash } from 'node:crypto'
+import { join } from 'node:path'
 process.env.FORCE_COLOR = '3'
 process.env.DSH_TUI_LANG = 'en'
+process.env.DSH_TUI_DISABLE_TERMINAL_IMAGES = '1'
 
 const [{ Writable, PassThrough }, React, { Terminal: XTerm }, ui, { Chat }, { QuestionStore }, { ApprovalStore }, { createChannel }, { createStartingSession }, { setLang, t }, { default: instances }, { settled, sleep, viewportLines }, { kernelEntriesOf }, { listBackends }] =
   await Promise.all([
@@ -82,9 +86,31 @@ const deferred = () => {
   return { promise, resolve, reject }
 }
 
+// The DSH attachments service can accept images before the agent opens.
+const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64')
+const attachmentId = `sha256:${createHash('sha256').update(png).digest('hex')}`
+const hasStartupImage = (input: AgentInput): boolean => input.blocks?.some(block => {
+  if (block.type !== 'image' || !('attachment' in block)) return false
+  const attachment = block.attachment
+  return typeof attachment === 'object' && attachment !== null
+    && 'attachmentId' in attachment && attachment.attachmentId === attachmentId
+}) === true
+const pastedImagePath = join(process.env.HOME!, 'startup.png')
+writeFileSync(pastedImagePath, png)
+const attachments = {
+  imageLimits: {
+    maxImageBytes: 1024 * 1024, maxImagesPerMessage: 4, maxMessageImageBytes: 4 * 1024 * 1024,
+    maxImageDimension: 8192, maxImagePixels: 64_000_000, mediaTypes: ['image/png'],
+  },
+  saveImage: async (input: { data: Uint8Array; mediaType: string; name?: string }) => ({
+    attachmentId, mediaType: input.mediaType, bytes: input.data.byteLength,
+    width: 1, height: 1, name: input.name,
+  }),
+  readImage: async () => ({ data: png }),
+}
 const ctx = {
   on: () => () => undefined,
-  get: () => undefined,
+  get: (name: string) => name === 'attachments' ? attachments : undefined,
   logger: { warn: () => undefined, info: () => undefined, debug: () => undefined },
 } as never
 const LAUNCH = '/fixture/launch'
@@ -103,6 +129,26 @@ const launch = (startup: Startup): ChannelLaunchOptions => ({
 })
 const notices = (channel: { rows: readonly { kind: string; text: string }[] }): string[] =>
   channel.rows.filter(row => row.kind === 'notice').map(row => row.text)
+
+// ── staged image capabilities belong to the startup draft ────────────
+{
+  const open = deferred()
+  const channel = createChannel(ctx, createStartingSession('claude', LAUNCH), launch(open.promise))
+  const generation = channel.stagedImageGeneration()
+  const handle = await channel.stageComposerImage({ data: png, mediaType: 'image/png', name: 'startup.png' }, generation)
+  const view = channel.stagedImage(handle.stageId)
+  check('an image can be staged while the session opens', view !== undefined && !channel.ready)
+  const real = fakeSession('99999999-9999-4999-8999-999999999990', LAUNCH)
+  open.resolve({ session: real, history: [] })
+  check('the image draft gets its real session', await settled(() => channel.ready))
+  check('startup adoption keeps the image epoch', channel.stagedImageGeneration() === generation)
+  check('startup adoption keeps the staged capability and preview', channel.hasStagedImage(handle.stageId) && channel.stagedImage(handle.stageId) === view)
+  channel.submit('[Image #1] early image', [{ token: '[Image #1]', stageId: handle.stageId }])
+  check('the startup image is delivered as an attachment', await settled(() => real.submits.some(item => hasStartupImage(item.input))), JSON.stringify(real.submits))
+  check('/new opens another session after the image draft', await channel.newSession())
+  check('a real switch revokes the old image capability', !channel.hasStagedImage(handle.stageId) && channel.stagedImageGeneration() > generation)
+  channel.releaseContributions()
+}
 
 // ── adoption ──────────────────────────────────────────────────────────
 {
@@ -203,8 +249,11 @@ const notices = (channel: { rows: readonly { kind: string; text: string }[] }): 
 {
   const open = deferred()
   const channel = createChannel(ctx, createStartingSession('claude', LAUNCH), launch(open.promise))
+  const generation = channel.stagedImageGeneration()
+  const handle = await channel.stageComposerImage({ data: png, mediaType: 'image/png' }, generation)
   const before = opened.length
   check('/new while starting opens its own session', await channel.newSession() && channel.agentId === opened[before]!.ref.sessionId && channel.ready)
+  check('/new while starting revokes the replaced draft image', !channel.hasStagedImage(handle.stageId) && channel.stagedImageGeneration() > generation)
   const late = fakeSession('66666666-6666-4666-8666-666666666666', LAUNCH)
   open.resolve({ session: late, history: [] })
   check('the startup session arriving later is closed', await settled(() => late.disposed))
@@ -315,6 +364,8 @@ async function screenCase(surface: 'composer' | 'launchpad' | 'launchpad-failed'
     // 固定窗:pacing Esc is a standalone key only after the escape timeout.
     await sleep(200)
     await clearLine()
+    stdin.write(`\x1b[200~${pastedImagePath}\x1b[201~`)
+    check(label('an image pasted before ready has a token'), await settled(() => screen().includes('[Image #1]')), screen())
     await typeLine('draft loading')
     check(label('typing before ready is visible'), await settled(() => screen().includes('draft loading')), screen())
     stdin.write('\x1b[D')
@@ -333,7 +384,8 @@ async function screenCase(surface: 'composer' | 'launchpad' | 'launchpad-failed'
     stdin.write('X')
     check(label('typing after adoption preserves the caret'), await settled(() => screen().includes('draft loadinXg')), screen())
     stdin.write('\r')
-    check(label('the preserved draft reaches the real session'), await settled(() => real.submits.some(item => item.input.text === 'draft loadinXg')), JSON.stringify(real.submits.map(item => item.input.text)))
+    check(label('the preserved draft reaches the real session'), await settled(() => real.submits.some(item => item.input.text === '[Image #1] draft loadinXg')), JSON.stringify(real.submits.map(item => item.input.text)))
+    check(label('the preserved image reaches the real session'), real.submits.some(item => hasStartupImage(item.input)), JSON.stringify(real.submits))
     await clearLine()
     await typeLine('hello ready')
     stdin.write('\r')

@@ -779,19 +779,21 @@ export function Chat({
   }
   const launchpadBindingGeneration = resolveBindingGeneration(channel)
   const launchpadSessionRef = React.useRef(channel.agentId)
+  const discardLaunchpadImages = (): void => {
+    for (const stageId of launchpadImagesRef.current.values()) channel.discardStagedImage(stageId)
+    launchpadImagesRef.current.clear()
+  }
+  // Lifetime cleanup is separate from binding changes: startup adoption keeps
+  // the same draft, including the capabilities behind its image tokens.
+  React.useEffect(() => discardLaunchpadImages, [channel])
   React.useEffect(() => {
     const previousSessionId = launchpadSessionRef.current
     launchpadSessionRef.current = channel.agentId
     // The first real session adopts what was typed into its placeholder.
-    if (previousSessionId !== '' || channel.agentId === '') {
-      setLaunchpadDraft('')
-      setLaunchpadCaret(0)
-    }
-    const bindings = launchpadImagesRef.current
-    return () => {
-      for (const stageId of bindings.values()) channel.discardStagedImage(stageId)
-      bindings.clear()
-    }
+    if (previousSessionId === '' && channel.agentId !== '') return
+    setLaunchpadDraft('')
+    setLaunchpadCaret(0)
+    discardLaunchpadImages()
   }, [channel, channel.agentId, launchpadBindingGeneration])
   /**
    * 「整屏盖启动页」的显式授权（第七版防御位，用户实测回归：启动页一闪而过
