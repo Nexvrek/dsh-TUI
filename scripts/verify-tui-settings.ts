@@ -9,7 +9,7 @@
  */
 import './lib/fake-home.mjs'
 import assert from 'node:assert/strict'
-import fs, { mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
+import fs, { mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { syncBuiltinESMExports } from 'node:module'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -112,13 +112,22 @@ check('no profile patch: nothing imported, the import still marked', Object.keys
 writeFileSync(fresh, '{ broken')
 const broken = createTuiSettingsService({ ns: 'dsh-tui', file: fresh, profile: 'dsh-tui', keys })
 check('a broken document reads as an empty layer', JSON.stringify(broken.get('dsh-tui')) === '{}' && readFileSync(fresh, 'utf8') === '{ broken')
+check('the broken document is visible to callers', (broken.describe().find(row => row.ns === 'dsh-tui')!.warning as { id?: string } | undefined)?.id === 'unreadable')
+const corruptBackups = (): string[] => readdirSync(join(root, 'fresh')).filter(name => name.startsWith('settings.json.corrupt-'))
 await broken.mutate('dsh-tui', [{ op: 'set', path: ['whale'], value: false }])
 const rewritten = JSON.parse(readFileSync(fresh, 'utf8')) as { values: { whale?: boolean }; imported?: unknown }
 check('a write over a broken document drops the unreadable mark', rewritten.values.whale === false && rewritten.imported === undefined, rewritten)
+check('the first write over a broken document keeps the original bytes beside it',
+  corruptBackups().length === 1 && readFileSync(join(root, 'fresh', corruptBackups()[0]!), 'utf8') === '{ broken', corruptBackups())
+check('the backup is private', (statSync(join(root, 'fresh', corruptBackups()[0]!)).mode & 0o777) === 0o600)
+check('the recovery is visible to callers',
+  ((broken.describe().find(row => row.ns === 'dsh-tui')!.warning as { id?: string; backup?: string } | undefined)?.backup
+    === join(root, 'fresh', corruptBackups()[0]!)))
 const peer = createTuiSettingsService({ ns: 'dsh-tui', file: fresh, profile: 'dsh-tui', keys })
 await peer.mutate('dsh-tui', [{ op: 'set', path: ['lang'], value: 'zh' }])
 await broken.mutate('dsh-tui', [{ op: 'set', path: ['whale'], value: true }])
 check('… and later writes still re-read the file', (JSON.parse(readFileSync(fresh, 'utf8')) as { values: { lang?: string } }).values.lang === 'zh')
+check('only the first write over a broken document makes a backup', corruptBackups().length === 1, corruptBackups())
 
 // ── the lock spans re-read and replace ────────────────────────────────
 // Another process holds the writer lock and commits a different key while
@@ -175,6 +184,27 @@ writeFileSync(join(twoRowsDir, 'cordis.patch.yml'), '- id: dsh-tui\n  config: { 
 const twoRowsFile = join(root, 'two-rows', 'settings.json')
 createTuiSettingsService({ ns: 'dsh-tui', file: twoRowsFile, profile: 'two-rows', keys })
 check('a later dsh-tui row overrides the earlier one', JSON.stringify(legacyDoc(twoRowsFile).values) === JSON.stringify({ lang: 'en' }), legacyDoc(twoRowsFile).values)
+
+// ── a second profile's row joins beneath the user layer ──────────────
+const profileBDir = join(root, 'dsh', 'profiles', 'profile-b')
+mkdirSync(profileBDir, { recursive: true })
+const patchB = join(profileBDir, 'cordis.patch.yml')
+const patchBText = '- id: dsh-tui\n  config:\n    lang: zh\n    whale: true\n    fullscreen: false\n'
+writeFileSync(patchB, patchBText)
+const multiFile = join(root, 'multi', 'settings.json')
+const multiFirst = createTuiSettingsService({ ns: 'dsh-tui', file: multiFile, profile: 'two-rows', keys })
+await multiFirst.mutate('dsh-tui', [{ op: 'set', path: ['whale'], value: false }])
+check('the first profile import holds', JSON.stringify(legacyDoc(multiFile).values) === JSON.stringify({ lang: 'en', whale: false }), legacyDoc(multiFile).values)
+const multiSecond = createTuiSettingsService({ ns: 'dsh-tui', file: multiFile, profile: 'profile-b', keys })
+check("a second profile's row reaches keys the user never set", (multiSecond.get('dsh-tui') as { fullscreen?: boolean }).fullscreen === false, legacyDoc(multiFile).values)
+check("… but never overrides keys the user layer holds",
+  (multiSecond.get('dsh-tui') as { lang?: string }).lang === 'en' && (multiSecond.get('dsh-tui') as { whale?: boolean }).whale === false, legacyDoc(multiFile).values)
+check('the re-import records both sources', legacyDoc(multiFile).imported?.from === `${join(twoRowsDir, 'cordis.patch.yml')}, ${patchB}`, legacyDoc(multiFile).imported)
+check('the second profile patch is untouched', readFileSync(patchB, 'utf8') === patchBText)
+createTuiSettingsService({ ns: 'dsh-tui', file: multiFile, profile: 'profile-b', keys })
+check('a re-import runs once per profile', legacyDoc(multiFile).imported?.from.split(', ').filter(source => source === patchB).length === 1, legacyDoc(multiFile).imported)
+await multiSecond.mutate('dsh-tui', [{ op: 'set', path: ['lang'], value: 'en' }])
+check('the re-imported document still mutates', (JSON.parse(readFileSync(multiFile, 'utf8')) as { values: { lang?: string } }).values.lang === 'en')
 
 // ── concurrent first imports: the first document stays ────────────────
 const raced = join(root, 'raced', 'settings.json')

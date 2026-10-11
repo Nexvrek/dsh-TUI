@@ -45,6 +45,18 @@ export function readTuiSettings(file: string = TUI_SETTINGS_FILE): TuiSettingsDo
   }
 }
 
+/**
+ * Before the first write over a document `readTuiSettings` could not parse,
+ * keep its original bytes beside it as `<file>.corrupt-<timestamp>` (mode
+ * 0600). Returns the backup path; throws when the bytes cannot be preserved
+ * — the caller must then not replace the file.
+ */
+export function backupUnreadableTuiSettings(file: string = TUI_SETTINGS_FILE): string {
+  const backup = join(dirname(file), `${basename(file)}.corrupt-${new Date().toISOString().replaceAll(':', '').replace('.', '-')}`)
+  writeFileSync(backup, readFileSync(file), { encoding: 'utf8', flag: 'wx', mode: 0o600 })
+  return backup
+}
+
 let temporarySequence = 0
 
 /** Write the document atomically; throws when it cannot be written. */

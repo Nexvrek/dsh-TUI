@@ -1521,6 +1521,8 @@ const dict = {
   'settings-group-empty': { zh: '此分组没有可配置字段', en: 'No configurable fields in this group' },
   'settings-section-unavailable': { zh: '命名空间未注册', en: 'namespace not served' },
   'settings-badge-restart': { zh: '重启生效', en: 'applies on restart' },
+  'settings-badge-unreadable': { zh: '设置文件无法读取——已回退默认；保存前会先备份原文件', en: 'settings file unreadable — defaults shown; saving backs up the original first' },
+  'settings-badge-recovered': { zh: '损坏的设置文件已备份到 {{backup}}', en: 'the broken settings file was backed up to {{backup}}' },
   'settings-badge-dirty': { zh: '未保存', en: 'unsaved' },
   'settings-badge-saving': { zh: '保存中', en: 'saving' },
   'settings-badge-failed': { zh: '保存失败', en: 'save failed' },
