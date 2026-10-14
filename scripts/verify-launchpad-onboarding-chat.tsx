@@ -140,6 +140,8 @@ function makeChannel(over: Record<string, unknown> = {}) {
     whaleIdle: false,
     whale: false,
     whaleGirl: false,
+    // 大字快照匹配 █；固定字面，避免 daily 轮到 dot（▓/▒）时快照为空。
+    splashFont: 'bold',
     rows: [],
     status: 'idle' as const,
     sessionTitle: 'probe',

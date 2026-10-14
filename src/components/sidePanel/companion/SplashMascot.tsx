@@ -19,11 +19,13 @@
  * 渲染路径（LogoV2 底部块，welcomePad 缩进）。
  */
 import React from 'react'
-import { Box, Text } from '../../../ui.js'
+import { Box, Text, useTerminalImages, useTerminalImageCellSize, useTerminalImageProtocol } from '../../../ui.js'
+import { fitSplashImageBox, type SplashImageBox } from '../../splashArtRows.js'
+import { loadWhaleGirlKit } from './deepy.js'
 import type { ClickEvent } from '../../../ink/events/click-event.js'
 import { getCompanionSkin, subscribeCompanionSkin } from '../../../tuiDisplayPrefs.js'
 import { TICKLE_MIN_CLICKS, TICKLE_WINDOW_MS } from './mood.js'
-import { DeepySkin, WhaleGirlSkin, type CompanionSkinRenderInput } from './skins.js'
+import { DeepySkin, WhaleGirlSkin, loadWhaleGirlImageKit, type CompanionSkinRenderInput } from './skins.js'
 import { initialCompanionPoseState, nextCompanionPoseStep } from './pose.js'
 
 /** 点击反应档时长：poke 帧表一轮 2100ms，取头段（同 CompanionPanel 的口径）。 */
@@ -46,9 +48,23 @@ export function useSplashMascotSkin(pinned?: string): SplashMascotSkin | undefin
 }
 
 
+/** 图片原生尺寸的紧凑槽；仅启动页使用，协议/像元/素材未就绪时保持原回退。 */
+export function useSplashMascotBox(skin: SplashMascotSkin | undefined, compact: boolean): SplashImageBox | undefined {
+  // 高度降级可能暂时撤掉吉祥物，因此能力探测不能只依赖吉祥物挂载。
+  const available = useTerminalImages(compact && skin === 'whaleGirl')
+  const protocol = useTerminalImageProtocol()
+  const cell = useTerminalImageCellSize()
+  const canvas = available && compact && skin === 'whaleGirl' && cell !== undefined
+    && (protocol === 'kitty' || protocol === 'sixel') && loadWhaleGirlKit() !== undefined
+    ? loadWhaleGirlImageKit()?.canvas : undefined
+  return React.useMemo(() => canvas !== undefined && cell !== undefined
+    ? fitSplashImageBox(canvas, cell, WhaleGirlSkin.cells) : undefined, [canvas, cell])
+}
+
 /** 启动页吉祥物本体：按 skin 渲染动画，点击交互（poke/连点）在内层盒。 */
-export function SplashMascot({ skin, active }: {
+export function SplashMascot({ skin, active, imageBox }: {
   readonly skin: SplashMascotSkin
+  readonly imageBox?: SplashImageBox
   /** 动画许可：false（冻结/落地页 whaleIdle=false）时定格 idle 帧 0、零时钟。 */
   readonly active: boolean
 }): React.ReactNode {
@@ -94,6 +110,7 @@ export function SplashMascot({ skin, active }: {
     now,
     width: SPLASH_MASCOT_COLUMNS,
     animationSemantic,
+    ...(imageBox === undefined ? {} : { imageBox }),
   }
   return (
     <Box flexDirection="column" alignItems="center" flexShrink={0}>
@@ -109,7 +126,7 @@ export function SplashMascot({ skin, active }: {
         overrideRef.current = rapid
           ? { semantic: 'tickle', since: at, until: at + TICKLE_WINDOW_MS }
           : {
-              semantic: event.localCol < SPLASH_MASCOT_COLUMNS / 2 ? 'poke-left' : 'poke-right',
+              semantic: event.localCol < (imageBox?.columns ?? (skin === 'whaleGirl' ? WhaleGirlSkin.cells.columns : SPLASH_MASCOT_COLUMNS)) / 2 ? 'poke-left' : 'poke-right',
               since: at,
               until: at + SPLASH_POKE_MS,
             }

@@ -22,7 +22,8 @@ import { STANDARD_FRAME_INDEX, WhaleArt } from './Whale.js'
 import { WhaleGirlArt } from './WhaleGirl.js'
 import { ClaudeGirlArt } from './ClaudeGirl.js'
 import { MAID_BOX_CENTER, MaidPortrait, portraitAssetsOf, useMaidPortraits } from './maidPortrait.js'
-import { SplashMascot, useSplashMascotSkin } from './sidePanel/companion/SplashMascot.js'
+import { SplashMascot, useSplashMascotSkin, useSplashMascotBox } from './sidePanel/companion/SplashMascot.js'
+import type { SplashImageBox } from './splashArtRows.js'
 import { OPENING_SEQUENCES, pickOpeningSequence, WHALE_FRAME_INDEX, type OpeningStep, type WhaleIntroId } from './whaleFrames.js'
 import { RESTING_POSE, type WhaleLayerPose } from './whaleLayers.js'
 import {
@@ -121,6 +122,7 @@ export function LogoV2({
   chrome = 'full',
   arrangement = 'row',
   companionSkin,
+  mascotBox,
 }: {
   /** 模型/effort/工作目录只画在 full 形态里；minimal（落地页）不传也行。 */
   model?: string
@@ -217,6 +219,8 @@ export function LogoV2({
   /** 测试缝：钉住启动页吉祥物皮肤（undefined——生产——读 companion.skin；
    *  'whale'/未知 = 维持原鲸鱼/女仆娘路径，见 SplashMascot.tsx）。 */
   companionSkin?: string
+  /** 落地页传入与高度预算相同的紧凑图片槽。 */
+  mascotBox?: SplashImageBox
 }): React.ReactNode {
   // One intro per logo mount: the production path rolls (startup splash
   // and each /deepseek replay roll independently), the `intro` seam pins
@@ -256,6 +260,8 @@ export function LogoV2({
   // 'whale'/未知皮肤 → undefined，原路径零改动。冻结/落地页（whaleIdle=
   // false）时吉祥物定格 idle 帧 0、零时钟（SplashMascot 内部保证）。
   const mascotSkin = useSplashMascotSkin(companionSkin)
+  const compactMascotBox = useSplashMascotBox(mascotSkin, brand === 'deepseek' && arrangement === 'column' && chrome === 'minimal')
+  const imageBox = mascotBox ?? compactMascotBox
 
   // ── Whale behaviors (ported from the dsh-ui-whale pet) ─────────────────
   // Intro-phase click → heart pass: whole heart frames over the opening
@@ -634,7 +640,7 @@ export function LogoV2({
             {/* claude 品牌档的立绘槽钉死 Claude 娘——吉祥物（deepy/鲸娘皮肤）
                 是 DeepSeek 品牌的资产，不跟 claude 档混用。 */}
             {brand === 'deepseek' && mascotSkin !== undefined ? (
-              <SplashMascot skin={mascotSkin} active={!whaleFrozen && whaleIdle} />
+              <SplashMascot skin={mascotSkin} active={!whaleFrozen && whaleIdle} imageBox={imageBox} />
             ) : portraitMode ? (
               // 槽位**与文字列严格等高**（textColumnRows）：真图与字符画女仆
               // 娘共用同一个盒，真图解码完成换画时头部高度不跳，视觉上两者

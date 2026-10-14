@@ -15,6 +15,8 @@ import { fitParamParts, PARAM_SEPARATOR } from '../components/launchpadParams.js
 import { useTooltip } from '../components/Tooltip.js'
 import { resolveSplashTitleFont, pickSplashFont, splashFontById, type SplashFont } from '../components/splashFonts.js'
 import { pickSplashEgg, type SplashEgg } from '../components/splashEggs.js'
+import { resolveSplashArtForm, splashArtRows } from '../components/splashArtRows.js'
+import { useSplashMascotSkin, useSplashMascotBox } from '../components/sidePanel/companion/SplashMascot.js'
 import { t } from '../i18n.js'
 import { isMinimalUiMode } from '../minimalUiMode.js'
 import { stringWidth } from '../ink/stringWidth.js'
@@ -410,6 +412,7 @@ export function Launchpad({
   whaleIdle,
   whaleGirl,
   brand,
+  companionSkin,
   fontId,
   egg,
   starred,
@@ -458,6 +461,12 @@ export function Launchpad({
   whaleGirl: boolean
   /** 品牌档（当前后端 → `resolveBrand`；见 `branding.ts`）。 */
   brand?: Brand
+  /**
+   * 测试缝：`companion.skin` 的固定值（`deepy` / `whaleGirl`）；undefined 按
+   * 设置读。立绘行数预算与 `LogoV2` 的渲染分支**必须同源**，所以这一层既拿它
+   * 算 `artRows`、也原样透传给 `LogoV2`（见 `splashArtRows.ts`）。
+   */
+  companionSkin?: string | undefined
   fontId?: string | undefined
   /** 测试缝：固定节日词对；null 关闭换词，undefined 按本地日期选择。 */
   egg?: SplashEgg | null
@@ -799,15 +808,25 @@ export function Launchpad({
   const cardWidth = Math.max(24, Math.min(columns - 4, 72))
 
   // 当天字体与节日只在 mount 时选一次，并交给 Logo，避免预算与渲染各自读日期。
+  // 立绘槽的吉祥物皮肤（`companion.skin`）同理：这一层与 `LogoV2` 读同一个
+  // 源（同一份 `useSyncExternalStore` 订阅），预算与渲染不会各看各的。
+  const mascotSkin = useSplashMascotSkin(companionSkin)
+  const mascotBox = useSplashMascotBox(mascotSkin, (brand ?? 'deepseek') === 'deepseek' && (whale || whaleGirl))
   const [dailyFont] = React.useState<SplashFont>(() => pickSplashFont())
   const [dailyEgg] = React.useState<SplashEgg | null>(() => egg === undefined ? pickSplashEgg() : egg)
   const font = fontId === undefined ? dailyFont : splashFontById(fontId)
   const titleFont = resolveSplashTitleFont(font, brand, dailyEgg)
+  // 预算与 LogoV2 共享形态、图片槽：紧凑图片已缩减占位时不能仍按侧栏的15行算。
+  const splashArtForm = resolveSplashArtForm({ brand, whaleGirl, mascotSkin })
+  const artRows = splashArtRows(splashArtForm, mascotBox)
   const layout: LaunchpadLayout = resolveLaunchpadLayout(columns, rows, {
     params: hasParams,
     whale,
     whaleGirl,
     font: titleFont,
+    artRows,
+    // 右下角铭牌自身行数：第一行（目录 + TUI 版号）+ 一行一个内核（第八版）。
+    cornerRows: 1 + kernelRows.length,
   })
   // Tips 自动轮换（第七版，用户要「呼吸感」）：约 10s 一换，与点击/焦点+Enter
   // 的手动切换**并存**——手动切换改 tipIndex，本 effect 以 tipIndex 为依赖，
@@ -1089,6 +1108,8 @@ export function Launchpad({
                       whaleIdle={whaleIdle}
                       whaleGirl={layout.showWhale && whaleGirl}
                       brand={brand}
+                      companionSkin={companionSkin}
+                      mascotBox={mascotBox}
                       starred={starred}
                       onStarClick={onStarClick}
                       skipIntro

@@ -15,7 +15,8 @@ import { existsSync, readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { join } from 'node:path'
 import { Box, Text, Image, useTerminalImages, useTerminalImageProtocol, useTerminalImageCellSize } from '../../../ui.js'
-import { WhaleArt, renderSpriteRows } from '../../Whale.js'
+import { WhaleArt, renderSpriteRows, renderCellRows } from '../../Whale.js'
+import type { SplashImageBox } from '../../splashArtRows.js'
 import type { I18nKey } from '../../../i18n.js'
 import type { TerminalImageSource } from '../../../ink/terminal-image.js'
 import type { DOMElement } from '../../../ink/dom.js'
@@ -46,6 +47,8 @@ export interface CompanionSkinRenderInput {
    *  旧调用方（缺省）皮肤退回 pose.mood 分层，属皮肤接口「未支持即
    *  退化」契约。 */
   readonly animationSemantic?: string
+  /** 启动页专属紧凑图片槽；侧栏不传，保持原来的固定几何。 */
+  readonly imageBox?: SplashImageBox
 }
 
 export interface CompanionSkin {
@@ -183,18 +186,31 @@ const WHALE_GIRL_LETTER_WINDOW_START = 5
 
 const whaleGirlWindowCache = new Map<string, readonly string[][]>()
 
-function renderedWhaleGirlWindowRows(kit: Parameters<typeof renderedDeepyAnimation>[0], key: string): readonly string[][] | undefined {
+function renderedWhaleGirlWindowRows(kit: Parameters<typeof renderedDeepyAnimation>[0], key: string, imageBox?: SplashImageBox): readonly string[][] | undefined {
   const animation = kit.byKey[key]
   if (animation === undefined) return undefined
-  const cacheKey = kit.id + ':window:' + key
+  const cacheKey = kit.id + ':window:' + key + (imageBox === undefined ? '' : `:${imageBox.columns}x${imageBox.rows}`)
   let rendered = whaleGirlWindowCache.get(cacheKey)
   if (rendered === undefined) {
-    rendered = Object.freeze(animation.frames.map(frame =>
-      renderSpriteRows(
+    rendered = Object.freeze(animation.frames.map(frame => {
+      if (imageBox === undefined) return renderSpriteRows(
         frame.rows.map(row => row.slice(WHALE_GIRL_LETTER_WINDOW_START, WHALE_GIRL_LETTER_WINDOW_START + WHALE_GIRL_CELLS.columns)),
         kit.palette,
-      ),
-    ))
+      )
+      // 解码前/失败时整幅字母格 contain 进同一个槽，不裁掉头脚，也不换画跳高。
+      const pixelRows = imageBox.rows * 2
+      const scale = Math.min(imageBox.columns / WHALE_GIRL_CELLS.columns, pixelRows / kit.rows)
+      const width = Math.max(1, Math.floor(WHALE_GIRL_CELLS.columns * scale))
+      const height = Math.max(1, Math.floor(kit.rows * scale))
+      const left = Math.floor((imageBox.columns - width) / 2)
+      const top = Math.floor((pixelRows - height) / 2)
+      return renderCellRows(imageBox.columns, pixelRows, (x, y) => {
+        if (x < left || x >= left + width || y < top || y >= top + height) return undefined
+        const sx = Math.min(WHALE_GIRL_CELLS.columns - 1, Math.floor((x - left) * WHALE_GIRL_CELLS.columns / width))
+        const sy = Math.min(kit.rows - 1, Math.floor((y - top) * kit.rows / height))
+        return kit.palette[frame.rows[sy]?.[sx + WHALE_GIRL_LETTER_WINDOW_START] ?? '.']
+      })
+    }))
     whaleGirlWindowCache.set(cacheKey, rendered)
   }
   return rendered
@@ -210,7 +226,7 @@ function renderWhaleGirlLetterGrid(input: CompanionSkinRenderInput): React.React
   // 回退同一出口。
   const animationKey = resolveWhaleGirlAnimationKey(pose, animationSemantic, key => kit.byKey[key] !== undefined)
   if (animationKey === undefined) return DeepySkin.render({ ...input, width: WHALE_GIRL_CELLS.columns })
-  const rendered = renderedWhaleGirlWindowRows(kit, animationKey)
+  const rendered = renderedWhaleGirlWindowRows(kit, animationKey, input.imageBox)
   const animation = kit.byKey[animationKey]
   if (rendered === undefined || animation === undefined) {
     return DeepySkin.render({ ...input, width: WHALE_GIRL_CELLS.columns })
@@ -218,7 +234,7 @@ function renderWhaleGirlLetterGrid(input: CompanionSkinRenderInput): React.React
   const frameIndex = frameAt(animation, now - moodSince)
   const rows = rendered[frameIndex] ?? rendered[0] ?? []
   return (
-    <Box flexDirection="column" flexShrink={0} width={WHALE_GIRL_CELLS.columns}>
+    <Box flexDirection="column" flexShrink={0} width={input.imageBox?.columns ?? WHALE_GIRL_CELLS.columns}>
       {rows.map((row, index) => (
         <Text key={index} wrap="truncate-end">{row}</Text>
       ))}
@@ -281,6 +297,8 @@ interface WhaleGirlImageAnimation {
 interface WhaleGirlImageKit {
   /** img/ 目录的绝对路径（帧 PNG 解码用）。 */
   readonly dir: string
+  /** idle 首帧 PNG 头部声明的稳定画布，不等待像素解码。 */
+  readonly canvas?: { readonly width: number; readonly height: number }
   readonly byKey: Readonly<Record<string, WhaleGirlImageAnimation>>
 }
 
@@ -319,8 +337,23 @@ export function loadWhaleGirlImageKit(): WhaleGirlImageKit | undefined {
       if (!existsSync(join(dir, 'timings.json'))) continue
       const kit = parseWhaleGirlImageKit(JSON.parse(readFileSync(join(dir, 'timings.json'), 'utf8')), dir)
       if (kit !== undefined) {
-        whaleGirlImageKitCache = kit
-        return kit
+        const first = kit.byKey.idle?.frames[0]
+        let canvas: WhaleGirlImageKit['canvas']
+        if (first !== undefined) {
+          try {
+            const png = readFileSync(join(dir, 'idle', first.file))
+            if (png.length >= 24 && png.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))
+              && png.toString('ascii', 12, 16) === 'IHDR') {
+              const width = png.readUInt32BE(16)
+              const height = png.readUInt32BE(20)
+              if (width > 0 && height > 0 && width <= 4096 && height <= 4096) canvas = { width, height }
+            }
+          } catch {
+            // 缺失/坏帧仍走原来的异步解码失败与字母格回退。
+          }
+        }
+        whaleGirlImageKitCache = { ...kit, ...(canvas === undefined ? {} : { canvas }) }
+        return whaleGirlImageKitCache
       }
     } catch {
       // 下一个候选路径
@@ -648,10 +681,10 @@ function WhaleGirlRasterSkin(input: CompanionSkinRenderInput): React.ReactNode {
       const frameRatio = source.width / source.height
       // 盒宽=图宽（钳在 cells.columns 内；超宽像元比下 contain 收行不裁剪）。
       const rawColumns = Math.max(1, Math.round(cellRatio * WHALE_GIRL_CELLS.rows * frameRatio))
-      const columns = whaleGirlImageBoxColumns(cellSize, frameRatio)
-      const rows: number = rawColumns > columns
+      const columns = input.imageBox?.columns ?? whaleGirlImageBoxColumns(cellSize, frameRatio)
+      const rows: number = input.imageBox?.rows ?? (rawColumns > columns
         ? Math.max(1, Math.round(columns / (cellRatio * frameRatio)))
-        : WHALE_GIRL_CELLS.rows
+        : WHALE_GIRL_CELLS.rows)
       image = (
         <Image transparent source={source} width={columns} height={rows} alt="" presentation="transcript">
           {/* 空格垫底：真 kitty/sixel 下渲染器自己接管这些格子（children 被跳过）
@@ -666,10 +699,21 @@ function WhaleGirlRasterSkin(input: CompanionSkinRenderInput): React.ReactNode {
   // 本次候选或上一帧；都没有（冷启动）时画字母格。切到还没解码的键时
   // 保持上一帧，不闪回字母格。
   const [visibleImage] = useHeldCommittedImage(image)
+  let raster = visibleImage
+  // 换键等待解码时保留旧像素，但 resize 后不能把旧的大 Image 盒塞进新小槽。
+  if (input.imageBox !== undefined && React.isValidElement<{ width: number; height: number; children: React.ReactNode }>(raster)
+    && (raster.props.width !== input.imageBox.columns || raster.props.height !== input.imageBox.rows)) {
+    const { columns, rows } = input.imageBox
+    raster = React.cloneElement(raster, {
+      width: columns,
+      height: rows,
+      children: <Text>{Array.from({ length: rows }, () => ' '.repeat(columns)).join('\n')}</Text>,
+    })
+  }
   return (
     <Box ref={boxRef} flexDirection="column" flexShrink={0} alignItems="center" justifyContent="center"
-      width={WHALE_GIRL_CELLS.columns} height={WHALE_GIRL_CELLS.rows}>
-      {visibleImage !== undefined ? visibleImage : renderWhaleGirlLetterGrid(input)}
+      width={input.imageBox?.columns ?? WHALE_GIRL_CELLS.columns} height={input.imageBox?.rows ?? WHALE_GIRL_CELLS.rows}>
+      {raster !== undefined ? raster : renderWhaleGirlLetterGrid(input)}
     </Box>
   )
 }

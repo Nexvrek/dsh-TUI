@@ -61,7 +61,8 @@ const { Terminal: XTerm } = xterm
 const [
   { render, ThemeProvider, AlternateScreen, Text, Box },
   { Launchpad, fitChips, prevBoundary, nextBoundary },
-  { resolveLaunchpadLayout },
+  { resolveLaunchpadLayout, BIG_TITLE_ROWS },
+  { resolveSplashArtForm, splashArtRows, fitSplashImageBox, WHALE_ART_ROWS, PORTRAIT_ART_ROWS, MASCOT_ART_ROWS },
   { resolveLaunchpadActions, truncateContinueTitle, LAUNCHPAD_CONTINUE_TITLE_MAX },
   { fitParamParts, PARAM_SEPARATOR, PARAM_SEGMENT_MIN_WIDTH, PARAM_UNTRUNCABLE_SEGMENT },
   { splashFontById },
@@ -72,6 +73,7 @@ const [
   import('../src/ui.js'),
   import('../src/screens/Launchpad.js'),
   import('../src/components/launchpadLayout.js'),
+  import('../src/components/splashArtRows.js'),
   import('../src/components/launchpadActions.js'),
   import('../src/components/launchpadParams.js'),
   import('../src/components/splashFonts.js'),
@@ -128,6 +130,15 @@ const VERSION = '9.9.9'
 const PARAM_LINE = 'glm-5.3  ·  Max  ·  Standard  ·  default'
 /** 夹具固定 bold 字面：大字 needle 与阶梯阈值都不随当天轮换的字体漂。 */
 const FONT = splashFontById('bold')
+
+/** 默认夹具与真挂载同源：缺省品牌是 DeepSeek、skin 钉在 whale，铭牌没有内核行。 */
+const atRows = (rows: number) => resolveLaunchpadLayout(COLS, rows, {
+  whale: true,
+  font: FONT,
+  params: true,
+  artRows: splashArtRows(resolveSplashArtForm({ brand: undefined, whaleGirl: false, mascotSkin: undefined })),
+  cornerRows: 1,
+})
 
 /**
  * 参数行的四段载荷（T03 起夹具可传自定义四段）。`effort` 传**名册原值**
@@ -655,7 +666,7 @@ for (const brand of ['claude', 'codex'] as const) {
   firstRun.close()
   // input-only 是兜底档：no-art 与它同阈值，no-art 放得下时永远先命中 no-art，
   // 所以它的真挂载行数只能取 no-art 首行的下一行（溢出兜底）。
-  const at = (rows: number) => resolveLaunchpadLayout(COLS, rows, { whale: true, font: FONT, params: true })
+  const at = atRows
   let noArt = 1
   while (noArt <= 80 && at(noArt).stage !== 'no-art') noArt++
   const rows = noArt - 1
@@ -930,7 +941,7 @@ for (const brand of ['claude', 'codex'] as const) {
 // 阈值不写死：头部的行数随字体浮动，所以档位边界由**纯函数**推导（夹具同款
 // bold 字体 + params:true），再拿真实的那个行数去挂载，断言才钉的是阶梯本身。
 {
-  const at = (rows: number) => resolveLaunchpadLayout(COLS, rows, { whale: true, font: FONT, params: true })
+  const at = atRows
   const firstRow = (stage: string): number => {
     for (let r = 1; r <= 80; r++) if (at(r).stage === stage) return r
     return -1
@@ -998,8 +1009,60 @@ for (const brand of ['claude', 'codex'] as const) {
       && resolveLaunchpadLayout(COLS, ROWS, { whale: true, font: FONT, params: false }).cardRows === 3
       && resolveLaunchpadLayout(COLS, ROWS, { whale: true, font: FONT, params: false }).hintsGapRows === 0)
 }
+
+// ── T. 立绘形态 → 行数预算（2026-10「落地页标题显示不全」事故回归）────────────
+// 事故：`launchpadLayout` 把立绘行数**写死 13**（只对得上像素鲸鱼那一档），
+// 右下角铭牌又按「老口径 2 行」写死。而 `companion.skin` 的默认档就是
+// `deepy`（吉祥物恒 15 行），铭牌自第八版起一行一个内核（DSH + Claude +
+// Codex = 4 行）——默认档整整少算 4 行：矮终端里阶梯判定「最全档放得下」、
+// 真渲染却溢出，溢出的行被 `LogoV2` 文字列的 `flexShrink` 压掉，用户看到的
+// 就是大字缺行。这一组把「形态 → 行数」和「铭牌 → 行数」钉成同源。
 {
-  const at = (rows: number) => resolveLaunchpadLayout(COLS, rows, { whale: true, font: FONT, params: true })
+  check('T1 三形态槽高：鲸鱼 13 / 娘 11（= 大字块）/ 吉祥物 15',
+    WHALE_ART_ROWS === 13 && PORTRAIT_ART_ROWS === 11 && MASCOT_ART_ROWS === 15,
+    `${WHALE_ART_ROWS}/${PORTRAIT_ART_ROWS}/${MASCOT_ART_ROWS}`)
+  check('T1b portrait 槽高 = 大字块行数（与 LogoV2 的 textColumnRows 同源，不许各写一个数）',
+    PORTRAIT_ART_ROWS === BIG_TITLE_ROWS,
+    `portrait=${PORTRAIT_ART_ROWS} bigTitle=${BIG_TITLE_ROWS}`)
+  check('T2 形态判定与 LogoV2 的分支优先级逐条一致（mascot > portrait > whale）',
+    resolveSplashArtForm({ brand: 'deepseek', whaleGirl: false, mascotSkin: 'deepy' }) === 'mascot'
+      && resolveSplashArtForm({ brand: 'deepseek', whaleGirl: false, mascotSkin: 'whaleGirl' }) === 'mascot'
+      && resolveSplashArtForm({ brand: 'deepseek', whaleGirl: false, mascotSkin: 'whale' }) === 'whale'
+      && resolveSplashArtForm({ brand: 'deepseek', whaleGirl: true, mascotSkin: undefined }) === 'portrait'
+      && resolveSplashArtForm({ brand: 'claude', whaleGirl: false, mascotSkin: undefined }) === 'portrait'
+      && resolveSplashArtForm({ brand: undefined, whaleGirl: false, mascotSkin: undefined }) === 'whale')
+  const budget = (artRows: number, cornerRows: number, rows: number) =>
+    resolveLaunchpadLayout(COLS, rows, { whale: true, font: FONT, params: true, artRows, cornerRows })
+  check('T3 吉祥物档比鲸鱼档多算 2 行（默认 deepy 不再少算）',
+    budget(MASCOT_ART_ROWS, 2, 80).totalRows === budget(WHALE_ART_ROWS, 2, 80).totalRows + 2,
+    `mascot=${budget(MASCOT_ART_ROWS, 2, 80).totalRows} whale=${budget(WHALE_ART_ROWS, 2, 80).totalRows}`)
+  check('T4 铭牌行数随内核数走：第一行 + 3 个内核 = 比老口径 2 行多 2 行',
+    budget(WHALE_ART_ROWS, 1 + 3, 80).totalRows === budget(WHALE_ART_ROWS, 2, 80).totalRows + 2,
+    `kernels4=${budget(WHALE_ART_ROWS, 4, 80).totalRows} old=${budget(WHALE_ART_ROWS, 2, 80).totalRows}`)
+  const nativeBox = fitSplashImageBox({ width: 301, height: 288 }, { width: 15, height: 34 }, { columns: 31, rows: 15 })
+  check('T6 大像元启动页按原生图片占位：301×288 在15×34像元下只需21列9行',
+    nativeBox.columns === 21 && nativeBox.rows === 9,
+    JSON.stringify(nativeBox))
+  const smallCell = fitSplashImageBox({ width: 301, height: 288 }, { width: 8, height: 16 }, { columns: 31, rows: 15 })
+  check('T7 小像元需要缩图时仍不超原来的31×15上限',
+    smallCell.columns === 31 && smallCell.rows === 15, JSON.stringify(smallCell))
+  const compactRows = splashArtRows('mascot', nativeBox)
+  const compactLayout = budget(compactRows, 4, 38)
+  check('T8 紧凑槽行数进入高度预算，38行仍能完整显示标题与输入框',
+    compactRows === 9 && compactLayout.heroRows === 21 && compactLayout.totalRows <= 38
+      && compactLayout.showBigTitle && compactLayout.showWhale,
+    JSON.stringify(compactLayout))
+  check('T9 图片槽不影响普通鲸鱼/portrait的行数',
+    splashArtRows('whale', nativeBox) === 13 && splashArtRows('portrait', nativeBox) === 11)
+  // 事故现场复刻：默认档（吉祥物 15 + 三内核铭牌）预算 44 行；42 行终端里必须
+  // **撤呼吸**降到 42 行以内——绝不允许再出现「判定放得下、实际溢出」。
+  check('T5 事故现场：默认档在 42 行终端撤呼吸压到 ≤42（判定与渲染不许再分叉）',
+    budget(MASCOT_ART_ROWS, 4, 42).totalRows <= 42 && budget(MASCOT_ART_ROWS, 4, 42).heroGapRows === 1
+      && budget(MASCOT_ART_ROWS, 4, 44).totalRows <= 44,
+    `42→${budget(MASCOT_ART_ROWS, 4, 42).totalRows} 44→${budget(MASCOT_ART_ROWS, 4, 44).totalRows}`)
+}
+{
+  const at = atRows
   const firstRow = (stage: string): number => {
     for (let r = 1; r <= 80; r++) if (at(r).stage === stage) return r
     return -1
@@ -2124,7 +2187,7 @@ for (const cols of [120, 100, 72, 60, 48]) {
 }
 {
   // 矮屏撤留白后的真挂载形态：紧凑 full 档下入口行回到紧贴参数行（param+1）。
-  const at = (rows: number) => resolveLaunchpadLayout(COLS, rows, { whale: true, font: FONT, params: true })
+  const at = atRows
   let fullGap = 1
   while (fullGap <= 80 && at(fullGap).stage !== 'full') fullGap++
   // fullGap = 紧凑 full 的阈值（留白已撤）：入口行应回到紧贴参数行。

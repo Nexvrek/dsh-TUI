@@ -1,5 +1,6 @@
 import { bigTextWidth } from './bigfont.js'
 import { WHALE_BOX_WIDTH } from './splashLayout.js'
+import { WHALE_ART_ROWS } from './splashArtRows.js'
 import type { SplashFont } from './splashFonts.js'
 
 /**
@@ -35,10 +36,21 @@ import type { SplashFont } from './splashFonts.js'
  * 同理。落地页不自己减页边距。
  */
 
-/** 鲸鱼/女仆娘立绘（含盒）的行数。 */
-const WHALE_ART_ROWS = 13
-/** 块体大字的行数：上排 5 + 空 1 + 下排 5。 */
-const BIG_TITLE_ROWS = 11
+/**
+ * 立绘槽的默认行数（像素鲸鱼 13 行）。**真实行数由调用方传 `artRows`**——
+ * 槽高随形态变（女仆娘/Claude 娘 11、吉祥物 15），写死 13 会让默认的吉祥物
+ * 路径少算 2 行（见 `splashArtRows.ts` 的表与那段修复说明）。
+ */
+const DEFAULT_ART_ROWS = WHALE_ART_ROWS
+/**
+ * 块体大字的行数：上排 5 + 空 1 + 下排 5。
+ *
+ * 导出是给回归钉的：`portrait` 立绘槽高（`splashArtRows.ts` 的
+ * `PORTRAIT_ART_ROWS`）**等于这个数**——`LogoV2` 把娘立绘钳在与文字列等高的
+ * 槽里（`textColumnRows` = 两排大字 + 空行），落地页是 `chrome="minimal"`，
+ * 槽高就是大字块的行数。两处一漂移，预算就重新和渲染分叉。
+ */
+export const BIG_TITLE_ROWS = 11
 /** 只留文字的档位：一行纯标题。 */
 const PLAIN_TITLE_ROWS = 1
 
@@ -78,12 +90,15 @@ const TIP_BLOCK_ROWS = 3
 /** 矮屏撤呼吸后的紧档（自身 1 + 留白 1）。 */
 const TIP_BLOCK_ROWS_TIGHT = 2
 /**
- * 双角铭牌：自身 2 行 + 上方 1 行留白。自身 2 行是第七版**版本号竖排**带来
- * 的——右下角两行（`dsh-tui v…` 在上、`dsh-core v…` 在下），左下目录铭牌仍
- * 1 行、与第一行顶对齐。内核版本读不到时右侧只画 1 行（预算按 2 行上限算，
- * 矮屏阶梯的取舍顺序不变：先撤装饰、绝不让输入框被挤掉）。
+ * 双角铭牌：自身行数 + 上方 1 行留白。自身 = 第一行（`工作目录:分支` 与
+ * `dsh-tui v…` 共用底边）+ **一行一个内核**——第八版给右下角扩了内核区，
+ * 行数随内核数变，所以**由调用方传 `cornerRows`**；写死 2 行时，装了多个
+ * 内核的机器（DSH + Claude + Codex）会少算两行，和立绘槽那处是同一类账
+ * 不平（矮屏阶梯以为放得下、实际溢出）。
  */
-const CORNERS_BLOCK_ROWS = 3
+const CORNERS_TOP_GAP_ROWS = 1
+/** 铭牌自身行数的老口径（第一行 + 一个内核行）：内核数拿不到时的上限估算。 */
+const DEFAULT_CORNER_ROWS = 2
 
 /** 该尺寸下渲染哪一档。 */
 export type LaunchpadStage = 'full' | 'no-tip' | 'no-hints' | 'no-art' | 'input-only'
@@ -134,13 +149,22 @@ export interface LaunchpadLayout {
  * @param rows - 内容区行数。
  * @param options - whale / whaleGirl 对应设置项；font 是当天那款字体（字身宽度
  *   不同，宽轴阈值也跟着不同）；params 是框下有没有参数行（模型/思考深度/模式/
- *   权限全拿不到时为 false，成组行矮一行）。
+ *   权限全拿不到时为 false，成组行矮一行）；`artRows` 是**当天真正上场的立绘**
+ *   占的行数（`splashArtRows.ts` 解，缺省按像素鲸鱼 13 行）；`cornerRows` 是
+ *   右下角铭牌自身的行数（第一行 + 内核数，缺省按老口径 2 行）。
  * @returns 该尺寸下要渲染的部件。
  */
 export function resolveLaunchpadLayout(
   columns: number,
   rows: number,
-  options: { whale: boolean; whaleGirl?: boolean; font: SplashFont; params?: boolean },
+  options: {
+    whale: boolean
+    whaleGirl?: boolean
+    font: SplashFont
+    params?: boolean
+    artRows?: number
+    cornerRows?: number
+  },
 ): LaunchpadLayout {
   const { font } = options
   // 与 resolveSplashLayout 同一套阈值：末尾那一格字距也算进去，否则恰好卡阈值
@@ -158,22 +182,24 @@ export function resolveLaunchpadLayout(
   const showHero = showWhale || showBigTitle || showPlainTitle
 
   // 上下排布时头部 = 立绘 + 间隔 1 + 大字；退化档位取各自实际行数。
-  const artRows = showWhale ? WHALE_ART_ROWS : 0
+  // 立绘行数按**当天上场的形态**算（鲸鱼 13 / 娘与吉祥物 15），不写死。
+  const artRows = showWhale ? (options.artRows ?? DEFAULT_ART_ROWS) : 0
   const titleRows = showBigTitle ? BIG_TITLE_ROWS : PLAIN_TITLE_ROWS
   const heroRows = showHero ? (artRows > 0 ? artRows + 1 + titleRows : titleRows) : 0
   // 头部整块（含根盒 marginTop）实际占的行数：阶梯与 totalRows 都按它算。
   const heroBlockRows = showHero ? heroRows + HERO_TOP_MARGIN : 0
 
   // 第六版行数预算：输入框（恒 3）+ 框下成组行（参数 1 + 呼吸留白 0/1 +
-  // 键帽 1 + Tips 3）+ 双角铭牌 2。撤的顺序「从最可省到最不可省」：
-  // 新增的两处呼吸（词标↔输入框、入口行↔Tips）→ 参数行呼吸留白 → Tips 行
-  // 本身 → 键帽行 → 立绘（**所有留白永远排在 Tips/入口行之前撤**，
-  // 绝不让呼吸把输入框挤掉）。
+  // 键帽 1 + Tips 3）+ 双角铭牌（自身行数 + 上方留白）。撤的顺序「从最可省
+  // 到最不可省」：新增的两处呼吸（词标↔输入框、入口行↔Tips）→ 参数行呼吸
+  // 留白 → Tips 行本身 → 键帽行 → 立绘（**所有留白永远排在 Tips/入口行之
+  // 前撤**，绝不让呼吸把输入框挤掉）。
   const paramRows = options.params === true ? PARAM_ROWS : 0
   const gapRows = paramRows > 0 ? PARAM_HINTS_GAP_ROWS : 0
   const cardRows = CARD_ROWS
+  const cornersBlockRows = (options.cornerRows ?? DEFAULT_CORNER_ROWS) + CORNERS_TOP_GAP_ROWS
   const withArt = artRows > 0 ? artRows + 1 : 0
-  const core = heroBlockRows + cardRows + paramRows + CORNERS_BLOCK_ROWS
+  const core = heroBlockRows + cardRows + paramRows + cornersBlockRows
   // 每一档的总行数。顺序即从最全的往下掉：先试最全的，放不下就往下掉。
   // full 带 4 个变体（呼吸×参数留白的紧/松组合）、no-tip 带 3 个：
   // 呼吸在（默认 2/2）→ 撤呼吸（紧档 1/1）→ 撤参数留白，全部都矮于撤 Tips。
@@ -213,7 +239,7 @@ export function resolveLaunchpadLayout(
   const heroGapRows = keepBreath ? HERO_TO_CARD_GAP : HERO_TO_CARD_GAP_TIGHT
   const tipGapRows = keepBreath ? TIP_BLOCK_ROWS - 1 : TIP_BLOCK_ROWS_TIGHT - 1
   const total = (showTip ? 1 + tipGapRows : 0) + hintsGapRows + (showHints ? HINTS_ROWS : 0) + heroBlockFinal
-    + heroGapRows + cardRows + paramRows + CORNERS_BLOCK_ROWS
+    + heroGapRows + cardRows + paramRows + cornersBlockRows
   return {
     stage,
     // dropArt 只撤立绘——`heroRowsFinal`/`totalRows` 都按「撤立绘、留大字」算，
