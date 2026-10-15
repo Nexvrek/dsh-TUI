@@ -59,11 +59,22 @@ export function createCapabilityDelegates(deps: {
       const provider = deps.state().provider
       return (await models.list()).map(model => ({ provider: model.provider ?? provider, id: model.id, name: model.label, ...(model.description === undefined ? {} : { description: model.description }) }))
     }),
+    // The provider tabs of a provider-routed catalog: its providers, in
+    // catalog order (a backend without the routing has no tabs to fill).
+    listProviders: () => guarded('provider', [], async () => {
+      const models = caps().models
+      if (models?.routes !== 'providers') { unavailable('provider'); return [] }
+      const seen = new Set<string>()
+      for (const model of await models.list()) if (model.provider !== undefined && model.provider !== '') seen.add(model.provider)
+      return [...seen].map(id => ({ id, name: id }))
+    }),
     switchModel: (provider, model) => guarded('model', false, async () => {
       const models = caps().models
       if (models === undefined) { unavailable('model'); return false }
       const state = deps.state()
-      const own = provider === '' || provider === state.backendCapabilities.backendLabel || provider === state.provider
+      // A provider-routed catalog always needs the provider: the same model
+      // id may be served by several of them.
+      const own = models.routes !== 'providers' && (provider === '' || provider === state.backendCapabilities.backendLabel || provider === state.provider)
       const outcome = await models.set({ ...(own ? {} : { provider }), model })
       if (outcome.kind === 'refused') notify(outcome.reason, { color: 'warning' })
       return outcome.kind === 'switched'

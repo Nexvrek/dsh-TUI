@@ -30,7 +30,8 @@ export interface QuestionAnswers {
   readonly answers: readonly { readonly selected: readonly string[]; readonly custom?: string }[]
 }
 
-/** A selectable model. */
+/** A selectable model. `provider` names the provider that serves it when
+ *  the catalog routes by provider (`models.routes`); absent = the backend. */
 export interface ModelOption {
   readonly provider?: string
   readonly id: string
@@ -178,6 +179,15 @@ export interface SessionCapabilities {
     cancel(requestId: string): void
   }
   readonly models?: {
+    /**
+     * `providers`: the catalog spans several providers and a model is the
+     * pair provider + model id, as on DSH — the picker shows provider tabs
+     * and recents, `/model` takes `provider/model`, the channel's provider
+     * follows the session's (`session.ready` / `model.changed`), and a
+     * switch always names the provider. Absent: one provider, the backend
+     * itself (model ids are unique, `/model <id>` needs no provider).
+     */
+    readonly routes?: 'providers'
     list(): Promise<readonly ModelOption[]>
     current(): ModelRef
     set(ref: ModelRef): Promise<ModelSwitchOutcome>

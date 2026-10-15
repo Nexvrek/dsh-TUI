@@ -58,7 +58,7 @@ pi --session <session-id>            # back to pi's own interface
 | Tool cards | `read`/`write`/`edit`/`bash`/`grep`/`find`/`ls`/`powershell` get dedicated cards: `edit` shows pi's unified patch, `bash` live output and the exit code; extension and MCP tools use the generic card |
 | Queueing and steering | A message sent mid-run joins pi's follow-up queue; a steer joins the **running turn** after the current tool calls, before the next model call; pending messages show in the queue |
 | Interrupt | Esc interrupts the turn and keeps what pi queued; "interrupt and clear" clears pi's queue first |
-| `/model`, `/effort` | The models of pi's signed-in providers; effort is pi's thinking level (the values the model offers) |
+| `/model`, `/effort` | Provider tabs as on DSH (recents plus one tab per signed-in pi provider; `/model provider/model` switches directly); the same model id under two providers is two entries. Effort is pi's thinking level (the values the model offers), clamped the way pi clamps it on a switch |
 | `/compact`, `/context` | pi compacts and its summary shows as a checkpoint; context usage comes from pi's session stats |
 | `/` commands | pi's extension commands, prompt templates and skills (`/skill:name`) join the command list and run or expand as in pi |
 | Extension dialogs | An extension's select / confirm / input / editor show on the questionnaire panel, notify as a notice; a dialog with a timeout closes when it expires |

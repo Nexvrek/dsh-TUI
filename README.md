@@ -300,7 +300,7 @@ Validated on **0.87.1**, minimum **0.84.4**; other versions show a drift
 notice. `DSH_TUI_PI_EXECUTABLE` selects an executable; `/kernel` or `/pi`
 switch. Streaming and thinking, tool cards (`edit` shows pi's patch, `bash`
 live output), queueing and steering (a steer joins the running turn),
-interrupts, `/model` (pi's signed-in models as `provider/model`), `/effort`
+interrupts, `/model` (provider tabs, as on DSH), `/effort`
 (pi's thinking level), `/compact`, `/context`, pi's extension commands, prompt
 templates and skills, extension dialogs (on the questionnaire), images,
 `/rename`, `/fork` and the double-`Esc` rewind (conversation only) use the
@@ -356,7 +356,7 @@ Full reference: [Interaction and commands](docs/interaction.en.md).
 
 `/dsh`, `/codex`, `/claude`, and `/pi` switch directly to the named kernel, just like choosing it in `/kernel`: the choice is remembered and the process restarts into a new session. A running turn blocks switching; choosing the current kernel keeps the session. Availability checks and the Claude install wizard follow the same picker flow.
 
-`/model` shows models and reasoning effort on one page. DSH has provider tabs with **Recently used** first, moving the current model to the top; `Tab` / `Shift+Tab` select the next / previous provider. Codex, Claude and pi open their model catalogs directly, without provider or recents tabs (pi lists its models as `provider/model`). `↑/↓` select a model, `←/→` adjust its effort, `Enter` applies the model and any explicit effort draft, and `Esc` cancels. Changing only the model preserves the backend's preference handling. Mouse users can click the available tabs, models, effort levels, and select/cancel hints; clicking an effort level immediately applies the focused model and that effort and closes the picker. The wheel moves through models.
+`/model` shows models and reasoning effort on one page. DSH has provider tabs with **Recently used** first, moving the current model to the top; `Tab` / `Shift+Tab` select the next / previous provider. Codex and Claude open their model catalogs directly, without provider or recents tabs; pi has provider tabs like DSH (recents are kept per backend). `↑/↓` select a model, `←/→` adjust its effort, `Enter` applies the model and any explicit effort draft, and `Esc` cancels. Changing only the model preserves the backend's preference handling. Mouse users can click the available tabs, models, effort levels, and select/cancel hints; clicking an effort level immediately applies the focused model and that effort and closes the picker. The wheel moves through models.
 
 Short terminals keep the focused model and select/cancel actions visible, hiding descriptions and neighboring models first, then the effort row when only two rows remain.
 Shortcuts sit below the title and effort levels have their own section; DSH, Claude, and Codex use the terminal background while covering the text underneath.

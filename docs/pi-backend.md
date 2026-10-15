@@ -52,7 +52,7 @@ pi --session <session-id>            # 换回 pi 自己的界面
 | 工具卡 | `read`/`write`/`edit`/`bash`/`grep`/`find`/`ls`/`powershell` 有专门卡片：`edit` 用 pi 给出的 unified patch，`bash` 显示实时输出与退出码；扩展与 MCP 工具为通用卡片 |
 | 排队与插话 | 运行中发送的消息排在 pi 的 follow-up 队列；插话（steer）在当前工具调用结束、下一次模型调用之前并入**当前回合**；待发消息显示在队列里 |
 | 中断 | Esc 中断当前回合，pi 已排队的消息保留；"打断并清空"先清 pi 的队列再中断 |
-| `/model`、`/effort` | 列出 pi 已认证 provider 的模型；effort 即 pi 的思考等级（按模型给出可选值） |
+| `/model`、`/effort` | 与 DSH 一样按供应商分标签（「最近使用」加 pi 已认证的每个供应商一页，`/model 供应商/模型` 直接切换）；同一个模型 id 在不同供应商下各算一项。effort 即 pi 的思考等级（按模型给出可选值），换模型时按 pi 的规则就近取档 |
 | `/compact`、`/context` | 由 pi 自己压缩，摘要显示为检查点；上下文占用来自 pi 的会话统计 |
 | `/` 命令 | pi 的扩展命令、prompt 模板与 skill（`/skill:名称`）合并进命令表，按 pi 的方式执行与展开 |
 | 扩展对话框 | 扩展的 select / confirm / input / editor 显示在问卷面板，notify 变为提示；带超时的对话框到点自动收起 |

@@ -36,9 +36,9 @@ const agentDir = join(root, 'agent')
 const cwd = join(root, 'project')
 mkdirSync(agentDir, { recursive: true })
 mkdirSync(cwd, { recursive: true })
-// A small keep-recent window lets the manual compaction below summarize a
+// Keeping no recent tokens lets the manual compaction below summarize even a
 // short session (pi refuses with "Nothing to compact" otherwise).
-writeFileSync(join(agentDir, 'settings.json'), JSON.stringify({ defaultProvider: provider, defaultModel: modelId, quietStartup: true, extensions: ['-builtin:llama.cpp', '-builtin:mcp'], compaction: { keepRecentTokens: 1000 } }))
+writeFileSync(join(agentDir, 'settings.json'), JSON.stringify({ defaultProvider: provider, defaultModel: modelId, quietStartup: true, extensions: ['-builtin:llama.cpp', '-builtin:mcp'], compaction: { keepRecentTokens: 0 } }))
 writeFileSync(join(cwd, 'fruit.txt'), 'apple\nbanana\n')
 process.env.PI_CODING_AGENT_DIR = agentDir
 process.env.PI_OFFLINE = '1'
@@ -89,10 +89,11 @@ try {
   await log.waitFor('session.ready')
   const key = `${provider}/${modelId}`
   const models = await session.capabilities.models!.list()
-  check(`the model list offers ${key}`, models.some(model => model.id === key), models.map(model => model.id).slice(0, 12))
-  if (session.capabilities.models!.current().model !== key) {
-    const switched = await session.capabilities.models!.set({ model: key })
-    check('the session switches to the cheap model', switched.kind === 'switched' && session.capabilities.models!.current().model === key, switched)
+  check(`the model list offers ${key} under its provider`, models.some(model => model.provider === provider && model.id === modelId), models.map(model => `${model.provider}/${model.id}`).slice(0, 12))
+  const onModel = (): boolean => { const current = session!.capabilities.models!.current(); return current.provider === provider && current.model === modelId }
+  if (!onModel()) {
+    const switched = await session.capabilities.models!.set({ provider, model: modelId })
+    check('the session switches to the cheap model', switched.kind === 'switched' && onModel(), switched)
   }
   const levels = session.capabilities.effort!.levels().map(level => level.id)
   console.log(`model ${key}; thinking levels ${levels.join(',')}; current ${session.capabilities.effort!.current()}`)
@@ -182,7 +183,7 @@ try {
     check('a manual compaction succeeds', compaction.ok, compaction)
     check('the summary becomes the checkpoint row', log.events.slice(mark).some(event => event.type === 'user.message' && event.source === 'compaction' && event.text.length > 0))
   } else {
-    check('a compaction pi refuses ends not ok with pi\'s reason', !compaction.ok && (compaction.error ?? '') === compactError, { compaction, compactError })
+    check('a compaction pi refuses ends not ok with pi\'s reason', !compaction.ok && (compaction.error ?? '').includes(compactError), { compaction, compactError })
     note('the manual compaction ran', false, compactError)
   }
   const compacted = compactError === undefined

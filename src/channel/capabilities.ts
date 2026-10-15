@@ -56,7 +56,8 @@ export function channelCapabilities(input: {
   return Object.freeze({
     backendId: input.backendId,
     backendLabel: input.backendLabel,
-    modelRoutes: input.dsh ? 'providers' : 'backend',
+    // DSH routes by provider; another backend when its catalog says so.
+    modelRoutes: input.dsh || caps.models?.routes === 'providers' ? 'providers' : 'backend',
     ...(input.dsh || input.deleteAction === undefined ? {} : { deleteAction: input.deleteAction }),
     commands: Object.freeze([
       ...supportedLocalCommandNames({ dsh: input.dsh, has: capability => flags[capability] }),

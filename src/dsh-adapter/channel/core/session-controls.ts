@@ -140,11 +140,19 @@ export function createSessionControls(deps: {
     }).catch(debugFailure('context usage'))
   }
 
+  /** A provider-routed session names its provider itself (the picker's tabs,
+   *  recents and `/model provider/model` all pair it with the model). */
+  const applyProvider = (session: AgentSession, provider: string | undefined): void => {
+    if (session.capabilities.models?.routes !== 'providers' || provider === undefined || provider === '') return
+    deps.state().provider = provider
+  }
+
   /** A freshly bound session: read what it already knows. */
   const seed = (session: AgentSession, current: () => boolean): void => {
     backendCommands = []
     mcpLines = undefined
     mcpNames = undefined
+    applyProvider(session, session.capabilities.models?.current().provider)
     const modes = session.capabilities.modes
     if (modes !== undefined) applyMode(session, modes.current())
     if (session.capabilities.effort !== undefined) applyEffort(session, session.capabilities.effort.current())
@@ -186,6 +194,7 @@ export function createSessionControls(deps: {
           break
         case 'model.changed':
         case 'session.ready': {
+          applyProvider(session, event.provider)
           // Effort levels follow the model.
           if (event.type === 'model.changed' && session.capabilities.effort !== undefined) {
             applyEffort(session, session.capabilities.effort.current())

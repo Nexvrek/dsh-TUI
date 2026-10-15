@@ -36,7 +36,7 @@ import { replayEntries } from '../translate/replay.js'
 import { resolveUserEntry, writePiBranch, type PiBranchSource } from './branch.js'
 import { createPiDialogs } from './dialogs.js'
 import { createPiInput } from './input.js'
-import { clampPiThinkingLevel, piModelKey, piThinkingLevels, rowKey, splitPiModelKey } from './models.js'
+import { clampPiThinkingLevel, findPiModelRow, piThinkingLevels } from './models.js'
 
 type Listener = (batch: readonly AgentEvent[], meta: AgentEventMeta) => void
 
@@ -56,12 +56,10 @@ export interface PiSessionDeps {
   readonly startNotices?: readonly { readonly key: string; readonly text: string }[]
 }
 
-/** The model facts of `get_state` / `set_model` answers. `key` is the id
- *  the channel knows it by (`provider/modelId`, see `models.ts`). */
+/** The model facts of `get_state` / `set_model` answers. */
 interface ModelState {
   provider: string
   id: string
-  key: string
   name: string
   contextWindow: number | undefined
 }
@@ -71,7 +69,7 @@ function modelOf(value: unknown): ModelState | undefined {
   const id = str(model?.id)
   if (model === undefined || id === undefined || id === '') return undefined
   const provider = str(model.provider) ?? ''
-  return { provider, id, key: piModelKey(provider, id), name: str(model.name) ?? id, contextWindow: num(model.contextWindow) }
+  return { provider, id, name: str(model.name) ?? id, contextWindow: num(model.contextWindow) }
 }
 
 /** Open the child's session and wrap it. Throws a user-facing sentence when
@@ -184,7 +182,7 @@ export async function openPiSession(deps: PiSessionDeps): Promise<AgentSession> 
         ctx.model = nextModel.id
         ctx.contextWindow = nextModel.contextWindow
         emit([
-          { type: 'model.changed', model: nextModel.key, ...(nextModel.provider === '' ? {} : { provider: nextModel.provider }), source: 'user' },
+          { type: 'model.changed', model: nextModel.id, ...(nextModel.provider === '' ? {} : { provider: nextModel.provider }), source: 'user' },
           ...(nextModel.contextWindow === undefined ? [] : [{ type: 'context.capacity' as const, contextWindow: nextModel.contextWindow }]),
         ])
       }
@@ -259,7 +257,7 @@ export async function openPiSession(deps: PiSessionDeps): Promise<AgentSession> 
     type: 'session.ready',
     sessionId,
     cwd: deps.cwd,
-    model: model?.key ?? '',
+    model: model?.id ?? '',
     ...(model === undefined || model.provider === '' ? {} : { provider: model.provider }),
     ...(str(state.sessionName) === undefined ? {} : { title: str(state.sessionName)! }),
     ...(thinkingLevel === undefined ? {} : { effort: thinkingLevel }),
@@ -286,20 +284,15 @@ export async function openPiSession(deps: PiSessionDeps): Promise<AgentSession> 
     return { file, entries: arr(answer?.entries), leafId: answer?.leafId === null ? null : str(answer?.leafId) }
   }
 
-  /** The last catalog read, by model key (the picker previews efforts from it). */
-  let catalog = new Map<string, Rec>()
+  /** The last catalog read (the picker previews efforts from it). */
+  let catalog: readonly Rec[] = []
   const listModels = async (): Promise<readonly ModelOption[]> => {
     const answer = rec(await link.request('get_available_models'))
-    const rows = new Map<string, Rec>()
-    for (const raw of arr(answer?.models)) {
-      const row = rec(raw)
-      const key = row === undefined ? undefined : rowKey(row)
-      if (row !== undefined && key !== undefined && !rows.has(key)) rows.set(key, row)
-    }
-    catalog = rows
-    return [...rows].map(([key, row]) => {
+    catalog = arr(answer?.models).map(rec).filter((row): row is Rec => row !== undefined && (str(row.id) ?? '') !== '')
+    return catalog.map(row => {
       const provider = str(row.provider) ?? ''
-      return { id: key, label: str(row.name) ?? str(row.id) ?? key, ...(provider === '' ? {} : { description: provider }) }
+      const id = str(row.id)!
+      return { ...(provider === '' ? {} : { provider }), id, label: str(row.name) ?? id }
     })
   }
 
@@ -314,22 +307,21 @@ export async function openPiSession(deps: PiSessionDeps): Promise<AgentSession> 
         cancel: requestId => { dialogs.cancel(requestId) },
       },
       models: {
+        // pi serves many providers, and one model id may come from several.
+        routes: 'providers',
         list: listModels,
-        current: (): ModelRef => ({ model: model?.key ?? '' }),
-        display: () => model?.id,
+        current: (): ModelRef => ({ ...(model === undefined || model.provider === '' ? {} : { provider: model.provider }), model: model?.id ?? '' }),
         async set(ref) {
-          // A key names its provider; a bare id (typed `/model faux-1`)
-          // takes the first provider that serves it.
-          const split = splitPiModelKey(ref.model)
-          let provider = split.provider
-          const modelId = split.modelId
-          if (provider === undefined) {
-            if (catalog.size === 0) await listModels().catch(() => [])
-            provider = str([...catalog.values()].find(row => str(row.id) === modelId)?.provider) ?? model?.provider
+          // The channel names the provider; a bare id still lands on the
+          // current provider when it serves the id, else the first that does.
+          let provider = ref.provider
+          if (provider === undefined || provider === '') {
+            if (catalog.length === 0) await listModels().catch(() => [])
+            provider = str(findPiModelRow(catalog, ref.model, undefined, model?.provider)?.provider)
           }
           if (provider === undefined || provider === '') return { kind: 'refused', reason: piText('pi-model-unknown', { model: ref.model }) }
           try {
-            await link.request('set_model', { provider, modelId })
+            await link.request('set_model', { provider, modelId: ref.model })
           } catch (error) {
             return { kind: 'refused', reason: errorText(error) }
           }
@@ -341,7 +333,7 @@ export async function openPiSession(deps: PiSessionDeps): Promise<AgentSession> 
       effort: {
         levels: () => levels.map(id => ({ id, label: id })),
         forModel: ref => {
-          const row = catalog.get(ref.model) ?? [...catalog.values()].find(candidate => str(candidate.id) === splitPiModelKey(ref.model).modelId)
+          const row = findPiModelRow(catalog, ref.model, ref.provider, model?.provider)
           const forRow = piThinkingLevels(row)
           const landing = clampPiThinkingLevel(row, thinkingLevel)
           return { levels: forRow.map(id => ({ id, label: id })), ...(landing === undefined ? {} : { defaultEffort: landing }) }

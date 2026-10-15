@@ -288,6 +288,58 @@ try {
   }
 }
 
+// ── a provider-routed model catalog (pi): the catalog spans providers, so
+//    the snapshot routes through providers like DSH, the channel's provider
+//    pairs with the session's, and every switch names its provider ───────
+{
+  const calls: string[] = []
+  let current: { provider: string; model: string } = { provider: 'deepseek', model: 'flash' }
+  const routed = fakeSession('55555555-5555-4555-8555-555555555555', {
+    models: {
+      routes: 'providers',
+      list: () => Promise.resolve([
+        { provider: 'deepseek', id: 'flash', label: 'Flash' },
+        { provider: 'relay', id: 'flash', label: 'Relayed Flash' },
+        { provider: 'relay', id: 'big', label: 'Big' },
+      ]),
+      current: () => current,
+      set: ref => {
+        calls.push(`${ref.provider ?? '-'}/${ref.model}`)
+        current = { provider: ref.provider ?? current.provider, model: ref.model }
+        return Promise.resolve({ kind: 'switched' as const })
+      },
+    },
+  })
+  const plain = fakeSession('66666666-6666-4666-8666-666666666666', {
+    models: { list: () => Promise.resolve([{ id: 'haiku', label: 'Haiku' }]), current: () => ({ model: 'haiku' }), set: () => Promise.resolve({ kind: 'switched' as const }) },
+  })
+  const routedChannel = createChannel(ctx, routed, { model: 'pi', provider: 'pi', cwd: workdir, activity: false })
+  const plainChannel = createChannel(ctx, plain, { model: 'm', provider: 'fake', cwd: workdir, activity: false })
+  try {
+    check('a provider-routed catalog routes the snapshot through providers', routedChannel.backendCapabilities.modelRoutes === 'providers')
+    check('a single-provider catalog keeps the backend route', plainChannel.backendCapabilities.modelRoutes === 'backend' && plainChannel.provider === 'fake')
+    check('the bound session names the channel provider', routedChannel.provider === 'deepseek', routedChannel.provider)
+    const models = await routedChannel.listModels()
+    check('models keep their own providers', models.map(model => `${model.provider}/${model.id}`).join(',') === 'deepseek/flash,relay/flash,relay/big', models)
+    const providers = await routedChannel.listProviders()
+    check('the provider tabs come from the catalog, in order', providers.map(provider => provider.id).join(',') === 'deepseek,relay', providers)
+    await routedChannel.switchModel('deepseek', 'flash')
+    await routedChannel.switchModel('relay', 'flash')
+    check('a switch always names its provider (the same id may come from several)', JSON.stringify(calls) === JSON.stringify(['deepseek/flash', 'relay/flash']), calls)
+    routed.emit([{ type: 'model.changed', model: 'big', provider: 'relay', source: 'user' }])
+    await settled(() => routedChannel.provider === 'relay' && routedChannel.model === 'big')
+    check('the channel provider follows the session\'s model changes', routedChannel.provider === 'relay' && routedChannel.model === 'big')
+    plain.emit([{ type: 'model.changed', model: 'sonnet', provider: 'anthropic', source: 'user' }])
+    await settled(() => plainChannel.model === 'sonnet')
+    check('a single-provider backend keeps its own provider', plainChannel.provider === 'fake')
+    const prefix = t('capability-unavailable-backend', { name: '' }).trim().split(':')[0]!
+    check('the provider tabs report no unavailability', !routedChannel.notifications.some(item => item.text.startsWith(prefix)))
+  } finally {
+    routedChannel.releaseContributions()
+    plainChannel.releaseContributions()
+  }
+}
+
 // ── rejecting capabilities, silent boot effort, no fold, `!!` after the
 //    session closed, backend config normalization ────────────────────────
 {

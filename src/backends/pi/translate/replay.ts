@@ -97,8 +97,7 @@ export function entryEvents(ctx: PiTranslatorContext, entry: Rec, out: AgentEven
       if (model === undefined || model === '') return
       const provider = str(entry.provider)
       ctx.model = model
-      // The channel knows pi's models by `provider/modelId` (session/models.ts).
-      out.push({ type: 'model.changed', model: provider === undefined || provider === '' ? model : `${provider}/${model}`, ...(provider === undefined ? {} : { provider }), source: 'resume' })
+      out.push({ type: 'model.changed', model, ...(provider === undefined ? {} : { provider }), source: 'resume' })
       return
     }
     case 'thinking_level_change': {

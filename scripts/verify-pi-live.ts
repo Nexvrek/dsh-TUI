@@ -80,7 +80,7 @@ try {
   check('a real pi session opens on the faux model', session.ref.backendId === 'pi' && sessionId !== '')
   const log = recorder(session)
   const ready = await log.waitFor('session.ready')
-  check('session.ready names the faux model and the pi version', ready.model === 'faux/faux-1' && ready.provider === 'faux' && ready.backendVersion === executable.version, ready)
+  check('session.ready names the faux model and the pi version', ready.model === 'faux-1' && ready.provider === 'faux' && ready.backendVersion === executable.version, ready)
   check('the session starts idle', session.status === 'idle')
 
   // ── A tool turn ──
@@ -130,7 +130,7 @@ try {
   await session.capabilities.effort!.set('low')
   check('a thinking level switch is read back', session.capabilities.effort!.current() === 'low')
   const models = await session.capabilities.models!.list()
-  check('the model list carries the faux model by key', models.some(model => model.id === 'faux/faux-1' && model.description === 'faux'), models)
+  check('the model list carries the faux model under its provider', session.capabilities.models!.routes === 'providers' && models.some(model => model.id === 'faux-1' && model.provider === 'faux'), models)
   const commands = await session.capabilities.commands!.list()
   check('the extension command is listed', commands.some(command => command.name === 'ask-me'), commands)
 

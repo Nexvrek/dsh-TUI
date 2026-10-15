@@ -297,11 +297,12 @@ SDK `settings` 选项把路由钉回 `https://api.anthropic.com`。CLI 拒绝令
   notify 成提示，其余（`setStatus`、`setWidget`、`custom()` 组件等）没有界面。pi 会按
   `timeout` 自行结算且不通知，所以本地同时撤回；abort 前先把挂起的对话框回 `cancelled`，
   否则忽略 abort 信号的审批类扩展会让 abort 卡住。
-- **模型**：频道把一个后端当成一个 provider（`/model <id>` 不带 provider 段），pi 却同时有
-  多家 provider，且模型 id 可能重复，所以模型 id 用 `provider/modelId` 键，页脚经
-  `models.display()` 显示短名。effort 即 pi 的思考等级，`forModel` 按 pi 的规则
-  （`reasoning` + `thinkingLevelMap`）预览，并按 pi 的夹取规则给出默认档。pi 不广播模型
-  变化，改动后回读 `get_state`。
+- **模型**：pi 同时服务多家 provider，同一个模型 id 可能来自其中几家，所以它声明
+  `models.routes: 'providers'`，与 DSH 走同一条路：选择器按 provider 分标签、带「最近使用」
+  （按后端分文件记录），`/model provider/model` 直接切换，频道的 provider 跟随会话上报的
+  provider，切换时总是带上 provider；不带 provider 的裸 id 先落在当前 provider。effort 即 pi
+  的思考等级，`forModel` 按 pi 的规则（`reasoning` + `thinkingLevelMap`）预览，并按 pi 的
+  夹取规则给出默认档。pi 不广播模型变化，改动后回读 `get_state`。
 - **分叉与回退**：`/fork` 与双击 Esc 回退按 pi 的会话格式写一份新文件（新 header 带
   `parentSession`，分支条目从活进程的 `get_entries` 原样复制，id 与 `parentId` 不变），等同
   pi 的 `createBranchedSession`。不用 RPC 的 `fork`：它会把活进程切到新会话，而 `/fork`
@@ -383,6 +384,9 @@ claude（SDK peer + 安装向导）与 codex（系统 CLI + 进程池）必须�
 4. 写翻译器：把后端消息翻成 `AgentEvent`，live 与回放用同一套映射；不认识的消息
    忽略，不崩。
 5. 按后端真实支持的东西声明 `SessionCapabilities`；没有的就不声明，界面会显示不可用。
+   模型目录跨多个 provider 的后端（pi）声明 `models.routes: 'providers'`：`ModelOption`
+   带上各自的 `provider`，`current()` 返回 provider 与 model，`session.ready`/`model.changed`
+   带 `provider`；界面随之按 provider 分标签。单一 provider 的后端（Claude、Codex）不声明。
    同一份清单也是声明里的 `capabilities` 字段：它必须覆盖运行期
    `AgentSession.capabilities` 实际返回的键集，而宿主不认识的名字降级不拒绝（见第 1 条）。
 6. 工具卡经 `presentation` 描述，不在界面里按工具名分支。
