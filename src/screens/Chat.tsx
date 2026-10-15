@@ -875,7 +875,7 @@ export function Chat({
    * "点了没反应"，状态还滞留着、等界面关掉才突然弹出来。默认收，白名单只留给覆盖层。
    */
   const overlayCommandNames = React.useMemo(
-    () => new Set(['model', 'effort', 'plan', 'preset', 'permission', 'kernel', 'dsh', 'codex', 'claude']),
+    () => new Set(['model', 'effort', 'plan', 'preset', 'permission', 'kernel', 'dsh', 'codex', 'claude', 'pi']),
     [],
   )
   /**
@@ -4051,6 +4051,7 @@ export function Chat({
       case 'dsh':
       case 'codex':
       case 'claude':
+      case 'pi':
         setHelpOpen(false)
         return pickKernelById(name).then(() => true)
       case 'restart':

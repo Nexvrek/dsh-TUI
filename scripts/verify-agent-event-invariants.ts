@@ -1,5 +1,5 @@
 /**
- * Lifecycle invariants across ALL committed DSH/Claude/Codex JSONL fixtures,
+ * Lifecycle invariants across ALL committed DSH/Claude/Codex/pi fixtures,
  * both live and replay paths. Reads only scrubbed repository fixtures. No
  * processes, personal transcripts, credential stores or provider requests.
  * Run: node --import tsx/esm scripts/verify-agent-event-invariants.ts
@@ -17,6 +17,7 @@ import { replayTurns } from '../src/backends/codex/translate/replay.js'
 import { setLang } from '../src/i18n.js'
 import { agentEventInvariantViolations, assertAgentEventInvariants, type AgentEventInvariantOptions } from './lib/agent-event-invariants.js'
 import { loadWire, notificationsOf, recordedTurns, turnThreads, WIRE_DIR } from './lib/codex-translate-harness.js'
+import { loadPiWire, piLiveEvents, piReplayEvents, piWireFixtures } from './lib/pi-translate-harness.js'
 
 setLang('en')
 type Rec = Record<string, unknown>
@@ -163,6 +164,14 @@ for (const file of readdirSync(WIRE_DIR).filter(file => file.endsWith('.jsonl'))
     const last = rec(turns.at(-1))
     verify(label + replaySource, replayTurns(turns, createItemContext({ cwd: '/TMP/cwd', now: () => 0 })), { allowOpenLastTurn: last.status === 'inProgress' })
   }
+}
+
+// pi: the recorded RPC stream of each scenario (real pi on the scripted faux
+// model) and its replay from the session's final entries.
+for (const file of piWireFixtures()) {
+  const fixture = loadPiWire(file)
+  verify('pi/' + file + ' live', piLiveEvents(fixture).events)
+  verify('pi/' + file + ' replay', piReplayEvents(fixture))
 }
 
 // Mutation probes: prove the checker rejects each broken invariant, rather

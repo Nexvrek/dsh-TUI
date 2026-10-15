@@ -31,7 +31,7 @@ Cordis profile
 | `src/dsh-adapter/channel/core/` | 后端中立核心：任何 `AgentSession` 都走它（见下表） |
 | `src/dsh-adapter/channel/extensions.ts` | DSH 扩展：只接线、不改 DSH specialist 内部 |
 | `src/agent/`、`src/channel/` | 后端中立的会话领域（`AgentEvent`、`AgentSession`、能力）与共享投影器、中立 store |
-| `src/dsh-adapter/backend/`、`src/backends/claude/`、`src/backends/codex/` | DSH、Claude 与 Codex 的翻译器/会话/能力；Codex 驱动用户的 app-server，不捆绑 SDK；见[多后端架构](agent-backend-design.md) |
+| `src/dsh-adapter/backend/`、`src/backends/claude/`、`src/backends/codex/`、`src/backends/pi/` | DSH、Claude、Codex 与 pi 的翻译器/会话/能力；Codex 驱动用户的 app-server、pi 驱动用户的 `pi --mode rpc`，都不捆绑 SDK；见[多后端架构](agent-backend-design.md) |
 | `src/workspaces.ts` | 本地路径 fallback 与通用工作区 provider registry；不得包含任何 provider 的协议、文案或依赖 |
 | `src/screens/Chat.tsx` | modal 优先级、全局按键、滚动/搜索/选择状态、slash command 分发 |
 | `src/components/` | 用户界面和 design-system；不直接拥有 Agent 或 session 真相 |
@@ -192,7 +192,7 @@ stdout 打印诊断；使用 stderr 的 `DSH_TUI_DEBUG` 或 `DSH_TUI_RENDER_LOG`
 | `~/.dsh-tui/themes/` | 用户自定义主题 JSON；运行时插件主题不写入此目录 |
 | `~/.dsh-tui/working-activity.json` | 工作状态动画选择 |
 | `~/.dsh-tui/agent-preset.json` | 新会话默认 Agent preset |
-| `~/.dsh-tui/kernel.json` | `/kernel` 记住的后端（`dsh` / `claude` / `codex`） |
+| `~/.dsh-tui/kernel.json` | `/kernel` 记住的后端（`dsh` / `claude` / `codex` / `pi`） |
 | `~/.dsh-tui/backends/claude/` | Claude 后端的偏好（`prefs.json`）、置顶与渠道档案（`channels.json`）；Claude 会话本身在 `~/.claude/projects/` |
 | `~/.dsh-tui/backends/codex/` | Codex 偏好与渠道档案（只含 tokenRef，key 在 DSH 凭据库）；原生 thread、登录与配置仍由 `$CODEX_HOME` / Codex 管理 |
 
@@ -312,7 +312,7 @@ answerer（`approval/request` waterfall），仅允许一次/拒绝两种决定�
 | stderr 调试 | `DSH_TUI_DEBUG=1 dsh --profile dsh-tui` |
 | 原始 ANSI 帧 | `DSH_TUI_RENDER_LOG=/path/to/render.log dsh --profile dsh-tui` |
 | 主题回归 | `node --import tsx/esm scripts/verify-themes.mjs` |
-| 三后端对照 | DSH：`verify:projection-golden` / `verify-dsh-translate`；Claude：`verify:claude-contract` / 对应假 SDK 脚本；Codex：`verify:codex-contract` / 对应假 app-server 脚本；共享领域与事件不变量另外验证 |
+| 多后端对照 | DSH：`verify:projection-golden` / `verify-dsh-translate`；Claude：`verify:claude-contract` / 对应假 SDK 脚本；Codex：`verify:codex-contract` / 对应假 app-server 脚本；pi：`verify-pi-translate` / `verify-pi-session` / `verify-pi-catalog`；共享领域与事件不变量另外验证 |
 | Codex 真实验证 | 0.160.1 隔离 home 九项离线无模型回合检查通过；带凭据验证只按 `codex-cheap-only.mjs` 守卫执行。真实登录/模型调用与 inline/fullscreen、窄终端体验本轮未跑，不能以离线/mock 通过代替 |
 
 `DSH_TUI_RENDER_LOG` 和会话导出可能包含敏感内容，分享前必须脱敏。

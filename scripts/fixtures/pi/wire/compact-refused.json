@@ -1,0 +1,536 @@
+{
+ "scenario": "compact-refused",
+ "records": [
+  {
+   "sent": {
+    "type": "get_state",
+    "id": "cap-1"
+   }
+  },
+  {
+   "id": "cap-1",
+   "type": "response",
+   "command": "get_state",
+   "success": true,
+   "data": {
+    "model": {
+     "id": "faux-1",
+     "name": "Faux One",
+     "reasoning": true,
+     "input": [
+      "text",
+      "image"
+     ],
+     "cost": {
+      "input": 0,
+      "output": 0,
+      "cacheRead": 0,
+      "cacheWrite": 0
+     },
+     "contextWindow": 128000,
+     "maxTokens": 4096,
+     "api": "faux:1792089686807:xdulo0iu42",
+     "provider": "faux",
+     "baseUrl": "http://localhost:0"
+    },
+    "thinkingLevel": "medium",
+    "isStreaming": false,
+    "isCompacting": false,
+    "steeringMode": "one-at-a-time",
+    "followUpMode": "one-at-a-time",
+    "sessionId": "01a140de-8308-72ab-8bd4-e4e30fab1289",
+    "autoCompactionEnabled": true,
+    "messageCount": 0,
+    "pendingMessageCount": 0
+   }
+  },
+  {
+   "sent": {
+    "type": "prompt",
+    "message": "only message",
+    "streamingBehavior": "followUp",
+    "id": "cap-2"
+   }
+  },
+  {
+   "id": "cap-2",
+   "type": "response",
+   "command": "prompt",
+   "success": true
+  },
+  {
+   "type": "agent_start"
+  },
+  {
+   "type": "turn_start"
+  },
+  {
+   "type": "message_start",
+   "message": {
+    "role": "system",
+    "content": "",
+    "timestamp": 1792089686820
+   }
+  },
+  {
+   "type": "message_end",
+   "message": {
+    "role": "system",
+    "content": "",
+    "timestamp": 1792089686820
+   }
+  },
+  {
+   "type": "message_start",
+   "message": {
+    "role": "user",
+    "content": [
+     {
+      "type": "text",
+      "text": "only message"
+     }
+    ],
+    "timestamp": 1792089686820
+   }
+  },
+  {
+   "type": "message_end",
+   "message": {
+    "role": "user",
+    "content": [
+     {
+      "type": "text",
+      "text": "only message"
+     }
+    ],
+    "timestamp": 1792089686820
+   }
+  },
+  {
+   "type": "message_start",
+   "message": {
+    "role": "assistant",
+    "content": [],
+    "api": "faux:1792089686807:xdulo0iu42",
+    "provider": "faux",
+    "model": "faux-1",
+    "usage": {
+     "input": 1414,
+     "output": 5,
+     "cacheRead": 0,
+     "cacheWrite": 1414,
+     "totalTokens": 2833,
+     "cost": {
+      "input": 0,
+      "output": 0,
+      "cacheRead": 0,
+      "cacheWrite": 0,
+      "total": 0
+     }
+    },
+    "stopReason": "pending",
+    "timestamp": 1792089686822
+   }
+  },
+  {
+   "type": "message_update",
+   "usage": {
+    "input": 1414,
+    "output": 5,
+    "cacheRead": 0,
+    "cacheWrite": 1414,
+    "totalTokens": 2833,
+    "cost": {
+     "input": 0,
+     "output": 0,
+     "cacheRead": 0,
+     "cacheWrite": 0,
+     "total": 0
+    }
+   },
+   "assistantMessageEvent": {
+    "type": "text_start",
+    "contentIndex": 0
+   }
+  },
+  {
+   "type": "message_update",
+   "usage": {
+    "input": 1414,
+    "output": 5,
+    "cacheRead": 0,
+    "cacheWrite": 1414,
+    "totalTokens": 2833,
+    "cost": {
+     "input": 0,
+     "output": 0,
+     "cacheRead": 0,
+     "cacheWrite": 0,
+     "total": 0
+    }
+   },
+   "assistantMessageEvent": {
+    "type": "text_delta",
+    "contentIndex": 0,
+    "delta": "echo: only m"
+   }
+  },
+  {
+   "type": "message_update",
+   "usage": {
+    "input": 1414,
+    "output": 5,
+    "cacheRead": 0,
+    "cacheWrite": 1414,
+    "totalTokens": 2833,
+    "cost": {
+     "input": 0,
+     "output": 0,
+     "cacheRead": 0,
+     "cacheWrite": 0,
+     "total": 0
+    }
+   },
+   "assistantMessageEvent": {
+    "type": "text_delta",
+    "contentIndex": 0,
+    "delta": "essage"
+   }
+  },
+  {
+   "type": "message_update",
+   "usage": {
+    "input": 1414,
+    "output": 5,
+    "cacheRead": 0,
+    "cacheWrite": 1414,
+    "totalTokens": 2833,
+    "cost": {
+     "input": 0,
+     "output": 0,
+     "cacheRead": 0,
+     "cacheWrite": 0,
+     "total": 0
+    }
+   },
+   "assistantMessageEvent": {
+    "type": "text_end",
+    "contentIndex": 0,
+    "content": "echo: only message"
+   }
+  },
+  {
+   "type": "message_end",
+   "message": {
+    "role": "assistant",
+    "content": [
+     {
+      "type": "text",
+      "text": "echo: only message"
+     }
+    ],
+    "api": "faux:1792089686807:xdulo0iu42",
+    "provider": "faux",
+    "model": "faux-1",
+    "usage": {
+     "input": 1414,
+     "output": 5,
+     "cacheRead": 0,
+     "cacheWrite": 1414,
+     "totalTokens": 2833,
+     "cost": {
+      "input": 0,
+      "output": 0,
+      "cacheRead": 0,
+      "cacheWrite": 0,
+      "total": 0
+     }
+    },
+    "stopReason": "stop",
+    "timestamp": 1792089686822
+   }
+  },
+  {
+   "type": "turn_end",
+   "message": {
+    "role": "assistant",
+    "content": [
+     {
+      "type": "text",
+      "text": "echo: only message"
+     }
+    ],
+    "api": "faux:1792089686807:xdulo0iu42",
+    "provider": "faux",
+    "model": "faux-1",
+    "usage": {
+     "input": 1414,
+     "output": 5,
+     "cacheRead": 0,
+     "cacheWrite": 1414,
+     "totalTokens": 2833,
+     "cost": {
+      "input": 0,
+      "output": 0,
+      "cacheRead": 0,
+      "cacheWrite": 0,
+      "total": 0
+     }
+    },
+    "stopReason": "stop",
+    "timestamp": 1792089686822
+   },
+   "toolResults": []
+  },
+  {
+   "type": "agent_end",
+   "messages": [
+    {
+     "role": "system",
+     "content": "",
+     "timestamp": 1792089686820
+    },
+    {
+     "role": "user",
+     "content": [
+      {
+       "type": "text",
+       "text": "only message"
+      }
+     ],
+     "timestamp": 1792089686820
+    },
+    {
+     "role": "assistant",
+     "content": [
+      {
+       "type": "text",
+       "text": "echo: only message"
+      }
+     ],
+     "api": "faux:1792089686807:xdulo0iu42",
+     "provider": "faux",
+     "model": "faux-1",
+     "usage": {
+      "input": 1414,
+      "output": 5,
+      "cacheRead": 0,
+      "cacheWrite": 1414,
+      "totalTokens": 2833,
+      "cost": {
+       "input": 0,
+       "output": 0,
+       "cacheRead": 0,
+       "cacheWrite": 0,
+       "total": 0
+      }
+     },
+     "stopReason": "stop",
+     "timestamp": 1792089686822
+    }
+   ],
+   "willRetry": false
+  },
+  {
+   "type": "agent_settled"
+  },
+  {
+   "sent": {
+    "type": "compact",
+    "id": "cap-3"
+   }
+  },
+  {
+   "type": "compaction_start",
+   "reason": "manual"
+  },
+  {
+   "type": "compaction_end",
+   "reason": "manual",
+   "aborted": false,
+   "willRetry": false,
+   "errorMessage": "Compaction failed: Nothing to compact (session too small)"
+  },
+  {
+   "id": "cap-3",
+   "type": "response",
+   "command": "compact",
+   "success": false,
+   "error": "Nothing to compact (session too small)"
+  },
+  {
+   "sent": {
+    "type": "get_entries",
+    "id": "cap-4"
+   }
+  },
+  {
+   "id": "cap-4",
+   "type": "response",
+   "command": "get_entries",
+   "success": true,
+   "data": {
+    "entries": [
+     {
+      "type": "model_change",
+      "id": "b30f391f",
+      "parentId": null,
+      "timestamp": "2026-10-15T18:41:26.815Z",
+      "provider": "faux",
+      "modelId": "faux-1"
+     },
+     {
+      "type": "thinking_level_change",
+      "id": "8d08930d",
+      "parentId": "b30f391f",
+      "timestamp": "2026-10-15T18:41:26.815Z",
+      "thinkingLevel": "medium"
+     },
+     {
+      "type": "message",
+      "id": "d7b3cd84",
+      "parentId": "8d08930d",
+      "timestamp": "2026-10-15T18:41:26.820Z",
+      "message": {
+       "role": "system",
+       "content": "",
+       "timestamp": 1792089686820
+      }
+     },
+     {
+      "type": "message",
+      "id": "006b7658",
+      "parentId": "d7b3cd84",
+      "timestamp": "2026-10-15T18:41:26.821Z",
+      "message": {
+       "role": "user",
+       "content": [
+        {
+         "type": "text",
+         "text": "only message"
+        }
+       ],
+       "timestamp": 1792089686820
+      }
+     },
+     {
+      "type": "message",
+      "id": "d0ef2d55",
+      "parentId": "006b7658",
+      "timestamp": "2026-10-15T18:41:26.835Z",
+      "message": {
+       "role": "assistant",
+       "content": [
+        {
+         "type": "text",
+         "text": "echo: only message"
+        }
+       ],
+       "api": "faux:1792089686807:xdulo0iu42",
+       "provider": "faux",
+       "model": "faux-1",
+       "usage": {
+        "input": 1414,
+        "output": 5,
+        "cacheRead": 0,
+        "cacheWrite": 1414,
+        "totalTokens": 2833,
+        "cost": {
+         "input": 0,
+         "output": 0,
+         "cacheRead": 0,
+         "cacheWrite": 0,
+         "total": 0
+        }
+       },
+       "stopReason": "stop",
+       "timestamp": 1792089686822
+      }
+     }
+    ],
+    "leafId": "d0ef2d55"
+   }
+  }
+ ],
+ "entries": {
+  "entries": [
+   {
+    "type": "model_change",
+    "id": "b30f391f",
+    "parentId": null,
+    "timestamp": "2026-10-15T18:41:26.815Z",
+    "provider": "faux",
+    "modelId": "faux-1"
+   },
+   {
+    "type": "thinking_level_change",
+    "id": "8d08930d",
+    "parentId": "b30f391f",
+    "timestamp": "2026-10-15T18:41:26.815Z",
+    "thinkingLevel": "medium"
+   },
+   {
+    "type": "message",
+    "id": "d7b3cd84",
+    "parentId": "8d08930d",
+    "timestamp": "2026-10-15T18:41:26.820Z",
+    "message": {
+     "role": "system",
+     "content": "",
+     "timestamp": 1792089686820
+    }
+   },
+   {
+    "type": "message",
+    "id": "006b7658",
+    "parentId": "d7b3cd84",
+    "timestamp": "2026-10-15T18:41:26.821Z",
+    "message": {
+     "role": "user",
+     "content": [
+      {
+       "type": "text",
+       "text": "only message"
+      }
+     ],
+     "timestamp": 1792089686820
+    }
+   },
+   {
+    "type": "message",
+    "id": "d0ef2d55",
+    "parentId": "006b7658",
+    "timestamp": "2026-10-15T18:41:26.835Z",
+    "message": {
+     "role": "assistant",
+     "content": [
+      {
+       "type": "text",
+       "text": "echo: only message"
+      }
+     ],
+     "api": "faux:1792089686807:xdulo0iu42",
+     "provider": "faux",
+     "model": "faux-1",
+     "usage": {
+      "input": 1414,
+      "output": 5,
+      "cacheRead": 0,
+      "cacheWrite": 1414,
+      "totalTokens": 2833,
+      "cost": {
+       "input": 0,
+       "output": 0,
+       "cacheRead": 0,
+       "cacheWrite": 0,
+       "total": 0
+      }
+     },
+     "stopReason": "stop",
+     "timestamp": 1792089686822
+    }
+   }
+  ],
+  "leafId": "d0ef2d55"
+ }
+}

@@ -1,0 +1,935 @@
+{
+ "scenario": "read-file",
+ "records": [
+  {
+   "sent": {
+    "type": "get_state",
+    "id": "cap-1"
+   }
+  },
+  {
+   "id": "cap-1",
+   "type": "response",
+   "command": "get_state",
+   "success": true,
+   "data": {
+    "model": {
+     "id": "faux-1",
+     "name": "Faux One",
+     "reasoning": true,
+     "input": [
+      "text",
+      "image"
+     ],
+     "cost": {
+      "input": 0,
+      "output": 0,
+      "cacheRead": 0,
+      "cacheWrite": 0
+     },
+     "contextWindow": 128000,
+     "maxTokens": 4096,
+     "api": "faux:1792089683922:szpn25azp2m",
+     "provider": "faux",
+     "baseUrl": "http://localhost:0"
+    },
+    "thinkingLevel": "medium",
+    "isStreaming": false,
+    "isCompacting": false,
+    "steeringMode": "one-at-a-time",
+    "followUpMode": "one-at-a-time",
+    "sessionId": "01a140de-77c2-73f3-ac89-cdb722a36e4f",
+    "autoCompactionEnabled": true,
+    "messageCount": 0,
+    "pendingMessageCount": 0
+   }
+  },
+  {
+   "sent": {
+    "type": "prompt",
+    "message": "read file note",
+    "streamingBehavior": "followUp",
+    "id": "cap-2"
+   }
+  },
+  {
+   "id": "cap-2",
+   "type": "response",
+   "command": "prompt",
+   "success": true
+  },
+  {
+   "type": "agent_start"
+  },
+  {
+   "type": "turn_start"
+  },
+  {
+   "type": "message_start",
+   "message": {
+    "role": "system",
+    "content": "",
+    "timestamp": 1792089683938
+   }
+  },
+  {
+   "type": "message_end",
+   "message": {
+    "role": "system",
+    "content": "",
+    "timestamp": 1792089683938
+   }
+  },
+  {
+   "type": "message_start",
+   "message": {
+    "role": "user",
+    "content": [
+     {
+      "type": "text",
+      "text": "read file note"
+     }
+    ],
+    "timestamp": 1792089683937
+   }
+  },
+  {
+   "type": "message_end",
+   "message": {
+    "role": "user",
+    "content": [
+     {
+      "type": "text",
+      "text": "read file note"
+     }
+    ],
+    "timestamp": 1792089683937
+   }
+  },
+  {
+   "type": "message_start",
+   "message": {
+    "role": "assistant",
+    "content": [],
+    "api": "faux:1792089683922:szpn25azp2m",
+    "provider": "faux",
+    "model": "faux-1",
+    "usage": {
+     "input": 1413,
+     "output": 6,
+     "cacheRead": 0,
+     "cacheWrite": 1413,
+     "totalTokens": 2832,
+     "cost": {
+      "input": 0,
+      "output": 0,
+      "cacheRead": 0,
+      "cacheWrite": 0,
+      "total": 0
+     }
+    },
+    "stopReason": "pending",
+    "timestamp": 1792089683940
+   }
+  },
+  {
+   "type": "message_update",
+   "usage": {
+    "input": 1413,
+    "output": 6,
+    "cacheRead": 0,
+    "cacheWrite": 1413,
+    "totalTokens": 2832,
+    "cost": {
+     "input": 0,
+     "output": 0,
+     "cacheRead": 0,
+     "cacheWrite": 0,
+     "total": 0
+    }
+   },
+   "assistantMessageEvent": {
+    "type": "toolcall_start",
+    "contentIndex": 0,
+    "id": "tool:1792089683940:dl0zwqd2fmt",
+    "toolName": "read"
+   }
+  },
+  {
+   "type": "message_update",
+   "usage": {
+    "input": 1413,
+    "output": 6,
+    "cacheRead": 0,
+    "cacheWrite": 1413,
+    "totalTokens": 2832,
+    "cost": {
+     "input": 0,
+     "output": 0,
+     "cacheRead": 0,
+     "cacheWrite": 0,
+     "total": 0
+    }
+   },
+   "assistantMessageEvent": {
+    "type": "toolcall_delta",
+    "contentIndex": 0,
+    "delta": "{\"path\":\"note.tx"
+   }
+  },
+  {
+   "type": "message_update",
+   "usage": {
+    "input": 1413,
+    "output": 6,
+    "cacheRead": 0,
+    "cacheWrite": 1413,
+    "totalTokens": 2832,
+    "cost": {
+     "input": 0,
+     "output": 0,
+     "cacheRead": 0,
+     "cacheWrite": 0,
+     "total": 0
+    }
+   },
+   "assistantMessageEvent": {
+    "type": "toolcall_delta",
+    "contentIndex": 0,
+    "delta": "t\"}"
+   }
+  },
+  {
+   "type": "message_update",
+   "usage": {
+    "input": 1413,
+    "output": 6,
+    "cacheRead": 0,
+    "cacheWrite": 1413,
+    "totalTokens": 2832,
+    "cost": {
+     "input": 0,
+     "output": 0,
+     "cacheRead": 0,
+     "cacheWrite": 0,
+     "total": 0
+    }
+   },
+   "assistantMessageEvent": {
+    "type": "toolcall_end",
+    "contentIndex": 0,
+    "toolCall": {
+     "type": "toolCall",
+     "id": "tool:1792089683940:dl0zwqd2fmt",
+     "name": "read",
+     "arguments": {
+      "path": "note.txt"
+     }
+    }
+   }
+  },
+  {
+   "type": "message_end",
+   "message": {
+    "role": "assistant",
+    "content": [
+     {
+      "type": "toolCall",
+      "id": "tool:1792089683940:dl0zwqd2fmt",
+      "name": "read",
+      "arguments": {
+       "path": "note.txt"
+      }
+     }
+    ],
+    "api": "faux:1792089683922:szpn25azp2m",
+    "provider": "faux",
+    "model": "faux-1",
+    "usage": {
+     "input": 1413,
+     "output": 6,
+     "cacheRead": 0,
+     "cacheWrite": 1413,
+     "totalTokens": 2832,
+     "cost": {
+      "input": 0,
+      "output": 0,
+      "cacheRead": 0,
+      "cacheWrite": 0,
+      "total": 0
+     }
+    },
+    "stopReason": "toolUse",
+    "timestamp": 1792089683940
+   }
+  },
+  {
+   "type": "tool_execution_start",
+   "toolCallId": "tool:1792089683940:dl0zwqd2fmt",
+   "toolName": "read",
+   "args": {
+    "path": "note.txt"
+   }
+  },
+  {
+   "type": "tool_execution_end",
+   "toolCallId": "tool:1792089683940:dl0zwqd2fmt",
+   "toolName": "read",
+   "result": {
+    "content": [
+     {
+      "type": "text",
+      "text": "a note for the read tool\n"
+     }
+    ]
+   },
+   "isError": false
+  },
+  {
+   "type": "message_start",
+   "message": {
+    "role": "toolResult",
+    "toolCallId": "tool:1792089683940:dl0zwqd2fmt",
+    "toolName": "read",
+    "content": [
+     {
+      "type": "text",
+      "text": "a note for the read tool\n"
+     }
+    ],
+    "isError": false,
+    "timestamp": 1792089683955
+   }
+  },
+  {
+   "type": "message_end",
+   "message": {
+    "role": "toolResult",
+    "toolCallId": "tool:1792089683940:dl0zwqd2fmt",
+    "toolName": "read",
+    "content": [
+     {
+      "type": "text",
+      "text": "a note for the read tool\n"
+     }
+    ],
+    "isError": false,
+    "timestamp": 1792089683955
+   }
+  },
+  {
+   "type": "turn_end",
+   "message": {
+    "role": "assistant",
+    "content": [
+     {
+      "type": "toolCall",
+      "id": "tool:1792089683940:dl0zwqd2fmt",
+      "name": "read",
+      "arguments": {
+       "path": "note.txt"
+      }
+     }
+    ],
+    "api": "faux:1792089683922:szpn25azp2m",
+    "provider": "faux",
+    "model": "faux-1",
+    "usage": {
+     "input": 1413,
+     "output": 6,
+     "cacheRead": 0,
+     "cacheWrite": 1413,
+     "totalTokens": 2832,
+     "cost": {
+      "input": 0,
+      "output": 0,
+      "cacheRead": 0,
+      "cacheWrite": 0,
+      "total": 0
+     }
+    },
+    "stopReason": "toolUse",
+    "timestamp": 1792089683940
+   },
+   "toolResults": [
+    {
+     "role": "toolResult",
+     "toolCallId": "tool:1792089683940:dl0zwqd2fmt",
+     "toolName": "read",
+     "content": [
+      {
+       "type": "text",
+       "text": "a note for the read tool\n"
+      }
+     ],
+     "isError": false,
+     "timestamp": 1792089683955
+    }
+   ]
+  },
+  {
+   "type": "turn_start"
+  },
+  {
+   "type": "message_start",
+   "message": {
+    "role": "assistant",
+    "content": [],
+    "api": "faux:1792089683922:szpn25azp2m",
+    "provider": "faux",
+    "model": "faux-1",
+    "usage": {
+     "input": 20,
+     "output": 9,
+     "cacheRead": 1413,
+     "cacheWrite": 20,
+     "totalTokens": 1462,
+     "cost": {
+      "input": 0,
+      "output": 0,
+      "cacheRead": 0,
+      "cacheWrite": 0,
+      "total": 0
+     }
+    },
+    "stopReason": "pending",
+    "timestamp": 1792089683956
+   }
+  },
+  {
+   "type": "message_update",
+   "usage": {
+    "input": 20,
+    "output": 9,
+    "cacheRead": 1413,
+    "cacheWrite": 20,
+    "totalTokens": 1462,
+    "cost": {
+     "input": 0,
+     "output": 0,
+     "cacheRead": 0,
+     "cacheWrite": 0,
+     "total": 0
+    }
+   },
+   "assistantMessageEvent": {
+    "type": "text_start",
+    "contentIndex": 0
+   }
+  },
+  {
+   "type": "message_update",
+   "usage": {
+    "input": 20,
+    "output": 9,
+    "cacheRead": 1413,
+    "cacheWrite": 20,
+    "totalTokens": 1462,
+    "cost": {
+     "input": 0,
+     "output": 0,
+     "cacheRead": 0,
+     "cacheWrite": 0,
+     "total": 0
+    }
+   },
+   "assistantMessageEvent": {
+    "type": "text_delta",
+    "contentIndex": 0,
+    "delta": "tool said: a note fo"
+   }
+  },
+  {
+   "type": "message_update",
+   "usage": {
+    "input": 20,
+    "output": 9,
+    "cacheRead": 1413,
+    "cacheWrite": 20,
+    "totalTokens": 1462,
+    "cost": {
+     "input": 0,
+     "output": 0,
+     "cacheRead": 0,
+     "cacheWrite": 0,
+     "total": 0
+    }
+   },
+   "assistantMessageEvent": {
+    "type": "text_delta",
+    "contentIndex": 0,
+    "delta": "r the read tool"
+   }
+  },
+  {
+   "type": "message_update",
+   "usage": {
+    "input": 20,
+    "output": 9,
+    "cacheRead": 1413,
+    "cacheWrite": 20,
+    "totalTokens": 1462,
+    "cost": {
+     "input": 0,
+     "output": 0,
+     "cacheRead": 0,
+     "cacheWrite": 0,
+     "total": 0
+    }
+   },
+   "assistantMessageEvent": {
+    "type": "text_end",
+    "contentIndex": 0,
+    "content": "tool said: a note for the read tool"
+   }
+  },
+  {
+   "type": "message_end",
+   "message": {
+    "role": "assistant",
+    "content": [
+     {
+      "type": "text",
+      "text": "tool said: a note for the read tool"
+     }
+    ],
+    "api": "faux:1792089683922:szpn25azp2m",
+    "provider": "faux",
+    "model": "faux-1",
+    "usage": {
+     "input": 20,
+     "output": 9,
+     "cacheRead": 1413,
+     "cacheWrite": 20,
+     "totalTokens": 1462,
+     "cost": {
+      "input": 0,
+      "output": 0,
+      "cacheRead": 0,
+      "cacheWrite": 0,
+      "total": 0
+     }
+    },
+    "stopReason": "stop",
+    "timestamp": 1792089683956
+   }
+  },
+  {
+   "type": "turn_end",
+   "message": {
+    "role": "assistant",
+    "content": [
+     {
+      "type": "text",
+      "text": "tool said: a note for the read tool"
+     }
+    ],
+    "api": "faux:1792089683922:szpn25azp2m",
+    "provider": "faux",
+    "model": "faux-1",
+    "usage": {
+     "input": 20,
+     "output": 9,
+     "cacheRead": 1413,
+     "cacheWrite": 20,
+     "totalTokens": 1462,
+     "cost": {
+      "input": 0,
+      "output": 0,
+      "cacheRead": 0,
+      "cacheWrite": 0,
+      "total": 0
+     }
+    },
+    "stopReason": "stop",
+    "timestamp": 1792089683956
+   },
+   "toolResults": []
+  },
+  {
+   "type": "agent_end",
+   "messages": [
+    {
+     "role": "system",
+     "content": "",
+     "timestamp": 1792089683938
+    },
+    {
+     "role": "user",
+     "content": [
+      {
+       "type": "text",
+       "text": "read file note"
+      }
+     ],
+     "timestamp": 1792089683937
+    },
+    {
+     "role": "assistant",
+     "content": [
+      {
+       "type": "toolCall",
+       "id": "tool:1792089683940:dl0zwqd2fmt",
+       "name": "read",
+       "arguments": {
+        "path": "note.txt"
+       }
+      }
+     ],
+     "api": "faux:1792089683922:szpn25azp2m",
+     "provider": "faux",
+     "model": "faux-1",
+     "usage": {
+      "input": 1413,
+      "output": 6,
+      "cacheRead": 0,
+      "cacheWrite": 1413,
+      "totalTokens": 2832,
+      "cost": {
+       "input": 0,
+       "output": 0,
+       "cacheRead": 0,
+       "cacheWrite": 0,
+       "total": 0
+      }
+     },
+     "stopReason": "toolUse",
+     "timestamp": 1792089683940
+    },
+    {
+     "role": "toolResult",
+     "toolCallId": "tool:1792089683940:dl0zwqd2fmt",
+     "toolName": "read",
+     "content": [
+      {
+       "type": "text",
+       "text": "a note for the read tool\n"
+      }
+     ],
+     "isError": false,
+     "timestamp": 1792089683955
+    },
+    {
+     "role": "assistant",
+     "content": [
+      {
+       "type": "text",
+       "text": "tool said: a note for the read tool"
+      }
+     ],
+     "api": "faux:1792089683922:szpn25azp2m",
+     "provider": "faux",
+     "model": "faux-1",
+     "usage": {
+      "input": 20,
+      "output": 9,
+      "cacheRead": 1413,
+      "cacheWrite": 20,
+      "totalTokens": 1462,
+      "cost": {
+       "input": 0,
+       "output": 0,
+       "cacheRead": 0,
+       "cacheWrite": 0,
+       "total": 0
+      }
+     },
+     "stopReason": "stop",
+     "timestamp": 1792089683956
+    }
+   ],
+   "willRetry": false
+  },
+  {
+   "type": "agent_settled"
+  },
+  {
+   "sent": {
+    "type": "get_entries",
+    "id": "cap-3"
+   }
+  },
+  {
+   "id": "cap-3",
+   "type": "response",
+   "command": "get_entries",
+   "success": true,
+   "data": {
+    "entries": [
+     {
+      "type": "model_change",
+      "id": "2ffa812c",
+      "parentId": null,
+      "timestamp": "2026-10-15T18:41:23.932Z",
+      "provider": "faux",
+      "modelId": "faux-1"
+     },
+     {
+      "type": "thinking_level_change",
+      "id": "53e4e18e",
+      "parentId": "2ffa812c",
+      "timestamp": "2026-10-15T18:41:23.932Z",
+      "thinkingLevel": "medium"
+     },
+     {
+      "type": "message",
+      "id": "d9a520b0",
+      "parentId": "53e4e18e",
+      "timestamp": "2026-10-15T18:41:23.938Z",
+      "message": {
+       "role": "system",
+       "content": "",
+       "timestamp": 1792089683938
+      }
+     },
+     {
+      "type": "message",
+      "id": "b91481ca",
+      "parentId": "d9a520b0",
+      "timestamp": "2026-10-15T18:41:23.938Z",
+      "message": {
+       "role": "user",
+       "content": [
+        {
+         "type": "text",
+         "text": "read file note"
+        }
+       ],
+       "timestamp": 1792089683937
+      }
+     },
+     {
+      "type": "message",
+      "id": "b3d623be",
+      "parentId": "b91481ca",
+      "timestamp": "2026-10-15T18:41:23.952Z",
+      "message": {
+       "role": "assistant",
+       "content": [
+        {
+         "type": "toolCall",
+         "id": "tool:1792089683940:dl0zwqd2fmt",
+         "name": "read",
+         "arguments": {
+          "path": "note.txt"
+         }
+        }
+       ],
+       "api": "faux:1792089683922:szpn25azp2m",
+       "provider": "faux",
+       "model": "faux-1",
+       "usage": {
+        "input": 1413,
+        "output": 6,
+        "cacheRead": 0,
+        "cacheWrite": 1413,
+        "totalTokens": 2832,
+        "cost": {
+         "input": 0,
+         "output": 0,
+         "cacheRead": 0,
+         "cacheWrite": 0,
+         "total": 0
+        }
+       },
+       "stopReason": "toolUse",
+       "timestamp": 1792089683940
+      }
+     },
+     {
+      "type": "message",
+      "id": "63bc6ee2",
+      "parentId": "b3d623be",
+      "timestamp": "2026-10-15T18:41:23.955Z",
+      "message": {
+       "role": "toolResult",
+       "toolCallId": "tool:1792089683940:dl0zwqd2fmt",
+       "toolName": "read",
+       "content": [
+        {
+         "type": "text",
+         "text": "a note for the read tool\n"
+        }
+       ],
+       "isError": false,
+       "timestamp": 1792089683955
+      }
+     },
+     {
+      "type": "message",
+      "id": "85d53bdb",
+      "parentId": "63bc6ee2",
+      "timestamp": "2026-10-15T18:41:23.979Z",
+      "message": {
+       "role": "assistant",
+       "content": [
+        {
+         "type": "text",
+         "text": "tool said: a note for the read tool"
+        }
+       ],
+       "api": "faux:1792089683922:szpn25azp2m",
+       "provider": "faux",
+       "model": "faux-1",
+       "usage": {
+        "input": 20,
+        "output": 9,
+        "cacheRead": 1413,
+        "cacheWrite": 20,
+        "totalTokens": 1462,
+        "cost": {
+         "input": 0,
+         "output": 0,
+         "cacheRead": 0,
+         "cacheWrite": 0,
+         "total": 0
+        }
+       },
+       "stopReason": "stop",
+       "timestamp": 1792089683956
+      }
+     }
+    ],
+    "leafId": "85d53bdb"
+   }
+  }
+ ],
+ "entries": {
+  "entries": [
+   {
+    "type": "model_change",
+    "id": "2ffa812c",
+    "parentId": null,
+    "timestamp": "2026-10-15T18:41:23.932Z",
+    "provider": "faux",
+    "modelId": "faux-1"
+   },
+   {
+    "type": "thinking_level_change",
+    "id": "53e4e18e",
+    "parentId": "2ffa812c",
+    "timestamp": "2026-10-15T18:41:23.932Z",
+    "thinkingLevel": "medium"
+   },
+   {
+    "type": "message",
+    "id": "d9a520b0",
+    "parentId": "53e4e18e",
+    "timestamp": "2026-10-15T18:41:23.938Z",
+    "message": {
+     "role": "system",
+     "content": "",
+     "timestamp": 1792089683938
+    }
+   },
+   {
+    "type": "message",
+    "id": "b91481ca",
+    "parentId": "d9a520b0",
+    "timestamp": "2026-10-15T18:41:23.938Z",
+    "message": {
+     "role": "user",
+     "content": [
+      {
+       "type": "text",
+       "text": "read file note"
+      }
+     ],
+     "timestamp": 1792089683937
+    }
+   },
+   {
+    "type": "message",
+    "id": "b3d623be",
+    "parentId": "b91481ca",
+    "timestamp": "2026-10-15T18:41:23.952Z",
+    "message": {
+     "role": "assistant",
+     "content": [
+      {
+       "type": "toolCall",
+       "id": "tool:1792089683940:dl0zwqd2fmt",
+       "name": "read",
+       "arguments": {
+        "path": "note.txt"
+       }
+      }
+     ],
+     "api": "faux:1792089683922:szpn25azp2m",
+     "provider": "faux",
+     "model": "faux-1",
+     "usage": {
+      "input": 1413,
+      "output": 6,
+      "cacheRead": 0,
+      "cacheWrite": 1413,
+      "totalTokens": 2832,
+      "cost": {
+       "input": 0,
+       "output": 0,
+       "cacheRead": 0,
+       "cacheWrite": 0,
+       "total": 0
+      }
+     },
+     "stopReason": "toolUse",
+     "timestamp": 1792089683940
+    }
+   },
+   {
+    "type": "message",
+    "id": "63bc6ee2",
+    "parentId": "b3d623be",
+    "timestamp": "2026-10-15T18:41:23.955Z",
+    "message": {
+     "role": "toolResult",
+     "toolCallId": "tool:1792089683940:dl0zwqd2fmt",
+     "toolName": "read",
+     "content": [
+      {
+       "type": "text",
+       "text": "a note for the read tool\n"
+      }
+     ],
+     "isError": false,
+     "timestamp": 1792089683955
+    }
+   },
+   {
+    "type": "message",
+    "id": "85d53bdb",
+    "parentId": "63bc6ee2",
+    "timestamp": "2026-10-15T18:41:23.979Z",
+    "message": {
+     "role": "assistant",
+     "content": [
+      {
+       "type": "text",
+       "text": "tool said: a note for the read tool"
+      }
+     ],
+     "api": "faux:1792089683922:szpn25azp2m",
+     "provider": "faux",
+     "model": "faux-1",
+     "usage": {
+      "input": 20,
+      "output": 9,
+      "cacheRead": 1413,
+      "cacheWrite": 20,
+      "totalTokens": 1462,
+      "cost": {
+       "input": 0,
+       "output": 0,
+       "cacheRead": 0,
+       "cacheWrite": 0,
+       "total": 0
+      }
+     },
+     "stopReason": "stop",
+     "timestamp": 1792089683956
+    }
+   }
+  ],
+  "leafId": "85d53bdb"
+ }
+}

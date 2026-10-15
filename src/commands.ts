@@ -125,10 +125,11 @@ export const LOCAL_COMMANDS: LocalCommand[] = [
   // Help / exit
   { name: 'help', description: 'Show shortcuts and commands' },
   { name: 'tips', description: 'Show usage tips and shortcuts' },
-  { name: 'kernel', description: 'Choose the kernel dsh-tui runs on (DSH, Codex or Claude)' },
+  { name: 'kernel', description: 'Choose the kernel dsh-tui runs on (DSH, Codex, Claude or pi)' },
   { name: 'dsh', description: 'Switch to the DSH kernel (restarts into a new session)' },
   { name: 'codex', description: 'Switch to the Codex kernel (restarts into a new session)' },
   { name: 'claude', description: 'Switch to the Claude kernel (restarts into a new session)' },
+  { name: 'pi', description: 'Switch to the pi kernel (restarts into a new session)' },
   { name: 'restart', description: 'Restart dsh-tui and resume this session' },
   { name: 'exit', description: 'Exit dsh-tui' },
   { name: 'quit', description: 'Exit dsh-tui', tag: 'alias of /exit' },
@@ -202,7 +203,7 @@ const LOCAL_COMMAND_REQUIREMENTS: ReadonlyMap<string, LocalCommandRequirement> =
   ['connect', 'any'], ['update', 'any'], ['export', 'any'], ['panel', 'any'],
   // The composition root serves these by respawning the process, so every
   // backend offers them, including the direct kernel shortcuts.
-  ['kernel', 'any'], ['dsh', 'any'], ['codex', 'any'], ['claude', 'any'], ['restart', 'any'],
+  ['kernel', 'any'], ['dsh', 'any'], ['codex', 'any'], ['claude', 'any'], ['pi', 'any'], ['restart', 'any'],
   ['compact', 'compact'], ['resume', 'resume'], ['home', 'resume'], ['agentview', 'resume'],
   ['bg', 'resume'], ['background', 'resume'], ['rewind', 'rewind'], ['fork', 'fork'],
   ['model', 'models'], ['effort', 'effort'], ['agents', 'subagents'], ['jobs', 'tasks'], ['mcp', 'mcp'],
@@ -288,7 +289,7 @@ const BOOT_SAFE_COMMAND_NAMES: ReadonlySet<string> = new Set([
   'exit', 'quit', 'q',
   'help', 'tips',
   'theme', 'lang', 'vim',
-  'kernel', 'dsh', 'codex', 'claude',
+  'kernel', 'dsh', 'codex', 'claude', 'pi',
   'deepseek',
   // Opening a session by hand: the retry after a failed startup open. Run
   // while the open is still going, the binding drops the startup candidate.

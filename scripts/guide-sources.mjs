@@ -42,6 +42,7 @@ export const GUIDE_DOCS = [
   'configuration',
   'claude-backend',
   'codex-backend',
+  'pi-backend',
   'themes',
   'migrate',
   'vscode',

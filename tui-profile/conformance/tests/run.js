@@ -221,7 +221,7 @@ for (const [name, relative, expected] of [
   // wearing one at admission (`BACKEND_ID_RESERVED`), while its own seed — the
   // bundled backends — legitimately carries them. Publishing the list here is what
   // lets that refusal name the same set.
-  assert.deepEqual([...BACKEND_RESERVED_IDS], ['dsh', 'claude', 'codex'])
+  assert.deepEqual([...BACKEND_RESERVED_IDS], ['dsh', 'claude', 'codex', 'pi'])
   const seedShape = validate('Backend declaration shape accepts a host-owned id (the seed is not a contribution)', { ...spec, id: BACKEND_RESERVED_IDS[0] }, undefined, value => {
     validateBackendSpec(value)
   })

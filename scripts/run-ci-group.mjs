@@ -1035,6 +1035,18 @@ const GROUPS = {
 // 内核目录（N7）：三内核、未探测/未安装置灰（登录态不再置灰）、loginInSession 可选并提示、
 // 只有可一键安装的内核给安装向导、版本产品前缀、--backend 接受 codex。
     ["verify-kernel-catalog", ['node', '--import', 'tsx/esm', 'scripts/verify-kernel-catalog.ts']],
+// pi 后端（docs/pi-backend.md）：真 pi 0.87.1 驱动脚本化 faux 模型录下的 RPC 线缆夹具
+// （scripts/capture-pi-fixtures.ts）——实时翻译与 get_entries 回放结算成同一份转录、
+// 工具卡/思考块/插话并入当前回合/中断/压缩检查点/被拒压缩；工具卡与版本策略、
+// 严格 LF 分帧（U+2028 留在串内）、npm shim 解析的纯函数。不起进程。
+    ["verify-pi-translate", ['node', '--import', 'tsx/esm', 'scripts/verify-pi-translate.ts']],
+// pi 会话层（假 pi --mode rpc 子进程）：启动积压、录制回合端到端、插话与待发队列认领、
+// 打断先 clear_queue 再 abort、扩展对话框（作答/超时撤回/abort 前先回 cancelled）、
+// 扩展命令不阻塞输入、被拒 prompt、控制项改后回读、崩溃、启动失败、按文件路径恢复。
+    ["verify-pi-session", ['node', '--import', 'tsx/esm', 'scripts/verify-pi-session.ts']],
+// pi 离线会话目录（手工构造的会话文件）：按项目树与扁平存储、标题证据、fork、
+// 大文件只读首尾、按活动分支预览、跨项目按 id 查找、本机最近使用。
+    ["verify-pi-catalog", ['node', '--import', 'tsx/esm', 'scripts/verify-pi-catalog.ts']],
 // IDE 选区通道回归（PR #562）：纯函数（env 直连/lock 扫描与 workspace
 // 匹配过滤/hello_ack 解析/selection_changed 校验）、无 IDE 静默降级、
 // loopback 对连（token 握手 ACK、错误 token 换下一候选、断连清空）、

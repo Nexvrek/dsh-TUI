@@ -329,7 +329,7 @@ const expectBackend = (name: string, body: () => unknown, pass: boolean): void =
   expect('the implemented confirmation policies are exactly confirm and trusted-source',
     [...BACKEND_CONFIRMATION_POLICIES].join(',') === 'confirm,trusted-source', [...BACKEND_CONFIRMATION_POLICIES].join(','))
   expect('the Backend family reserve exactly the registry built-ins',
-    [...BACKEND_RESERVED_IDS].join(',') === 'dsh,claude,codex', [...BACKEND_RESERVED_IDS].join(','))
+    [...BACKEND_RESERVED_IDS].join(',') === 'dsh,claude,codex,pi', [...BACKEND_RESERVED_IDS].join(','))
   expect('the Backend declaration validator freezes what it returns',
     Object.isFrozen(validateBackendSpec(spec)) === true)
 }

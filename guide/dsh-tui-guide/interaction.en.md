@@ -823,7 +823,7 @@ The command menu merges local commands with the DSH command registry. Type `/` t
   a later direct launch follows the flag. A fresh launch lands on the launchpad
   whichever kernel is remembered; a launch with a resume target goes straight
   into the session.
-- `/dsh`, `/codex`, `/claude` — directly choose the named kernel through the same
+- `/dsh`, `/codex`, `/claude`, `/pi` — directly choose the named kernel through the same
   checks and restart flow as `/kernel`. Choosing the current kernel only reports
   that it is already current; a running turn blocks switching. Missing Claude
   opens the install wizard; missing or outdated Codex shows install/upgrade guidance.

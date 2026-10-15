@@ -284,6 +284,32 @@ Using ChatGPT subscription tokens in third-party clients is subject to
 OpenAI’s terms. Full instructions and current boundaries:
 [Codex backend](docs/codex-backend.en.md).
 
+### Experimental: pi backend
+
+Run your own [pi](https://github.com/earendil-works/pi): one `pi --mode rpc`
+child per session, with pi's own settings, models and logins, extensions,
+skills and prompt templates, and session files shared with pi:
+
+```sh
+npm install -g @earendil-works/pi-coding-agent
+dsh-tui --backend pi
+dsh-tui --backend pi --resume <session-id>
+```
+
+Validated on **0.87.1**, minimum **0.84.4**; other versions show a drift
+notice. `DSH_TUI_PI_EXECUTABLE` selects an executable; `/kernel` or `/pi`
+switch. Streaming and thinking, tool cards (`edit` shows pi's patch, `bash`
+live output), queueing and steering (a steer joins the running turn),
+interrupts, `/model` (pi's signed-in models as `provider/model`), `/effort`
+(pi's thinking level), `/compact`, `/context`, pi's extension commands, prompt
+templates and skills, extension dialogs (on the questionnaire), images,
+`/rename`, `/fork` and the double-`Esc` rewind (conversation only) use the
+existing surfaces. pi does not approve tools and neither
+does dsh-TUI; sign in through pi; a project's `.pi/` resources load only when
+pi trusts the project. An end-to-end run of the local pi 0.87.1 on a scripted
+faux model passed (no network, no charge); real provider turns were not run.
+Details: [pi backend](docs/pi-backend.en.md).
+
 ## Keybindings & Mouse
 
 `Enter` send · `Tab` complete · `Ctrl+Enter` interrupt and send · `Alt+Up` recall the last message · `Esc` dismiss, double-`Esc` rewinds · `Ctrl+B` side panel · `Ctrl+O` details · `Ctrl+R` history (`↑`/`↓` and `Ctrl+R` are scoped to the current project) · `Ctrl+V` paste · `Ctrl+Shift+E` fullscreen draft editor · `?` shortcuts · `←` open the session manager (DSH backgrounds the current session first).
@@ -328,9 +354,9 @@ Full reference: [Interaction and commands](docs/interaction.en.md).
 
 `/resume` · `/home` · `/agentview` · `/bg` · `⌸` open the same session manager: workspace rail, live state, filter, ★ pins. Also `/model` `/new` `/compact` `/export` `/btw` `/tree` `/fork` `/rewind` `/settings` `/setup` `/status` `/cost` `/jobs` `/skills` `/mcp` `/provider` `/auth` `/login` `/update`.
 
-`/dsh`, `/codex`, and `/claude` switch directly to the named kernel, just like choosing it in `/kernel`: the choice is remembered and the process restarts into a new session. A running turn blocks switching; choosing the current kernel keeps the session. Availability checks and the Claude install wizard follow the same picker flow.
+`/dsh`, `/codex`, `/claude`, and `/pi` switch directly to the named kernel, just like choosing it in `/kernel`: the choice is remembered and the process restarts into a new session. A running turn blocks switching; choosing the current kernel keeps the session. Availability checks and the Claude install wizard follow the same picker flow.
 
-`/model` shows models and reasoning effort on one page. DSH has provider tabs with **Recently used** first, moving the current model to the top; `Tab` / `Shift+Tab` select the next / previous provider. Codex and Claude open their model catalogs directly, without provider or recents tabs. `↑/↓` select a model, `←/→` adjust its effort, `Enter` applies the model and any explicit effort draft, and `Esc` cancels. Changing only the model preserves the backend's preference handling. Mouse users can click the available tabs, models, effort levels, and select/cancel hints; clicking an effort level immediately applies the focused model and that effort and closes the picker. The wheel moves through models.
+`/model` shows models and reasoning effort on one page. DSH has provider tabs with **Recently used** first, moving the current model to the top; `Tab` / `Shift+Tab` select the next / previous provider. Codex, Claude and pi open their model catalogs directly, without provider or recents tabs (pi lists its models as `provider/model`). `↑/↓` select a model, `←/→` adjust its effort, `Enter` applies the model and any explicit effort draft, and `Esc` cancels. Changing only the model preserves the backend's preference handling. Mouse users can click the available tabs, models, effort levels, and select/cancel hints; clicking an effort level immediately applies the focused model and that effort and closes the picker. The wheel moves through models.
 
 Short terminals keep the focused model and select/cancel actions visible, hiding descriptions and neighboring models first, then the effort row when only two rows remain.
 Shortcuts sit below the title and effort levels have their own section; DSH, Claude, and Codex use the terminal background while covering the text underneath.
@@ -344,7 +370,7 @@ History-only directories offer edit and new-session actions; rename and remove a
 
 **Background jobs**: card headers open the focused task panel. Click the card body or use `Ctrl+O` to toggle the command between its first statement and full script. Commands and output use separate colored edges with `❯` (`>` on Windows) and `≡` on their first rows; output always stays at the latest two visible rows. `/jobs` and the side panel keep the full output scrollable, while `e` toggles the focused command. Consecutive blank script lines collapse to one.
 
-**Background sessions**: On the DSH backend, `/bg` or `←` on an empty prompt backgrounds the current session and opens the session manager; `Esc` returns to it. Background sessions run in this process and stop when the TUI exits. Logs survive. On Claude/Codex, those entries open the session manager without backgrounding the session.
+**Background sessions**: On the DSH backend, `/bg` or `←` on an empty prompt backgrounds the current session and opens the session manager; `Esc` returns to it. Background sessions run in this process and stop when the TUI exits. Logs survive. On Claude/Codex/pi, those entries open the session manager without backgrounding the session.
 
 Full commands: [Interaction and commands](docs/interaction.en.md).
 

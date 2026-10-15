@@ -1,0 +1,1568 @@
+{
+ "scenario": "tool-turn",
+ "records": [
+  {
+   "sent": {
+    "type": "get_state",
+    "id": "cap-1"
+   }
+  },
+  {
+   "id": "cap-1",
+   "type": "response",
+   "command": "get_state",
+   "success": true,
+   "data": {
+    "model": {
+     "id": "faux-1",
+     "name": "Faux One",
+     "reasoning": true,
+     "input": [
+      "text",
+      "image"
+     ],
+     "cost": {
+      "input": 0,
+      "output": 0,
+      "cacheRead": 0,
+      "cacheWrite": 0
+     },
+     "contextWindow": 128000,
+     "maxTokens": 4096,
+     "api": "faux:1792089683654:sup2iajzx9",
+     "provider": "faux",
+     "baseUrl": "http://localhost:0"
+    },
+    "thinkingLevel": "medium",
+    "isStreaming": false,
+    "isCompacting": false,
+    "steeringMode": "one-at-a-time",
+    "followUpMode": "one-at-a-time",
+    "sessionId": "01a140de-76b6-718c-a3c0-f795f31b4cc3",
+    "autoCompactionEnabled": true,
+    "messageCount": 0,
+    "pendingMessageCount": 0
+   }
+  },
+  {
+   "sent": {
+    "type": "prompt",
+    "message": "use tool please",
+    "streamingBehavior": "followUp",
+    "id": "cap-2"
+   }
+  },
+  {
+   "id": "cap-2",
+   "type": "response",
+   "command": "prompt",
+   "success": true
+  },
+  {
+   "type": "agent_start"
+  },
+  {
+   "type": "turn_start"
+  },
+  {
+   "type": "message_start",
+   "message": {
+    "role": "system",
+    "content": "",
+    "timestamp": 1792089683671
+   }
+  },
+  {
+   "type": "message_end",
+   "message": {
+    "role": "system",
+    "content": "",
+    "timestamp": 1792089683671
+   }
+  },
+  {
+   "type": "message_start",
+   "message": {
+    "role": "user",
+    "content": [
+     {
+      "type": "text",
+      "text": "use tool please"
+     }
+    ],
+    "timestamp": 1792089683671
+   }
+  },
+  {
+   "type": "message_end",
+   "message": {
+    "role": "user",
+    "content": [
+     {
+      "type": "text",
+      "text": "use tool please"
+     }
+    ],
+    "timestamp": 1792089683671
+   }
+  },
+  {
+   "type": "message_start",
+   "message": {
+    "role": "assistant",
+    "content": [],
+    "api": "faux:1792089683654:sup2iajzx9",
+    "provider": "faux",
+    "model": "faux-1",
+    "usage": {
+     "input": 1413,
+     "output": 16,
+     "cacheRead": 0,
+     "cacheWrite": 1413,
+     "totalTokens": 2842,
+     "cost": {
+      "input": 0,
+      "output": 0,
+      "cacheRead": 0,
+      "cacheWrite": 0,
+      "total": 0
+     }
+    },
+    "stopReason": "pending",
+    "timestamp": 1792089683674
+   }
+  },
+  {
+   "type": "message_update",
+   "usage": {
+    "input": 1413,
+    "output": 16,
+    "cacheRead": 0,
+    "cacheWrite": 1413,
+    "totalTokens": 2842,
+    "cost": {
+     "input": 0,
+     "output": 0,
+     "cacheRead": 0,
+     "cacheWrite": 0,
+     "total": 0
+    }
+   },
+   "assistantMessageEvent": {
+    "type": "thinking_start",
+    "contentIndex": 0
+   }
+  },
+  {
+   "type": "message_update",
+   "usage": {
+    "input": 1413,
+    "output": 16,
+    "cacheRead": 0,
+    "cacheWrite": 1413,
+    "totalTokens": 2842,
+    "cost": {
+     "input": 0,
+     "output": 0,
+     "cacheRead": 0,
+     "cacheWrite": 0,
+     "total": 0
+    }
+   },
+   "assistantMessageEvent": {
+    "type": "thinking_delta",
+    "contentIndex": 0,
+    "delta": "I should run a comma"
+   }
+  },
+  {
+   "type": "message_update",
+   "usage": {
+    "input": 1413,
+    "output": 16,
+    "cacheRead": 0,
+    "cacheWrite": 1413,
+    "totalTokens": 2842,
+    "cost": {
+     "input": 0,
+     "output": 0,
+     "cacheRead": 0,
+     "cacheWrite": 0,
+     "total": 0
+    }
+   },
+   "assistantMessageEvent": {
+    "type": "thinking_delta",
+    "contentIndex": 0,
+    "delta": "nd."
+   }
+  },
+  {
+   "type": "message_update",
+   "usage": {
+    "input": 1413,
+    "output": 16,
+    "cacheRead": 0,
+    "cacheWrite": 1413,
+    "totalTokens": 2842,
+    "cost": {
+     "input": 0,
+     "output": 0,
+     "cacheRead": 0,
+     "cacheWrite": 0,
+     "total": 0
+    }
+   },
+   "assistantMessageEvent": {
+    "type": "thinking_end",
+    "contentIndex": 0,
+    "content": "I should run a command."
+   }
+  },
+  {
+   "type": "message_update",
+   "usage": {
+    "input": 1413,
+    "output": 16,
+    "cacheRead": 0,
+    "cacheWrite": 1413,
+    "totalTokens": 2842,
+    "cost": {
+     "input": 0,
+     "output": 0,
+     "cacheRead": 0,
+     "cacheWrite": 0,
+     "total": 0
+    }
+   },
+   "assistantMessageEvent": {
+    "type": "toolcall_start",
+    "contentIndex": 1,
+    "id": "tool:1792089683674:b8gmv9flxy",
+    "toolName": "bash"
+   }
+  },
+  {
+   "type": "message_update",
+   "usage": {
+    "input": 1413,
+    "output": 16,
+    "cacheRead": 0,
+    "cacheWrite": 1413,
+    "totalTokens": 2842,
+    "cost": {
+     "input": 0,
+     "output": 0,
+     "cacheRead": 0,
+     "cacheWrite": 0,
+     "total": 0
+    }
+   },
+   "assistantMessageEvent": {
+    "type": "toolcall_delta",
+    "contentIndex": 1,
+    "delta": "{\"command\":\""
+   }
+  },
+  {
+   "type": "message_update",
+   "usage": {
+    "input": 1413,
+    "output": 16,
+    "cacheRead": 0,
+    "cacheWrite": 1413,
+    "totalTokens": 2842,
+    "cost": {
+     "input": 0,
+     "output": 0,
+     "cacheRead": 0,
+     "cacheWrite": 0,
+     "total": 0
+    }
+   },
+   "assistantMessageEvent": {
+    "type": "toolcall_delta",
+    "contentIndex": 1,
+    "delta": "echo hello-from-tool"
+   }
+  },
+  {
+   "type": "message_update",
+   "usage": {
+    "input": 1413,
+    "output": 16,
+    "cacheRead": 0,
+    "cacheWrite": 1413,
+    "totalTokens": 2842,
+    "cost": {
+     "input": 0,
+     "output": 0,
+     "cacheRead": 0,
+     "cacheWrite": 0,
+     "total": 0
+    }
+   },
+   "assistantMessageEvent": {
+    "type": "toolcall_delta",
+    "contentIndex": 1,
+    "delta": "\"}"
+   }
+  },
+  {
+   "type": "message_update",
+   "usage": {
+    "input": 1413,
+    "output": 16,
+    "cacheRead": 0,
+    "cacheWrite": 1413,
+    "totalTokens": 2842,
+    "cost": {
+     "input": 0,
+     "output": 0,
+     "cacheRead": 0,
+     "cacheWrite": 0,
+     "total": 0
+    }
+   },
+   "assistantMessageEvent": {
+    "type": "toolcall_end",
+    "contentIndex": 1,
+    "toolCall": {
+     "type": "toolCall",
+     "id": "tool:1792089683674:b8gmv9flxy",
+     "name": "bash",
+     "arguments": {
+      "command": "echo hello-from-tool"
+     }
+    }
+   }
+  },
+  {
+   "type": "message_end",
+   "message": {
+    "role": "assistant",
+    "content": [
+     {
+      "type": "thinking",
+      "thinking": "I should run a command."
+     },
+     {
+      "type": "toolCall",
+      "id": "tool:1792089683674:b8gmv9flxy",
+      "name": "bash",
+      "arguments": {
+       "command": "echo hello-from-tool"
+      }
+     }
+    ],
+    "api": "faux:1792089683654:sup2iajzx9",
+    "provider": "faux",
+    "model": "faux-1",
+    "usage": {
+     "input": 1413,
+     "output": 16,
+     "cacheRead": 0,
+     "cacheWrite": 1413,
+     "totalTokens": 2842,
+     "cost": {
+      "input": 0,
+      "output": 0,
+      "cacheRead": 0,
+      "cacheWrite": 0,
+      "total": 0
+     }
+    },
+    "stopReason": "toolUse",
+    "timestamp": 1792089683674
+   }
+  },
+  {
+   "type": "tool_execution_start",
+   "toolCallId": "tool:1792089683674:b8gmv9flxy",
+   "toolName": "bash",
+   "args": {
+    "command": "echo hello-from-tool"
+   }
+  },
+  {
+   "type": "tool_execution_update",
+   "toolCallId": "tool:1792089683674:b8gmv9flxy",
+   "toolName": "bash",
+   "args": {
+    "command": "echo hello-from-tool"
+   },
+   "partialResult": {
+    "content": []
+   }
+  },
+  {
+   "type": "tool_execution_update",
+   "toolCallId": "tool:1792089683674:b8gmv9flxy",
+   "toolName": "bash",
+   "args": {
+    "command": "echo hello-from-tool"
+   },
+   "partialResult": {
+    "content": [
+     {
+      "type": "text",
+      "text": "hello-from-tool\n"
+     }
+    ],
+    "details": {}
+   }
+  },
+  {
+   "type": "tool_execution_end",
+   "toolCallId": "tool:1792089683674:b8gmv9flxy",
+   "toolName": "bash",
+   "result": {
+    "content": [
+     {
+      "type": "text",
+      "text": "hello-from-tool\n"
+     }
+    ]
+   },
+   "isError": false
+  },
+  {
+   "type": "message_start",
+   "message": {
+    "role": "toolResult",
+    "toolCallId": "tool:1792089683674:b8gmv9flxy",
+    "toolName": "bash",
+    "content": [
+     {
+      "type": "text",
+      "text": "hello-from-tool\n"
+     }
+    ],
+    "isError": false,
+    "timestamp": 1792089683717
+   }
+  },
+  {
+   "type": "message_end",
+   "message": {
+    "role": "toolResult",
+    "toolCallId": "tool:1792089683674:b8gmv9flxy",
+    "toolName": "bash",
+    "content": [
+     {
+      "type": "text",
+      "text": "hello-from-tool\n"
+     }
+    ],
+    "isError": false,
+    "timestamp": 1792089683717
+   }
+  },
+  {
+   "type": "turn_end",
+   "message": {
+    "role": "assistant",
+    "content": [
+     {
+      "type": "thinking",
+      "thinking": "I should run a command."
+     },
+     {
+      "type": "toolCall",
+      "id": "tool:1792089683674:b8gmv9flxy",
+      "name": "bash",
+      "arguments": {
+       "command": "echo hello-from-tool"
+      }
+     }
+    ],
+    "api": "faux:1792089683654:sup2iajzx9",
+    "provider": "faux",
+    "model": "faux-1",
+    "usage": {
+     "input": 1413,
+     "output": 16,
+     "cacheRead": 0,
+     "cacheWrite": 1413,
+     "totalTokens": 2842,
+     "cost": {
+      "input": 0,
+      "output": 0,
+      "cacheRead": 0,
+      "cacheWrite": 0,
+      "total": 0
+     }
+    },
+    "stopReason": "toolUse",
+    "timestamp": 1792089683674
+   },
+   "toolResults": [
+    {
+     "role": "toolResult",
+     "toolCallId": "tool:1792089683674:b8gmv9flxy",
+     "toolName": "bash",
+     "content": [
+      {
+       "type": "text",
+       "text": "hello-from-tool\n"
+      }
+     ],
+     "isError": false,
+     "timestamp": 1792089683717
+    }
+   ]
+  },
+  {
+   "type": "turn_start"
+  },
+  {
+   "type": "message_start",
+   "message": {
+    "role": "assistant",
+    "content": [],
+    "api": "faux:1792089683654:sup2iajzx9",
+    "provider": "faux",
+    "model": "faux-1",
+    "usage": {
+     "input": 28,
+     "output": 7,
+     "cacheRead": 1413,
+     "cacheWrite": 28,
+     "totalTokens": 1476,
+     "cost": {
+      "input": 0,
+      "output": 0,
+      "cacheRead": 0,
+      "cacheWrite": 0,
+      "total": 0
+     }
+    },
+    "stopReason": "pending",
+    "timestamp": 1792089683718
+   }
+  },
+  {
+   "type": "message_update",
+   "usage": {
+    "input": 28,
+    "output": 7,
+    "cacheRead": 1413,
+    "cacheWrite": 28,
+    "totalTokens": 1476,
+    "cost": {
+     "input": 0,
+     "output": 0,
+     "cacheRead": 0,
+     "cacheWrite": 0,
+     "total": 0
+    }
+   },
+   "assistantMessageEvent": {
+    "type": "text_start",
+    "contentIndex": 0
+   }
+  },
+  {
+   "type": "message_update",
+   "usage": {
+    "input": 28,
+    "output": 7,
+    "cacheRead": 1413,
+    "cacheWrite": 28,
+    "totalTokens": 1476,
+    "cost": {
+     "input": 0,
+     "output": 0,
+     "cacheRead": 0,
+     "cacheWrite": 0,
+     "total": 0
+    }
+   },
+   "assistantMessageEvent": {
+    "type": "text_delta",
+    "contentIndex": 0,
+    "delta": "tool said: h"
+   }
+  },
+  {
+   "type": "message_update",
+   "usage": {
+    "input": 28,
+    "output": 7,
+    "cacheRead": 1413,
+    "cacheWrite": 28,
+    "totalTokens": 1476,
+    "cost": {
+     "input": 0,
+     "output": 0,
+     "cacheRead": 0,
+     "cacheWrite": 0,
+     "total": 0
+    }
+   },
+   "assistantMessageEvent": {
+    "type": "text_delta",
+    "contentIndex": 0,
+    "delta": "ello-from-to"
+   }
+  },
+  {
+   "type": "message_update",
+   "usage": {
+    "input": 28,
+    "output": 7,
+    "cacheRead": 1413,
+    "cacheWrite": 28,
+    "totalTokens": 1476,
+    "cost": {
+     "input": 0,
+     "output": 0,
+     "cacheRead": 0,
+     "cacheWrite": 0,
+     "total": 0
+    }
+   },
+   "assistantMessageEvent": {
+    "type": "text_delta",
+    "contentIndex": 0,
+    "delta": "ol"
+   }
+  },
+  {
+   "type": "message_update",
+   "usage": {
+    "input": 28,
+    "output": 7,
+    "cacheRead": 1413,
+    "cacheWrite": 28,
+    "totalTokens": 1476,
+    "cost": {
+     "input": 0,
+     "output": 0,
+     "cacheRead": 0,
+     "cacheWrite": 0,
+     "total": 0
+    }
+   },
+   "assistantMessageEvent": {
+    "type": "text_end",
+    "contentIndex": 0,
+    "content": "tool said: hello-from-tool"
+   }
+  },
+  {
+   "type": "message_end",
+   "message": {
+    "role": "assistant",
+    "content": [
+     {
+      "type": "text",
+      "text": "tool said: hello-from-tool"
+     }
+    ],
+    "api": "faux:1792089683654:sup2iajzx9",
+    "provider": "faux",
+    "model": "faux-1",
+    "usage": {
+     "input": 28,
+     "output": 7,
+     "cacheRead": 1413,
+     "cacheWrite": 28,
+     "totalTokens": 1476,
+     "cost": {
+      "input": 0,
+      "output": 0,
+      "cacheRead": 0,
+      "cacheWrite": 0,
+      "total": 0
+     }
+    },
+    "stopReason": "stop",
+    "timestamp": 1792089683718
+   }
+  },
+  {
+   "type": "turn_end",
+   "message": {
+    "role": "assistant",
+    "content": [
+     {
+      "type": "text",
+      "text": "tool said: hello-from-tool"
+     }
+    ],
+    "api": "faux:1792089683654:sup2iajzx9",
+    "provider": "faux",
+    "model": "faux-1",
+    "usage": {
+     "input": 28,
+     "output": 7,
+     "cacheRead": 1413,
+     "cacheWrite": 28,
+     "totalTokens": 1476,
+     "cost": {
+      "input": 0,
+      "output": 0,
+      "cacheRead": 0,
+      "cacheWrite": 0,
+      "total": 0
+     }
+    },
+    "stopReason": "stop",
+    "timestamp": 1792089683718
+   },
+   "toolResults": []
+  },
+  {
+   "type": "agent_end",
+   "messages": [
+    {
+     "role": "system",
+     "content": "",
+     "timestamp": 1792089683671
+    },
+    {
+     "role": "user",
+     "content": [
+      {
+       "type": "text",
+       "text": "use tool please"
+      }
+     ],
+     "timestamp": 1792089683671
+    },
+    {
+     "role": "assistant",
+     "content": [
+      {
+       "type": "thinking",
+       "thinking": "I should run a command."
+      },
+      {
+       "type": "toolCall",
+       "id": "tool:1792089683674:b8gmv9flxy",
+       "name": "bash",
+       "arguments": {
+        "command": "echo hello-from-tool"
+       }
+      }
+     ],
+     "api": "faux:1792089683654:sup2iajzx9",
+     "provider": "faux",
+     "model": "faux-1",
+     "usage": {
+      "input": 1413,
+      "output": 16,
+      "cacheRead": 0,
+      "cacheWrite": 1413,
+      "totalTokens": 2842,
+      "cost": {
+       "input": 0,
+       "output": 0,
+       "cacheRead": 0,
+       "cacheWrite": 0,
+       "total": 0
+      }
+     },
+     "stopReason": "toolUse",
+     "timestamp": 1792089683674
+    },
+    {
+     "role": "toolResult",
+     "toolCallId": "tool:1792089683674:b8gmv9flxy",
+     "toolName": "bash",
+     "content": [
+      {
+       "type": "text",
+       "text": "hello-from-tool\n"
+      }
+     ],
+     "isError": false,
+     "timestamp": 1792089683717
+    },
+    {
+     "role": "assistant",
+     "content": [
+      {
+       "type": "text",
+       "text": "tool said: hello-from-tool"
+      }
+     ],
+     "api": "faux:1792089683654:sup2iajzx9",
+     "provider": "faux",
+     "model": "faux-1",
+     "usage": {
+      "input": 28,
+      "output": 7,
+      "cacheRead": 1413,
+      "cacheWrite": 28,
+      "totalTokens": 1476,
+      "cost": {
+       "input": 0,
+       "output": 0,
+       "cacheRead": 0,
+       "cacheWrite": 0,
+       "total": 0
+      }
+     },
+     "stopReason": "stop",
+     "timestamp": 1792089683718
+    }
+   ],
+   "willRetry": false
+  },
+  {
+   "type": "agent_settled"
+  },
+  {
+   "sent": {
+    "type": "prompt",
+    "message": "think hard",
+    "streamingBehavior": "followUp",
+    "id": "cap-3"
+   }
+  },
+  {
+   "id": "cap-3",
+   "type": "response",
+   "command": "prompt",
+   "success": true
+  },
+  {
+   "type": "agent_start"
+  },
+  {
+   "type": "turn_start"
+  },
+  {
+   "type": "message_start",
+   "message": {
+    "role": "user",
+    "content": [
+     {
+      "type": "text",
+      "text": "think hard"
+     }
+    ],
+    "timestamp": 1792089683736
+   }
+  },
+  {
+   "type": "message_end",
+   "message": {
+    "role": "user",
+    "content": [
+     {
+      "type": "text",
+      "text": "think hard"
+     }
+    ],
+    "timestamp": 1792089683736
+   }
+  },
+  {
+   "type": "message_start",
+   "message": {
+    "role": "assistant",
+    "content": [],
+    "api": "faux:1792089683654:sup2iajzx9",
+    "provider": "faux",
+    "model": "faux-1",
+    "usage": {
+     "input": 13,
+     "output": 9,
+     "cacheRead": 1441,
+     "cacheWrite": 14,
+     "totalTokens": 1477,
+     "cost": {
+      "input": 0,
+      "output": 0,
+      "cacheRead": 0,
+      "cacheWrite": 0,
+      "total": 0
+     }
+    },
+    "stopReason": "pending",
+    "timestamp": 1792089683737
+   }
+  },
+  {
+   "type": "message_update",
+   "usage": {
+    "input": 13,
+    "output": 9,
+    "cacheRead": 1441,
+    "cacheWrite": 14,
+    "totalTokens": 1477,
+    "cost": {
+     "input": 0,
+     "output": 0,
+     "cacheRead": 0,
+     "cacheWrite": 0,
+     "total": 0
+    }
+   },
+   "assistantMessageEvent": {
+    "type": "thinking_start",
+    "contentIndex": 0
+   }
+  },
+  {
+   "type": "message_update",
+   "usage": {
+    "input": 13,
+    "output": 9,
+    "cacheRead": 1441,
+    "cacheWrite": 14,
+    "totalTokens": 1477,
+    "cost": {
+     "input": 0,
+     "output": 0,
+     "cacheRead": 0,
+     "cacheWrite": 0,
+     "total": 0
+    }
+   },
+   "assistantMessageEvent": {
+    "type": "thinking_delta",
+    "contentIndex": 0,
+    "delta": "Let me think abo"
+   }
+  },
+  {
+   "type": "message_update",
+   "usage": {
+    "input": 13,
+    "output": 9,
+    "cacheRead": 1441,
+    "cacheWrite": 14,
+    "totalTokens": 1477,
+    "cost": {
+     "input": 0,
+     "output": 0,
+     "cacheRead": 0,
+     "cacheWrite": 0,
+     "total": 0
+    }
+   },
+   "assistantMessageEvent": {
+    "type": "thinking_delta",
+    "contentIndex": 0,
+    "delta": "ut it."
+   }
+  },
+  {
+   "type": "message_update",
+   "usage": {
+    "input": 13,
+    "output": 9,
+    "cacheRead": 1441,
+    "cacheWrite": 14,
+    "totalTokens": 1477,
+    "cost": {
+     "input": 0,
+     "output": 0,
+     "cacheRead": 0,
+     "cacheWrite": 0,
+     "total": 0
+    }
+   },
+   "assistantMessageEvent": {
+    "type": "thinking_end",
+    "contentIndex": 0,
+    "content": "Let me think about it."
+   }
+  },
+  {
+   "type": "message_update",
+   "usage": {
+    "input": 13,
+    "output": 9,
+    "cacheRead": 1441,
+    "cacheWrite": 14,
+    "totalTokens": 1477,
+    "cost": {
+     "input": 0,
+     "output": 0,
+     "cacheRead": 0,
+     "cacheWrite": 0,
+     "total": 0
+    }
+   },
+   "assistantMessageEvent": {
+    "type": "text_start",
+    "contentIndex": 1
+   }
+  },
+  {
+   "type": "message_update",
+   "usage": {
+    "input": 13,
+    "output": 9,
+    "cacheRead": 1441,
+    "cacheWrite": 14,
+    "totalTokens": 1477,
+    "cost": {
+     "input": 0,
+     "output": 0,
+     "cacheRead": 0,
+     "cacheWrite": 0,
+     "total": 0
+    }
+   },
+   "assistantMessageEvent": {
+    "type": "text_delta",
+    "contentIndex": 1,
+    "delta": "Thought done."
+   }
+  },
+  {
+   "type": "message_update",
+   "usage": {
+    "input": 13,
+    "output": 9,
+    "cacheRead": 1441,
+    "cacheWrite": 14,
+    "totalTokens": 1477,
+    "cost": {
+     "input": 0,
+     "output": 0,
+     "cacheRead": 0,
+     "cacheWrite": 0,
+     "total": 0
+    }
+   },
+   "assistantMessageEvent": {
+    "type": "text_end",
+    "contentIndex": 1,
+    "content": "Thought done."
+   }
+  },
+  {
+   "type": "message_end",
+   "message": {
+    "role": "assistant",
+    "content": [
+     {
+      "type": "thinking",
+      "thinking": "Let me think about it."
+     },
+     {
+      "type": "text",
+      "text": "Thought done."
+     }
+    ],
+    "api": "faux:1792089683654:sup2iajzx9",
+    "provider": "faux",
+    "model": "faux-1",
+    "usage": {
+     "input": 13,
+     "output": 9,
+     "cacheRead": 1441,
+     "cacheWrite": 14,
+     "totalTokens": 1477,
+     "cost": {
+      "input": 0,
+      "output": 0,
+      "cacheRead": 0,
+      "cacheWrite": 0,
+      "total": 0
+     }
+    },
+    "stopReason": "stop",
+    "timestamp": 1792089683737
+   }
+  },
+  {
+   "type": "turn_end",
+   "message": {
+    "role": "assistant",
+    "content": [
+     {
+      "type": "thinking",
+      "thinking": "Let me think about it."
+     },
+     {
+      "type": "text",
+      "text": "Thought done."
+     }
+    ],
+    "api": "faux:1792089683654:sup2iajzx9",
+    "provider": "faux",
+    "model": "faux-1",
+    "usage": {
+     "input": 13,
+     "output": 9,
+     "cacheRead": 1441,
+     "cacheWrite": 14,
+     "totalTokens": 1477,
+     "cost": {
+      "input": 0,
+      "output": 0,
+      "cacheRead": 0,
+      "cacheWrite": 0,
+      "total": 0
+     }
+    },
+    "stopReason": "stop",
+    "timestamp": 1792089683737
+   },
+   "toolResults": []
+  },
+  {
+   "type": "agent_end",
+   "messages": [
+    {
+     "role": "user",
+     "content": [
+      {
+       "type": "text",
+       "text": "think hard"
+      }
+     ],
+     "timestamp": 1792089683736
+    },
+    {
+     "role": "assistant",
+     "content": [
+      {
+       "type": "thinking",
+       "thinking": "Let me think about it."
+      },
+      {
+       "type": "text",
+       "text": "Thought done."
+      }
+     ],
+     "api": "faux:1792089683654:sup2iajzx9",
+     "provider": "faux",
+     "model": "faux-1",
+     "usage": {
+      "input": 13,
+      "output": 9,
+      "cacheRead": 1441,
+      "cacheWrite": 14,
+      "totalTokens": 1477,
+      "cost": {
+       "input": 0,
+       "output": 0,
+       "cacheRead": 0,
+       "cacheWrite": 0,
+       "total": 0
+      }
+     },
+     "stopReason": "stop",
+     "timestamp": 1792089683737
+    }
+   ],
+   "willRetry": false
+  },
+  {
+   "type": "agent_settled"
+  },
+  {
+   "sent": {
+    "type": "get_entries",
+    "id": "cap-4"
+   }
+  },
+  {
+   "id": "cap-4",
+   "type": "response",
+   "command": "get_entries",
+   "success": true,
+   "data": {
+    "entries": [
+     {
+      "type": "model_change",
+      "id": "f0556e8a",
+      "parentId": null,
+      "timestamp": "2026-10-15T18:41:23.666Z",
+      "provider": "faux",
+      "modelId": "faux-1"
+     },
+     {
+      "type": "thinking_level_change",
+      "id": "7041e2cf",
+      "parentId": "f0556e8a",
+      "timestamp": "2026-10-15T18:41:23.666Z",
+      "thinkingLevel": "medium"
+     },
+     {
+      "type": "message",
+      "id": "22bc39e5",
+      "parentId": "7041e2cf",
+      "timestamp": "2026-10-15T18:41:23.672Z",
+      "message": {
+       "role": "system",
+       "content": "",
+       "timestamp": 1792089683671
+      }
+     },
+     {
+      "type": "message",
+      "id": "1fc76675",
+      "parentId": "22bc39e5",
+      "timestamp": "2026-10-15T18:41:23.672Z",
+      "message": {
+       "role": "user",
+       "content": [
+        {
+         "type": "text",
+         "text": "use tool please"
+        }
+       ],
+       "timestamp": 1792089683671
+      }
+     },
+     {
+      "type": "message",
+      "id": "e7c40263",
+      "parentId": "1fc76675",
+      "timestamp": "2026-10-15T18:41:23.712Z",
+      "message": {
+       "role": "assistant",
+       "content": [
+        {
+         "type": "thinking",
+         "thinking": "I should run a command."
+        },
+        {
+         "type": "toolCall",
+         "id": "tool:1792089683674:b8gmv9flxy",
+         "name": "bash",
+         "arguments": {
+          "command": "echo hello-from-tool"
+         }
+        }
+       ],
+       "api": "faux:1792089683654:sup2iajzx9",
+       "provider": "faux",
+       "model": "faux-1",
+       "usage": {
+        "input": 1413,
+        "output": 16,
+        "cacheRead": 0,
+        "cacheWrite": 1413,
+        "totalTokens": 2842,
+        "cost": {
+         "input": 0,
+         "output": 0,
+         "cacheRead": 0,
+         "cacheWrite": 0,
+         "total": 0
+        }
+       },
+       "stopReason": "toolUse",
+       "timestamp": 1792089683674
+      }
+     },
+     {
+      "type": "message",
+      "id": "f19ad187",
+      "parentId": "e7c40263",
+      "timestamp": "2026-10-15T18:41:23.717Z",
+      "message": {
+       "role": "toolResult",
+       "toolCallId": "tool:1792089683674:b8gmv9flxy",
+       "toolName": "bash",
+       "content": [
+        {
+         "type": "text",
+         "text": "hello-from-tool\n"
+        }
+       ],
+       "isError": false,
+       "timestamp": 1792089683717
+      }
+     },
+     {
+      "type": "message",
+      "id": "abc6a910",
+      "parentId": "f19ad187",
+      "timestamp": "2026-10-15T18:41:23.735Z",
+      "message": {
+       "role": "assistant",
+       "content": [
+        {
+         "type": "text",
+         "text": "tool said: hello-from-tool"
+        }
+       ],
+       "api": "faux:1792089683654:sup2iajzx9",
+       "provider": "faux",
+       "model": "faux-1",
+       "usage": {
+        "input": 28,
+        "output": 7,
+        "cacheRead": 1413,
+        "cacheWrite": 28,
+        "totalTokens": 1476,
+        "cost": {
+         "input": 0,
+         "output": 0,
+         "cacheRead": 0,
+         "cacheWrite": 0,
+         "total": 0
+        }
+       },
+       "stopReason": "stop",
+       "timestamp": 1792089683718
+      }
+     },
+     {
+      "type": "message",
+      "id": "08dadc0e",
+      "parentId": "abc6a910",
+      "timestamp": "2026-10-15T18:41:23.737Z",
+      "message": {
+       "role": "user",
+       "content": [
+        {
+         "type": "text",
+         "text": "think hard"
+        }
+       ],
+       "timestamp": 1792089683736
+      }
+     },
+     {
+      "type": "message",
+      "id": "96544028",
+      "parentId": "08dadc0e",
+      "timestamp": "2026-10-15T18:41:23.763Z",
+      "message": {
+       "role": "assistant",
+       "content": [
+        {
+         "type": "thinking",
+         "thinking": "Let me think about it."
+        },
+        {
+         "type": "text",
+         "text": "Thought done."
+        }
+       ],
+       "api": "faux:1792089683654:sup2iajzx9",
+       "provider": "faux",
+       "model": "faux-1",
+       "usage": {
+        "input": 13,
+        "output": 9,
+        "cacheRead": 1441,
+        "cacheWrite": 14,
+        "totalTokens": 1477,
+        "cost": {
+         "input": 0,
+         "output": 0,
+         "cacheRead": 0,
+         "cacheWrite": 0,
+         "total": 0
+        }
+       },
+       "stopReason": "stop",
+       "timestamp": 1792089683737
+      }
+     }
+    ],
+    "leafId": "96544028"
+   }
+  }
+ ],
+ "entries": {
+  "entries": [
+   {
+    "type": "model_change",
+    "id": "f0556e8a",
+    "parentId": null,
+    "timestamp": "2026-10-15T18:41:23.666Z",
+    "provider": "faux",
+    "modelId": "faux-1"
+   },
+   {
+    "type": "thinking_level_change",
+    "id": "7041e2cf",
+    "parentId": "f0556e8a",
+    "timestamp": "2026-10-15T18:41:23.666Z",
+    "thinkingLevel": "medium"
+   },
+   {
+    "type": "message",
+    "id": "22bc39e5",
+    "parentId": "7041e2cf",
+    "timestamp": "2026-10-15T18:41:23.672Z",
+    "message": {
+     "role": "system",
+     "content": "",
+     "timestamp": 1792089683671
+    }
+   },
+   {
+    "type": "message",
+    "id": "1fc76675",
+    "parentId": "22bc39e5",
+    "timestamp": "2026-10-15T18:41:23.672Z",
+    "message": {
+     "role": "user",
+     "content": [
+      {
+       "type": "text",
+       "text": "use tool please"
+      }
+     ],
+     "timestamp": 1792089683671
+    }
+   },
+   {
+    "type": "message",
+    "id": "e7c40263",
+    "parentId": "1fc76675",
+    "timestamp": "2026-10-15T18:41:23.712Z",
+    "message": {
+     "role": "assistant",
+     "content": [
+      {
+       "type": "thinking",
+       "thinking": "I should run a command."
+      },
+      {
+       "type": "toolCall",
+       "id": "tool:1792089683674:b8gmv9flxy",
+       "name": "bash",
+       "arguments": {
+        "command": "echo hello-from-tool"
+       }
+      }
+     ],
+     "api": "faux:1792089683654:sup2iajzx9",
+     "provider": "faux",
+     "model": "faux-1",
+     "usage": {
+      "input": 1413,
+      "output": 16,
+      "cacheRead": 0,
+      "cacheWrite": 1413,
+      "totalTokens": 2842,
+      "cost": {
+       "input": 0,
+       "output": 0,
+       "cacheRead": 0,
+       "cacheWrite": 0,
+       "total": 0
+      }
+     },
+     "stopReason": "toolUse",
+     "timestamp": 1792089683674
+    }
+   },
+   {
+    "type": "message",
+    "id": "f19ad187",
+    "parentId": "e7c40263",
+    "timestamp": "2026-10-15T18:41:23.717Z",
+    "message": {
+     "role": "toolResult",
+     "toolCallId": "tool:1792089683674:b8gmv9flxy",
+     "toolName": "bash",
+     "content": [
+      {
+       "type": "text",
+       "text": "hello-from-tool\n"
+      }
+     ],
+     "isError": false,
+     "timestamp": 1792089683717
+    }
+   },
+   {
+    "type": "message",
+    "id": "abc6a910",
+    "parentId": "f19ad187",
+    "timestamp": "2026-10-15T18:41:23.735Z",
+    "message": {
+     "role": "assistant",
+     "content": [
+      {
+       "type": "text",
+       "text": "tool said: hello-from-tool"
+      }
+     ],
+     "api": "faux:1792089683654:sup2iajzx9",
+     "provider": "faux",
+     "model": "faux-1",
+     "usage": {
+      "input": 28,
+      "output": 7,
+      "cacheRead": 1413,
+      "cacheWrite": 28,
+      "totalTokens": 1476,
+      "cost": {
+       "input": 0,
+       "output": 0,
+       "cacheRead": 0,
+       "cacheWrite": 0,
+       "total": 0
+      }
+     },
+     "stopReason": "stop",
+     "timestamp": 1792089683718
+    }
+   },
+   {
+    "type": "message",
+    "id": "08dadc0e",
+    "parentId": "abc6a910",
+    "timestamp": "2026-10-15T18:41:23.737Z",
+    "message": {
+     "role": "user",
+     "content": [
+      {
+       "type": "text",
+       "text": "think hard"
+      }
+     ],
+     "timestamp": 1792089683736
+    }
+   },
+   {
+    "type": "message",
+    "id": "96544028",
+    "parentId": "08dadc0e",
+    "timestamp": "2026-10-15T18:41:23.763Z",
+    "message": {
+     "role": "assistant",
+     "content": [
+      {
+       "type": "thinking",
+       "thinking": "Let me think about it."
+      },
+      {
+       "type": "text",
+       "text": "Thought done."
+      }
+     ],
+     "api": "faux:1792089683654:sup2iajzx9",
+     "provider": "faux",
+     "model": "faux-1",
+     "usage": {
+      "input": 13,
+      "output": 9,
+      "cacheRead": 1441,
+      "cacheWrite": 14,
+      "totalTokens": 1477,
+      "cost": {
+       "input": 0,
+       "output": 0,
+       "cacheRead": 0,
+       "cacheWrite": 0,
+       "total": 0
+      }
+     },
+     "stopReason": "stop",
+     "timestamp": 1792089683737
+    }
+   }
+  ],
+  "leafId": "96544028"
+ }
+}

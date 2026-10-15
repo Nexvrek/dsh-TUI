@@ -23,6 +23,7 @@ import { existsSync, readFileSync } from 'node:fs'
 import { i18nDict, type I18nText } from '../src/i18n.js'
 import { claudeTexts } from '../src/backends/claude/text.js'
 import { codexTexts } from '../src/backends/codex/text.js'
+import { piTexts } from '../src/backends/pi/text.js'
 import { PLATFORM_TEXT, type PlatformTextKey } from '../src/backends/shared/platform-text.js'
 import { SPINNER_VERBS } from '../src/terminal-utils/spinnerVerbs.js'
 
@@ -31,6 +32,7 @@ import { SPINNER_VERBS } from '../src/terminal-utils/spinnerVerbs.js'
 const BACKEND_TEXT_MODULES: readonly { readonly module: string; readonly dict: Readonly<Record<string, { readonly zh?: I18nText; readonly en?: I18nText }>> }[] = [
   { module: 'src/backends/claude/text.ts', dict: claudeTexts },
   { module: 'src/backends/codex/text.ts', dict: codexTexts },
+  { module: 'src/backends/pi/text.ts', dict: piTexts },
 ]
 
 /** 与后端共用的平台文案真源（C-2）：宿主字典与两个内置后端都从这里展开。 */
@@ -178,6 +180,11 @@ const PLATFORM_TEXT_CONSUMERS: readonly {
     module: 'src/backends/codex/text.ts',
     dict: codexTexts,
     keys: ['capability-failed', 'status-rate-limit-five-hour', 'status-rate-limit-seven-day', 'doctor-unknown', 'effort-invalid', 'tool-name-bash', 'tool-name-edit'],
+  },
+  {
+    module: 'src/backends/pi/text.ts',
+    dict: piTexts,
+    keys: ['doctor-unknown', 'effort-invalid'],
   },
 ]
 

@@ -63,10 +63,10 @@ const ownVersion = ownPackage?.name === '@deepseek-harness-tui/dsh-tui' ? ownPac
 const PACKAGE = '@deepseek-harness-tui/dsh-tui'
 const PROFILE = 'dsh-tui'
 // Kept local so the launcher also works without compiled modules.
-/** 内置内核：只用于文案（"内置 dsh / claude / codex"）与 rescue/safe 提示。
+/** 内置内核：只用于文案（"内置 dsh / claude / codex / pi"）与 rescue/safe 提示。
  *  **不是校验来源**——插件后端由各自 profile 提供，启动器看不到，所以
  *  `--backend` 只做 id 语法校验（P0 D1）。 */
-const BUILTIN_BACKEND_IDS = ['dsh', 'claude', 'codex']
+const BUILTIN_BACKEND_IDS = ['dsh', 'claude', 'codex', 'pi']
 /** 后端 id 语法，与 src/agent/backend-manifest.ts 的 BACKEND_ID_PATTERN 同一规则
  *  （启动器要能在没有编译产物时工作，所以这里是副本；两边改动必须同步）。 */
 const BACKEND_ID_PATTERN = /^[a-z0-9][a-z0-9-]{0,31}$/
@@ -500,8 +500,8 @@ const MSG = {
       `Options:\n` +
       `  --resume [id]          Resume the last (or the given) session\n` +
       `  -c, --continue         Same as --resume\n` +
-      `  --backend <id>         Agent backend: dsh | claude | codex, or an installed plugin backend\n` +
-      `                         (claude, codex and plugin backends: experimental)\n` +
+      `  --backend <id>         Agent backend: dsh | claude | codex | pi, or an installed plugin backend\n` +
+      `                         (claude, codex, pi and plugin backends: experimental)\n` +
       `  -- <prompt...>        Treat the remaining arguments as literal prompt text\n` +
       `  <path|url>             Open with the given workspace target\n\n` +
       `Leading DSH options (e.g. --dump-config, --patch <path>) are forwarded unchanged.\n` +
@@ -519,8 +519,8 @@ const MSG = {
       `选项：\n` +
       `  --resume [id]          恢复上次（或指定 id 的）会话\n` +
       `  -c, --continue         同 --resume\n` +
-      `  --backend <id>         Agent 后端：dsh | claude | codex，或已安装的插件后端\n` +
-      `                         （claude、codex 与插件后端均为实验性）\n` +
+      `  --backend <id>         Agent 后端：dsh | claude | codex | pi，或已安装的插件后端\n` +
+      `                         （claude、codex、pi 与插件后端均为实验性）\n` +
       `  -- <提示词...>         将剩余参数作为字面提示词\n` +
       `  <路径|URL>             以指定工作区目标启动\n\n` +
       `前置 DSH 选项（如 --dump-config、--patch <路径>）原样转发。\n` +

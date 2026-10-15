@@ -164,7 +164,7 @@ boundaries and helpers over introducing parallel abstractions.
   - Backend translators turn session events into `AgentEvent`s; the one
     shared projector, `src/channel/projection.ts`, turns those into
     transcript rows. Adding a backend needs no channel code.
-- `src/agent/`, `src/channel/`, `src/backends/claude/`, `src/backends/codex/`, `src/dsh-adapter/backend/`:
+- `src/agent/`, `src/channel/`, `src/backends/claude/`, `src/backends/codex/`, `src/backends/pi/`, `src/dsh-adapter/backend/`:
   the backend-neutral session domain and shared projector, plus each backend's
   translator and session. The structure, the rules and the steps to add a
   backend are in [Agent backends](agent-backend-design.md) (Chinese).
@@ -439,6 +439,7 @@ change, also run the closest focused script:
 | Claude backend | The matching `scripts/verify-claude-*` (fake SDK, no cost) and `node --import tsx/esm scripts/verify-backend-channel.ts`; `verify:claude-live`/`verify:claude-headless` drive the real CLI, so run them by hand only when you mean to spend (pinned to haiku) |
 | Archive semantics and backend OAuth logout | `node --import tsx/esm scripts/verify-session-archive.tsx` (real headless browser, fake catalog), `node --import tsx/esm scripts/verify-backend-logout.ts` (real channel/UI facade, fake OAuth host); no native-login/real-credential mutation, preserving DSH/Claude default deletion |
 | Native Codex backend | `pnpm verify:codex-contract`, matching fake-app-server/fixture `scripts/verify-codex-*`, `node --import tsx/esm scripts/verify-backend-channel.ts`; neutral-layer changes also need DSH goldens, Claude comparisons and `verify-agent-event-invariants.ts`. Real `verify-codex-live.ts` / probes must use `codex-cheap-only.mjs`; explicitly list unavailable real ChatGPT login/TTY checks |
+| pi backend | `scripts/verify-pi-translate.ts`, `verify-pi-session.ts`, `verify-pi-catalog.ts` and `verify-agent-event-invariants.ts`; when pi's protocol behavior changes, re-record the fixtures with `scripts/capture-pi-fixtures.ts` (real pi on a scripted faux model, no network or charge) and, with a local pi, run `verify-pi-live.ts`; list unrun real-provider turns explicitly |
 | Channel submit/steer/pending behavior | `node scripts/verify-submit.mjs` |
 | Rewind/edit/resend and historical inbox cancellation | `pnpm verify:rewind-edit` |
 | Prompt queue behavior | `node scripts/verify-queue.mjs` |

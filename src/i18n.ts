@@ -2119,6 +2119,7 @@ const dict = {
   'cmd-desc-dsh': { zh: '切换到 DSH 内核（重启进入新会话）' },
   'cmd-desc-codex': { zh: '切换到 Codex 内核（重启进入新会话）' },
   'cmd-desc-claude': { zh: '切换到 Claude 内核（重启进入新会话）' },
+  'cmd-desc-pi': { zh: '切换到 pi 内核（重启进入新会话）' },
   'cmd-desc-channel': { zh: '渠道档案：切换 / 导入 / 查看映射（Claude）', en: 'Channel profiles: switch / import / view mappings (Claude)' },
   // Side panel（侧栏）
   'panel-title-todo': { zh: '待办', en: 'Todo' },
@@ -2373,6 +2374,7 @@ const dict = {
   'kernel-label-dsh': { zh: 'DeepSeek Harness', en: 'DeepSeek Harness' },
   'kernel-label-claude': { zh: 'Claude Agent', en: 'Claude Agent' },
   'kernel-label-codex': { zh: 'Codex', en: 'Codex' },
+  'kernel-label-pi': { zh: 'pi', en: 'pi' },
   'kernel-login-in-session': { zh: '未登录', en: 'Not signed in' },
   'kernel-unavailable-not-installed': { zh: '未安装', en: 'Not installed' },
   'kernel-unavailable-too-old': { zh: '版本过旧 · 需升级', en: 'Too old · upgrade needed' },

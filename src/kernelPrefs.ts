@@ -23,7 +23,7 @@ import { DATA_DIR } from './utils/paths.js'
  * `src/dsh-adapter/backend-registry.ts` (which the launcher cannot import when
  * it runs without compiled modules, hence the mirrored copy in `bin/dsh-tui.js`).
  */
-export const BUILTIN_BACKEND_IDS = ['dsh', 'claude', 'codex'] as const
+export const BUILTIN_BACKEND_IDS = ['dsh', 'claude', 'codex', 'pi'] as const
 
 /**
  * An id that passed the id-syntax gate (the rule and the brand live in

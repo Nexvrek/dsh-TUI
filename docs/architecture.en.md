@@ -31,7 +31,7 @@ Cordis profile
 | `src/dsh-adapter/channel/core/` | The backend-neutral core every `AgentSession` goes through (table below) |
 | `src/dsh-adapter/channel/extensions.ts` | DSH extensions: wiring only, DSH specialist internals unchanged |
 | `src/agent/`, `src/channel/` | The backend-neutral session domain (`AgentEvent`, `AgentSession`, capabilities), the shared projector and neutral stores |
-| `src/dsh-adapter/backend/`, `src/backends/claude/`, `src/backends/codex/` | DSH, Claude and Codex translators/sessions/capabilities; Codex drives the user’s app-server without bundling an SDK; see [Agent backends](agent-backend-design.md) (Chinese) |
+| `src/dsh-adapter/backend/`, `src/backends/claude/`, `src/backends/codex/`, `src/backends/pi/` | DSH, Claude, Codex and pi translators/sessions/capabilities; Codex drives the user’s app-server and pi the user’s `pi --mode rpc`, neither bundling an SDK; see [Agent backends](agent-backend-design.md) (Chinese) |
 | `src/workspaces.ts` | Local-path fallback and generic workspace-provider registry; it must contain no provider protocol, copy, or dependency |
 | `src/screens/Chat.tsx` | Modal precedence, global keys, scroll/search/selection state, and slash dispatch |
 | `src/components/` | User views and design-system primitives; no Agent or session source of truth |
@@ -200,7 +200,7 @@ image-token highlights remain painted by the TUI.
 | `~/.dsh-tui/themes/` | User theme JSON files; runtime plugin themes do not write here |
 | `~/.dsh-tui/working-activity.json` | Activity animation selection |
 | `~/.dsh-tui/agent-preset.json` | Default Agent preset for new sessions |
-| `~/.dsh-tui/kernel.json` | The backend `/kernel` remembers (`dsh` / `claude` / `codex`) |
+| `~/.dsh-tui/kernel.json` | The backend `/kernel` remembers (`dsh` / `claude` / `codex` / `pi`) |
 | `~/.dsh-tui/backends/claude/` | Claude backend preferences (`prefs.json`), pins and channel profiles (`channels.json`); Claude sessions themselves live in `~/.claude/projects/` |
 | `~/.dsh-tui/backends/codex/` | Codex preferences/channel profiles (tokenRef only; keys in the DSH credential store); native threads, login and config remain owned by `$CODEX_HOME` / Codex |
 
@@ -350,7 +350,7 @@ visual TUI alone does not describe the effective policy.
 | stderr diagnostics | `DSH_TUI_DEBUG=1 dsh --profile dsh-tui` |
 | Raw ANSI frames | `DSH_TUI_RENDER_LOG=/path/to/render.log dsh --profile dsh-tui` |
 | Theme regression | `node --import tsx/esm scripts/verify-themes.mjs` |
-| Three-backend comparison | DSH: `verify:projection-golden` / `verify-dsh-translate`; Claude: `verify:claude-contract` / matching fake-SDK scripts; Codex: `verify:codex-contract` / matching fake-app-server scripts; also verify the shared domain/event invariants |
+| Backend comparison | DSH: `verify:projection-golden` / `verify-dsh-translate`; Claude: `verify:claude-contract` / matching fake-SDK scripts; Codex: `verify:codex-contract` / matching fake-app-server scripts; pi: `verify-pi-translate` / `verify-pi-session` / `verify-pi-catalog`; also verify the shared domain/event invariants |
 | Live Codex evidence | Nine 0.160.1 isolated-home offline checks passed without model turns; credentialed checks must use `codex-cheap-only.mjs`. Real login/model calls and inline/fullscreen/narrow-terminal checks were not run in this round, not proven by offline/mocks |
 
 `DSH_TUI_RENDER_LOG` and session exports may contain sensitive content. Redact

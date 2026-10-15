@@ -1,0 +1,1057 @@
+{
+ "scenario": "steer",
+ "records": [
+  {
+   "sent": {
+    "type": "get_state",
+    "id": "cap-1"
+   }
+  },
+  {
+   "id": "cap-1",
+   "type": "response",
+   "command": "get_state",
+   "success": true,
+   "data": {
+    "model": {
+     "id": "faux-1",
+     "name": "Faux One",
+     "reasoning": true,
+     "input": [
+      "text",
+      "image"
+     ],
+     "cost": {
+      "input": 0,
+      "output": 0,
+      "cacheRead": 0,
+      "cacheWrite": 0
+     },
+     "contextWindow": 128000,
+     "maxTokens": 4096,
+     "api": "faux:1792089684133:2w050xc78xu",
+     "provider": "faux",
+     "baseUrl": "http://localhost:0"
+    },
+    "thinkingLevel": "medium",
+    "isStreaming": false,
+    "isCompacting": false,
+    "steeringMode": "one-at-a-time",
+    "followUpMode": "one-at-a-time",
+    "sessionId": "01a140de-7895-72a4-a192-7c28bbd4d478",
+    "autoCompactionEnabled": true,
+    "messageCount": 0,
+    "pendingMessageCount": 0
+   }
+  },
+  {
+   "sent": {
+    "type": "prompt",
+    "message": "use slow tool now",
+    "streamingBehavior": "followUp",
+    "id": "cap-2"
+   }
+  },
+  {
+   "id": "cap-2",
+   "type": "response",
+   "command": "prompt",
+   "success": true
+  },
+  {
+   "type": "agent_start"
+  },
+  {
+   "type": "turn_start"
+  },
+  {
+   "type": "message_start",
+   "message": {
+    "role": "system",
+    "content": "",
+    "timestamp": 1792089684150
+   }
+  },
+  {
+   "type": "message_end",
+   "message": {
+    "role": "system",
+    "content": "",
+    "timestamp": 1792089684150
+   }
+  },
+  {
+   "type": "message_start",
+   "message": {
+    "role": "user",
+    "content": [
+     {
+      "type": "text",
+      "text": "use slow tool now"
+     }
+    ],
+    "timestamp": 1792089684150
+   }
+  },
+  {
+   "type": "message_end",
+   "message": {
+    "role": "user",
+    "content": [
+     {
+      "type": "text",
+      "text": "use slow tool now"
+     }
+    ],
+    "timestamp": 1792089684150
+   }
+  },
+  {
+   "type": "message_start",
+   "message": {
+    "role": "assistant",
+    "content": [],
+    "api": "faux:1792089684133:2w050xc78xu",
+    "provider": "faux",
+    "model": "faux-1",
+    "usage": {
+     "input": 1413,
+     "output": 11,
+     "cacheRead": 0,
+     "cacheWrite": 1413,
+     "totalTokens": 2837,
+     "cost": {
+      "input": 0,
+      "output": 0,
+      "cacheRead": 0,
+      "cacheWrite": 0,
+      "total": 0
+     }
+    },
+    "stopReason": "pending",
+    "timestamp": 1792089684152
+   }
+  },
+  {
+   "type": "message_update",
+   "usage": {
+    "input": 1413,
+    "output": 11,
+    "cacheRead": 0,
+    "cacheWrite": 1413,
+    "totalTokens": 2837,
+    "cost": {
+     "input": 0,
+     "output": 0,
+     "cacheRead": 0,
+     "cacheWrite": 0,
+     "total": 0
+    }
+   },
+   "assistantMessageEvent": {
+    "type": "toolcall_start",
+    "contentIndex": 0,
+    "id": "tool:1792089684152:6dafhtxci7",
+    "toolName": "bash"
+   }
+  },
+  {
+   "type": "message_update",
+   "usage": {
+    "input": 1413,
+    "output": 11,
+    "cacheRead": 0,
+    "cacheWrite": 1413,
+    "totalTokens": 2837,
+    "cost": {
+     "input": 0,
+     "output": 0,
+     "cacheRead": 0,
+     "cacheWrite": 0,
+     "total": 0
+    }
+   },
+   "assistantMessageEvent": {
+    "type": "toolcall_delta",
+    "contentIndex": 0,
+    "delta": "{\"command\":\"slee"
+   }
+  },
+  {
+   "type": "message_update",
+   "usage": {
+    "input": 1413,
+    "output": 11,
+    "cacheRead": 0,
+    "cacheWrite": 1413,
+    "totalTokens": 2837,
+    "cost": {
+     "input": 0,
+     "output": 0,
+     "cacheRead": 0,
+     "cacheWrite": 0,
+     "total": 0
+    }
+   },
+   "assistantMessageEvent": {
+    "type": "toolcall_delta",
+    "contentIndex": 0,
+    "delta": "p 1; echo slow-done\""
+   }
+  },
+  {
+   "type": "message_update",
+   "usage": {
+    "input": 1413,
+    "output": 11,
+    "cacheRead": 0,
+    "cacheWrite": 1413,
+    "totalTokens": 2837,
+    "cost": {
+     "input": 0,
+     "output": 0,
+     "cacheRead": 0,
+     "cacheWrite": 0,
+     "total": 0
+    }
+   },
+   "assistantMessageEvent": {
+    "type": "toolcall_delta",
+    "contentIndex": 0,
+    "delta": "}"
+   }
+  },
+  {
+   "type": "message_update",
+   "usage": {
+    "input": 1413,
+    "output": 11,
+    "cacheRead": 0,
+    "cacheWrite": 1413,
+    "totalTokens": 2837,
+    "cost": {
+     "input": 0,
+     "output": 0,
+     "cacheRead": 0,
+     "cacheWrite": 0,
+     "total": 0
+    }
+   },
+   "assistantMessageEvent": {
+    "type": "toolcall_end",
+    "contentIndex": 0,
+    "toolCall": {
+     "type": "toolCall",
+     "id": "tool:1792089684152:6dafhtxci7",
+     "name": "bash",
+     "arguments": {
+      "command": "sleep 1; echo slow-done"
+     }
+    }
+   }
+  },
+  {
+   "type": "message_end",
+   "message": {
+    "role": "assistant",
+    "content": [
+     {
+      "type": "toolCall",
+      "id": "tool:1792089684152:6dafhtxci7",
+      "name": "bash",
+      "arguments": {
+       "command": "sleep 1; echo slow-done"
+      }
+     }
+    ],
+    "api": "faux:1792089684133:2w050xc78xu",
+    "provider": "faux",
+    "model": "faux-1",
+    "usage": {
+     "input": 1413,
+     "output": 11,
+     "cacheRead": 0,
+     "cacheWrite": 1413,
+     "totalTokens": 2837,
+     "cost": {
+      "input": 0,
+      "output": 0,
+      "cacheRead": 0,
+      "cacheWrite": 0,
+      "total": 0
+     }
+    },
+    "stopReason": "toolUse",
+    "timestamp": 1792089684152
+   }
+  },
+  {
+   "type": "tool_execution_start",
+   "toolCallId": "tool:1792089684152:6dafhtxci7",
+   "toolName": "bash",
+   "args": {
+    "command": "sleep 1; echo slow-done"
+   }
+  },
+  {
+   "sent": {
+    "type": "prompt",
+    "message": "also this",
+    "streamingBehavior": "steer",
+    "id": "cap-3"
+   }
+  },
+  {
+   "type": "tool_execution_update",
+   "toolCallId": "tool:1792089684152:6dafhtxci7",
+   "toolName": "bash",
+   "args": {
+    "command": "sleep 1; echo slow-done"
+   },
+   "partialResult": {
+    "content": []
+   }
+  },
+  {
+   "type": "queue_update",
+   "steering": [
+    "also this"
+   ],
+   "followUp": []
+  },
+  {
+   "id": "cap-3",
+   "type": "response",
+   "command": "prompt",
+   "success": true
+  },
+  {
+   "type": "tool_execution_update",
+   "toolCallId": "tool:1792089684152:6dafhtxci7",
+   "toolName": "bash",
+   "args": {
+    "command": "sleep 1; echo slow-done"
+   },
+   "partialResult": {
+    "content": [
+     {
+      "type": "text",
+      "text": "slow-done\n"
+     }
+    ],
+    "details": {}
+   }
+  },
+  {
+   "type": "tool_execution_end",
+   "toolCallId": "tool:1792089684152:6dafhtxci7",
+   "toolName": "bash",
+   "result": {
+    "content": [
+     {
+      "type": "text",
+      "text": "slow-done\n"
+     }
+    ]
+   },
+   "isError": false
+  },
+  {
+   "type": "message_start",
+   "message": {
+    "role": "toolResult",
+    "toolCallId": "tool:1792089684152:6dafhtxci7",
+    "toolName": "bash",
+    "content": [
+     {
+      "type": "text",
+      "text": "slow-done\n"
+     }
+    ],
+    "isError": false,
+    "timestamp": 1792089685191
+   }
+  },
+  {
+   "type": "message_end",
+   "message": {
+    "role": "toolResult",
+    "toolCallId": "tool:1792089684152:6dafhtxci7",
+    "toolName": "bash",
+    "content": [
+     {
+      "type": "text",
+      "text": "slow-done\n"
+     }
+    ],
+    "isError": false,
+    "timestamp": 1792089685191
+   }
+  },
+  {
+   "type": "turn_end",
+   "message": {
+    "role": "assistant",
+    "content": [
+     {
+      "type": "toolCall",
+      "id": "tool:1792089684152:6dafhtxci7",
+      "name": "bash",
+      "arguments": {
+       "command": "sleep 1; echo slow-done"
+      }
+     }
+    ],
+    "api": "faux:1792089684133:2w050xc78xu",
+    "provider": "faux",
+    "model": "faux-1",
+    "usage": {
+     "input": 1413,
+     "output": 11,
+     "cacheRead": 0,
+     "cacheWrite": 1413,
+     "totalTokens": 2837,
+     "cost": {
+      "input": 0,
+      "output": 0,
+      "cacheRead": 0,
+      "cacheWrite": 0,
+      "total": 0
+     }
+    },
+    "stopReason": "toolUse",
+    "timestamp": 1792089684152
+   },
+   "toolResults": [
+    {
+     "role": "toolResult",
+     "toolCallId": "tool:1792089684152:6dafhtxci7",
+     "toolName": "bash",
+     "content": [
+      {
+       "type": "text",
+       "text": "slow-done\n"
+      }
+     ],
+     "isError": false,
+     "timestamp": 1792089685191
+    }
+   ]
+  },
+  {
+   "type": "turn_start"
+  },
+  {
+   "type": "queue_update",
+   "steering": [],
+   "followUp": []
+  },
+  {
+   "type": "message_start",
+   "message": {
+    "role": "user",
+    "content": [
+     {
+      "type": "text",
+      "text": "also this"
+     }
+    ],
+    "timestamp": 1792089684180
+   }
+  },
+  {
+   "type": "message_end",
+   "message": {
+    "role": "user",
+    "content": [
+     {
+      "type": "text",
+      "text": "also this"
+     }
+    ],
+    "timestamp": 1792089684180
+   }
+  },
+  {
+   "type": "message_start",
+   "message": {
+    "role": "assistant",
+    "content": [],
+    "api": "faux:1792089684133:2w050xc78xu",
+    "provider": "faux",
+    "model": "faux-1",
+    "usage": {
+     "input": 24,
+     "output": 4,
+     "cacheRead": 1413,
+     "cacheWrite": 25,
+     "totalTokens": 1466,
+     "cost": {
+      "input": 0,
+      "output": 0,
+      "cacheRead": 0,
+      "cacheWrite": 0,
+      "total": 0
+     }
+    },
+    "stopReason": "pending",
+    "timestamp": 1792089685193
+   }
+  },
+  {
+   "type": "message_update",
+   "usage": {
+    "input": 24,
+    "output": 4,
+    "cacheRead": 1413,
+    "cacheWrite": 25,
+    "totalTokens": 1466,
+    "cost": {
+     "input": 0,
+     "output": 0,
+     "cacheRead": 0,
+     "cacheWrite": 0,
+     "total": 0
+    }
+   },
+   "assistantMessageEvent": {
+    "type": "text_start",
+    "contentIndex": 0
+   }
+  },
+  {
+   "type": "message_update",
+   "usage": {
+    "input": 24,
+    "output": 4,
+    "cacheRead": 1413,
+    "cacheWrite": 25,
+    "totalTokens": 1466,
+    "cost": {
+     "input": 0,
+     "output": 0,
+     "cacheRead": 0,
+     "cacheWrite": 0,
+     "total": 0
+    }
+   },
+   "assistantMessageEvent": {
+    "type": "text_delta",
+    "contentIndex": 0,
+    "delta": "echo: also this"
+   }
+  },
+  {
+   "type": "message_update",
+   "usage": {
+    "input": 24,
+    "output": 4,
+    "cacheRead": 1413,
+    "cacheWrite": 25,
+    "totalTokens": 1466,
+    "cost": {
+     "input": 0,
+     "output": 0,
+     "cacheRead": 0,
+     "cacheWrite": 0,
+     "total": 0
+    }
+   },
+   "assistantMessageEvent": {
+    "type": "text_end",
+    "contentIndex": 0,
+    "content": "echo: also this"
+   }
+  },
+  {
+   "type": "message_end",
+   "message": {
+    "role": "assistant",
+    "content": [
+     {
+      "type": "text",
+      "text": "echo: also this"
+     }
+    ],
+    "api": "faux:1792089684133:2w050xc78xu",
+    "provider": "faux",
+    "model": "faux-1",
+    "usage": {
+     "input": 24,
+     "output": 4,
+     "cacheRead": 1413,
+     "cacheWrite": 25,
+     "totalTokens": 1466,
+     "cost": {
+      "input": 0,
+      "output": 0,
+      "cacheRead": 0,
+      "cacheWrite": 0,
+      "total": 0
+     }
+    },
+    "stopReason": "stop",
+    "timestamp": 1792089685193
+   }
+  },
+  {
+   "type": "turn_end",
+   "message": {
+    "role": "assistant",
+    "content": [
+     {
+      "type": "text",
+      "text": "echo: also this"
+     }
+    ],
+    "api": "faux:1792089684133:2w050xc78xu",
+    "provider": "faux",
+    "model": "faux-1",
+    "usage": {
+     "input": 24,
+     "output": 4,
+     "cacheRead": 1413,
+     "cacheWrite": 25,
+     "totalTokens": 1466,
+     "cost": {
+      "input": 0,
+      "output": 0,
+      "cacheRead": 0,
+      "cacheWrite": 0,
+      "total": 0
+     }
+    },
+    "stopReason": "stop",
+    "timestamp": 1792089685193
+   },
+   "toolResults": []
+  },
+  {
+   "type": "agent_end",
+   "messages": [
+    {
+     "role": "system",
+     "content": "",
+     "timestamp": 1792089684150
+    },
+    {
+     "role": "user",
+     "content": [
+      {
+       "type": "text",
+       "text": "use slow tool now"
+      }
+     ],
+     "timestamp": 1792089684150
+    },
+    {
+     "role": "assistant",
+     "content": [
+      {
+       "type": "toolCall",
+       "id": "tool:1792089684152:6dafhtxci7",
+       "name": "bash",
+       "arguments": {
+        "command": "sleep 1; echo slow-done"
+       }
+      }
+     ],
+     "api": "faux:1792089684133:2w050xc78xu",
+     "provider": "faux",
+     "model": "faux-1",
+     "usage": {
+      "input": 1413,
+      "output": 11,
+      "cacheRead": 0,
+      "cacheWrite": 1413,
+      "totalTokens": 2837,
+      "cost": {
+       "input": 0,
+       "output": 0,
+       "cacheRead": 0,
+       "cacheWrite": 0,
+       "total": 0
+      }
+     },
+     "stopReason": "toolUse",
+     "timestamp": 1792089684152
+    },
+    {
+     "role": "toolResult",
+     "toolCallId": "tool:1792089684152:6dafhtxci7",
+     "toolName": "bash",
+     "content": [
+      {
+       "type": "text",
+       "text": "slow-done\n"
+      }
+     ],
+     "isError": false,
+     "timestamp": 1792089685191
+    },
+    {
+     "role": "user",
+     "content": [
+      {
+       "type": "text",
+       "text": "also this"
+      }
+     ],
+     "timestamp": 1792089684180
+    },
+    {
+     "role": "assistant",
+     "content": [
+      {
+       "type": "text",
+       "text": "echo: also this"
+      }
+     ],
+     "api": "faux:1792089684133:2w050xc78xu",
+     "provider": "faux",
+     "model": "faux-1",
+     "usage": {
+      "input": 24,
+      "output": 4,
+      "cacheRead": 1413,
+      "cacheWrite": 25,
+      "totalTokens": 1466,
+      "cost": {
+       "input": 0,
+       "output": 0,
+       "cacheRead": 0,
+       "cacheWrite": 0,
+       "total": 0
+      }
+     },
+     "stopReason": "stop",
+     "timestamp": 1792089685193
+    }
+   ],
+   "willRetry": false
+  },
+  {
+   "type": "agent_settled"
+  },
+  {
+   "sent": {
+    "type": "get_entries",
+    "id": "cap-4"
+   }
+  },
+  {
+   "id": "cap-4",
+   "type": "response",
+   "command": "get_entries",
+   "success": true,
+   "data": {
+    "entries": [
+     {
+      "type": "model_change",
+      "id": "e97d4406",
+      "parentId": null,
+      "timestamp": "2026-10-15T18:41:24.144Z",
+      "provider": "faux",
+      "modelId": "faux-1"
+     },
+     {
+      "type": "thinking_level_change",
+      "id": "61e15e23",
+      "parentId": "e97d4406",
+      "timestamp": "2026-10-15T18:41:24.144Z",
+      "thinkingLevel": "medium"
+     },
+     {
+      "type": "message",
+      "id": "3bb56367",
+      "parentId": "61e15e23",
+      "timestamp": "2026-10-15T18:41:24.151Z",
+      "message": {
+       "role": "system",
+       "content": "",
+       "timestamp": 1792089684150
+      }
+     },
+     {
+      "type": "message",
+      "id": "7ffd53dd",
+      "parentId": "3bb56367",
+      "timestamp": "2026-10-15T18:41:24.151Z",
+      "message": {
+       "role": "user",
+       "content": [
+        {
+         "type": "text",
+         "text": "use slow tool now"
+        }
+       ],
+       "timestamp": 1792089684150
+      }
+     },
+     {
+      "type": "message",
+      "id": "d66dcb98",
+      "parentId": "7ffd53dd",
+      "timestamp": "2026-10-15T18:41:24.178Z",
+      "message": {
+       "role": "assistant",
+       "content": [
+        {
+         "type": "toolCall",
+         "id": "tool:1792089684152:6dafhtxci7",
+         "name": "bash",
+         "arguments": {
+          "command": "sleep 1; echo slow-done"
+         }
+        }
+       ],
+       "api": "faux:1792089684133:2w050xc78xu",
+       "provider": "faux",
+       "model": "faux-1",
+       "usage": {
+        "input": 1413,
+        "output": 11,
+        "cacheRead": 0,
+        "cacheWrite": 1413,
+        "totalTokens": 2837,
+        "cost": {
+         "input": 0,
+         "output": 0,
+         "cacheRead": 0,
+         "cacheWrite": 0,
+         "total": 0
+        }
+       },
+       "stopReason": "toolUse",
+       "timestamp": 1792089684152
+      }
+     },
+     {
+      "type": "message",
+      "id": "438c8293",
+      "parentId": "d66dcb98",
+      "timestamp": "2026-10-15T18:41:25.191Z",
+      "message": {
+       "role": "toolResult",
+       "toolCallId": "tool:1792089684152:6dafhtxci7",
+       "toolName": "bash",
+       "content": [
+        {
+         "type": "text",
+         "text": "slow-done\n"
+        }
+       ],
+       "isError": false,
+       "timestamp": 1792089685191
+      }
+     },
+     {
+      "type": "message",
+      "id": "78ccc1ea",
+      "parentId": "438c8293",
+      "timestamp": "2026-10-15T18:41:25.193Z",
+      "message": {
+       "role": "user",
+       "content": [
+        {
+         "type": "text",
+         "text": "also this"
+        }
+       ],
+       "timestamp": 1792089684180
+      }
+     },
+     {
+      "type": "message",
+      "id": "440fda90",
+      "parentId": "78ccc1ea",
+      "timestamp": "2026-10-15T18:41:25.204Z",
+      "message": {
+       "role": "assistant",
+       "content": [
+        {
+         "type": "text",
+         "text": "echo: also this"
+        }
+       ],
+       "api": "faux:1792089684133:2w050xc78xu",
+       "provider": "faux",
+       "model": "faux-1",
+       "usage": {
+        "input": 24,
+        "output": 4,
+        "cacheRead": 1413,
+        "cacheWrite": 25,
+        "totalTokens": 1466,
+        "cost": {
+         "input": 0,
+         "output": 0,
+         "cacheRead": 0,
+         "cacheWrite": 0,
+         "total": 0
+        }
+       },
+       "stopReason": "stop",
+       "timestamp": 1792089685193
+      }
+     }
+    ],
+    "leafId": "440fda90"
+   }
+  }
+ ],
+ "entries": {
+  "entries": [
+   {
+    "type": "model_change",
+    "id": "e97d4406",
+    "parentId": null,
+    "timestamp": "2026-10-15T18:41:24.144Z",
+    "provider": "faux",
+    "modelId": "faux-1"
+   },
+   {
+    "type": "thinking_level_change",
+    "id": "61e15e23",
+    "parentId": "e97d4406",
+    "timestamp": "2026-10-15T18:41:24.144Z",
+    "thinkingLevel": "medium"
+   },
+   {
+    "type": "message",
+    "id": "3bb56367",
+    "parentId": "61e15e23",
+    "timestamp": "2026-10-15T18:41:24.151Z",
+    "message": {
+     "role": "system",
+     "content": "",
+     "timestamp": 1792089684150
+    }
+   },
+   {
+    "type": "message",
+    "id": "7ffd53dd",
+    "parentId": "3bb56367",
+    "timestamp": "2026-10-15T18:41:24.151Z",
+    "message": {
+     "role": "user",
+     "content": [
+      {
+       "type": "text",
+       "text": "use slow tool now"
+      }
+     ],
+     "timestamp": 1792089684150
+    }
+   },
+   {
+    "type": "message",
+    "id": "d66dcb98",
+    "parentId": "7ffd53dd",
+    "timestamp": "2026-10-15T18:41:24.178Z",
+    "message": {
+     "role": "assistant",
+     "content": [
+      {
+       "type": "toolCall",
+       "id": "tool:1792089684152:6dafhtxci7",
+       "name": "bash",
+       "arguments": {
+        "command": "sleep 1; echo slow-done"
+       }
+      }
+     ],
+     "api": "faux:1792089684133:2w050xc78xu",
+     "provider": "faux",
+     "model": "faux-1",
+     "usage": {
+      "input": 1413,
+      "output": 11,
+      "cacheRead": 0,
+      "cacheWrite": 1413,
+      "totalTokens": 2837,
+      "cost": {
+       "input": 0,
+       "output": 0,
+       "cacheRead": 0,
+       "cacheWrite": 0,
+       "total": 0
+      }
+     },
+     "stopReason": "toolUse",
+     "timestamp": 1792089684152
+    }
+   },
+   {
+    "type": "message",
+    "id": "438c8293",
+    "parentId": "d66dcb98",
+    "timestamp": "2026-10-15T18:41:25.191Z",
+    "message": {
+     "role": "toolResult",
+     "toolCallId": "tool:1792089684152:6dafhtxci7",
+     "toolName": "bash",
+     "content": [
+      {
+       "type": "text",
+       "text": "slow-done\n"
+      }
+     ],
+     "isError": false,
+     "timestamp": 1792089685191
+    }
+   },
+   {
+    "type": "message",
+    "id": "78ccc1ea",
+    "parentId": "438c8293",
+    "timestamp": "2026-10-15T18:41:25.193Z",
+    "message": {
+     "role": "user",
+     "content": [
+      {
+       "type": "text",
+       "text": "also this"
+      }
+     ],
+     "timestamp": 1792089684180
+    }
+   },
+   {
+    "type": "message",
+    "id": "440fda90",
+    "parentId": "78ccc1ea",
+    "timestamp": "2026-10-15T18:41:25.204Z",
+    "message": {
+     "role": "assistant",
+     "content": [
+      {
+       "type": "text",
+       "text": "echo: also this"
+      }
+     ],
+     "api": "faux:1792089684133:2w050xc78xu",
+     "provider": "faux",
+     "model": "faux-1",
+     "usage": {
+      "input": 24,
+      "output": 4,
+      "cacheRead": 1413,
+      "cacheWrite": 25,
+      "totalTokens": 1466,
+      "cost": {
+       "input": 0,
+       "output": 0,
+       "cacheRead": 0,
+       "cacheWrite": 0,
+       "total": 0
+      }
+     },
+     "stopReason": "stop",
+     "timestamp": 1792089685193
+    }
+   }
+  ],
+  "leafId": "440fda90"
+ }
+}

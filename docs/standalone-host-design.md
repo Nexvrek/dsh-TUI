@@ -53,7 +53,7 @@ bin/dsh-tui.js（启动器：对齐、安全模式、Windows 解析）
               └─ createCoreChannel(cordisChannelHost(ctx), pendingSession, …) ──► render(Chat)
                                                                                   ← 首帧
        内核判定（hostEntryRoute.entryKernel）：
-         ├─ claude / codex：首帧后组合轻量 profile（4.6）
+         ├─ claude / codex / pi 等非 DSH 内核：首帧后组合轻量 profile（4.6）
          │     └─ 运行时自己打开后端（SDK、转录、CLI 握手）
          │          └─ channel.adoptStartup(session, history)                 可发送
          └─ dsh：设好 DSH_TUI_* 环境变量，把 dsh-tui profile 组合进**同一个根**

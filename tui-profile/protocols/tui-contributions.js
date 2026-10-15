@@ -28,7 +28,7 @@ export const BACKEND = Object.freeze({
  * two lists are compared bidirectionally by
  * `scripts/verify-backend-contribution.ts`.
  */
-export const BACKEND_RESERVED_IDS = Object.freeze(['dsh', 'claude', 'codex'])
+export const BACKEND_RESERVED_IDS = Object.freeze(['dsh', 'claude', 'codex', 'pi'])
 
 /**
  * The confirmation policies this host implements (roadmap §6 item 5 ②).

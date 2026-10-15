@@ -1,0 +1,122 @@
+# pi backend (experimental)
+
+[Documentation index](README.md) · [中文](pi-backend.md) · [Agent backends](agent-backend-design.md)
+
+dsh-TUI can front your own [pi](https://github.com/earendil-works/pi): the
+interface stays the same while the session runs on your `pi` — one
+`pi --mode rpc` child per session, speaking JSONL over stdio. pi loads its own
+settings, models and logins, extensions, skills, prompt templates and
+`AGENTS.md`; session files are shared with pi, so there is no history to migrate.
+
+> This page describes the current development branch, not a release. The
+> validated baseline is **pi 0.87.1**, the minimum **0.84.4**; other versions run
+> with a drift notice. What was and was not verified is listed at the end.
+
+## Install and start
+
+Install dsh-TUI as in [Getting started](getting-started.en.md), then install and
+set up your own pi:
+
+```sh
+npm install -g @earendil-works/pi-coding-agent   # or pi.dev's install script
+pi                                               # /login or set an API key in pi, check that it answers
+dsh-tui --backend pi
+```
+
+- dsh-TUI bundles no pi and does not depend on pi's SDK package. It looks for
+  `pi` on `PATH`; `DSH_TUI_PI_EXECUTABLE` selects an executable. On Windows the
+  npm launcher (`pi.cmd`) resolves to pi's JS entry, run with the current Node.
+- The launchpad "Kernel" entry, `/kernel` or `/pi` switch to pi, and the choice
+  is remembered. A dsh-tui config row `backend: pi` or `DSH_TUI_BACKEND=pi` work
+  too. One process runs one backend; switching restarts.
+- Your pi directory (`PI_CODING_AGENT_DIR`, default `~/.pi/agent`) is used as
+  is: settings, models, logins, extensions, skills and prompt templates apply.
+  dsh-TUI **does not write pi's configuration**; its own preferences (last
+  session, `/color`) live in `~/.dsh-tui/backends/pi/prefs.json`.
+
+Resume a session pi or dsh-TUI started:
+
+```sh
+dsh-tui --backend pi --resume <session-id>
+dsh-tui --backend pi --resume        # the pi session dsh-TUI used last on this machine
+pi --session <session-id>            # back to pi's own interface
+```
+
+- A resume opens the session file by path. An unknown session, or one whose
+  recorded working directory is gone, fails loudly and exits; no new session is
+  started instead. The session's recorded directory is used.
+- `/resume` lists pi's sessions (the current project by default), titled by
+  pi's `/name` or else the opening prompt.
+- The replay reads every entry of the session file's current branch: history a
+  compaction folded away stays visible, and the summary shows as a checkpoint.
+
+## What works
+
+| Feature | Notes |
+| --- | --- |
+| Streaming replies and thinking | Thinking shows as thinking rows |
+| Tool cards | `read`/`write`/`edit`/`bash`/`grep`/`find`/`ls`/`powershell` get dedicated cards: `edit` shows pi's unified patch, `bash` live output and the exit code; extension and MCP tools use the generic card |
+| Queueing and steering | A message sent mid-run joins pi's follow-up queue; a steer joins the **running turn** after the current tool calls, before the next model call; pending messages show in the queue |
+| Interrupt | Esc interrupts the turn and keeps what pi queued; "interrupt and clear" clears pi's queue first |
+| `/model`, `/effort` | The models of pi's signed-in providers; effort is pi's thinking level (the values the model offers) |
+| `/compact`, `/context` | pi compacts and its summary shows as a checkpoint; context usage comes from pi's session stats |
+| `/` commands | pi's extension commands, prompt templates and skills (`/skill:name`) join the command list and run or expand as in pi |
+| Extension dialogs | An extension's select / confirm / input / editor show on the questionnaire panel, notify as a notice; a dialog with a timeout closes when it expires |
+| Images | Pasted or `@`-mentioned images go with the message; pi resizes them to the model's limits |
+| `/rename`, `/color`, `/doctor` | Renames are written to the pi session; colours stay local; `/doctor` shows pi's path, version, session file and model |
+| `/fork`, double-`Esc` rewind | `/fork` copies the current branch into a new session and leaves the current one alone; a rewind copies the conversation before the picked message into a new session, switches to it and puts the message back in the composer. Only the conversation rewinds, not files (pi keeps no file snapshots) |
+| Session browser | Listing, preview, rename (a `session_info` entry, as pi's `/name` writes) and delete (to the trash when a `trash` command exists, as pi's `/resume` does) |
+
+## Differences from native pi and limitations
+
+- **No tool approval**: pi does not ask before running tools, and dsh-TUI does
+  not intercept either (`/permission` reports it unsupported). For
+  confirmations, install a permission-gate style pi extension; its dialogs show
+  on the questionnaire panel.
+- **Project trust**: RPC mode has no trust prompt. Settings, extensions,
+  skills and prompt templates under a project's `.pi/` (and a parent's
+  `.agents/skills`) load only when you trusted the project in pi before. When
+  pi has no decision for the folder, dsh-TUI says so once at session start; run
+  `pi` there once and trust it, or set `defaultProjectTrust` in pi's settings.
+  dsh-TUI never decides trust for pi.
+- **Sign in through pi**: RPC has no login. With no usable model pi exits at
+  startup and dsh-TUI shows pi's own message; use `pi`'s `/login`, or set the
+  provider's API key variable.
+- An extension's custom components (`ctx.ui.custom()`), status line and widgets
+  (`setStatus`/`setWidget`) and editor-text edits do not show in dsh-TUI.
+- pi's own interface commands (`/tree`, `/settings`, `/login`, …) do not go
+  through RPC; pi itself has no subagents or background tasks.
+- One pi child per session. If it exits unexpectedly, that session takes no
+  more messages; reopen it with `/resume`.
+
+## Data and environment
+
+- Session files are pi's own: `~/.pi/agent/sessions/--<dir>--/<time>_<id>.jsonl`
+  (or `PI_CODING_AGENT_SESSION_DIR`, or the `sessionDir` of pi's global
+  settings). dsh-TUI reads them, and writes only on three user actions: `/fork`
+  and the rewind write a new file in pi's session format (a new header plus the
+  branch's entries copied as they are, as pi's own fork does), a rename from the
+  session browser appends a `session_info` entry, and a delete removes the file.
+  The current session renames through its pi child.
+- The child inherits your environment minus what a parent pi session exports
+  to its tool processes (`PI_SESSION_ID`, `PI_SESSION_FILE`, `PI_PROVIDER`,
+  `PI_MODEL`, `PI_REASONING_LEVEL`, `PI_CODING_AGENT`): dsh-tui may itself run in
+  a terminal inside a pi session.
+- pi's stderr goes to the debug log and deduplicated notices only, never to
+  the terminal.
+
+## Verification scope
+
+- **Verified**:
+  - An end-to-end run of the local pi 0.87.1 on a scripted faux model (no
+    network, no charge), `scripts/verify-pi-live.ts`, 48 checks: a tool turn,
+    extension dialogs, thinking level, interrupt, a steer joining the running
+    turn, `/fork` and rewind (real pi opens the files they write), offline
+    rename and delete, and a resume that replays and continues.
+  - CI regressions: live/replay agreement over recorded fixtures
+    (`verify-pi-translate`), the session layer on a fake child
+    (`verify-pi-session`), the offline catalog (`verify-pi-catalog`), and the
+    cross-backend event invariants.
+- **Not verified**: model turns and charges on a real provider, pi 1.x on a
+  real machine (aligned with the protocol docs and source only; newer fields are
+  read as optional), Windows, and full interaction on a real TTY.
