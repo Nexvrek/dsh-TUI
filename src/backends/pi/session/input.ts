@@ -17,9 +17,10 @@
  * - The channel shows every submission as a pending preview until a
  *   `pending.changed` claims or discards it, so every accepted submission is
  *   claimed: when pi records its message, or at once for an extension command
- *   (pi ran it; no message follows). A submission pi queued
- *   (`disposition: queued`, or sent while a run was going) is also a pending
- *   item until then; clearing pi's queue discards those.
+ *   (pi ran it; no message follows) and for this backend's own `/trust`. A
+ *   submission pi queued (`disposition: queued`, or sent while a run was
+ *   going) is also a pending item until then; clearing pi's queue discards
+ *   those.
  */
 import type { AgentEvent, PendingItem } from '../../../agent/events.js'
 import type { AgentInput, CancelCause, CancelReceipt, SubmitPlacement } from '../../../agent/session.js'
@@ -43,6 +44,9 @@ export interface PiInputDeps {
   running(): boolean
   /** Extension command names (no slash): such a prompt records no message. */
   extensionCommands(): ReadonlySet<string>
+  /** Run a command of this backend's own (`/trust`); true when the text was
+   *  one. Nothing goes to pi. */
+  local(text: string): boolean
   /** Answer open dialogs `cancelled` before an abort (see dialogs.ts). */
   beforeAbort(): void
   /** Mark the next turn end as the user's interrupt. */
@@ -107,6 +111,10 @@ export function createPiInput(deps: PiInputDeps): PiInput {
         images = await piImageContent(input.images ?? [])
       } catch (error) {
         return { accepted: false, reason: errorText(error) }
+      }
+      if (deps.local(input.text)) {
+        deps.emit([{ type: 'pending.changed', items: pendingItems(), claimed: [input.clientMessageId] }])
+        return { accepted: true }
       }
       if (placement === 'now' && deps.running()) await abort()
       const wasRunning = deps.running()

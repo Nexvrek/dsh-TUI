@@ -5,8 +5,9 @@
  * turn (call, live output, result cards), extension dialogs on the
  * questionnaire, thinking-level control, an interrupt, a steer joining the
  * running turn, `/fork` and the double-Esc rewind (the files they write are
- * opened by real pi), the offline catalog (rename, delete), and a resume
- * replaying the session.
+ * opened by real pi), the offline catalog (rename, delete), a resume
+ * replaying the session, and project trust (real pi loads a project's prompt
+ * template only after the trust answer, and reads the trust.json written).
  *
  * Needs `pi` on PATH (or DSH_TUI_PI_EXECUTABLE); without a supported one it
  * prints SKIP and exits 0. Not in CI (CI has no pi).
@@ -14,6 +15,8 @@
  *   node --import tsx/esm scripts/verify-pi-live.ts
  */
 import assert from 'node:assert/strict'
+import { mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { piFauxHome } from './lib/pi-faux.js'
 
 const home = piFauxHome()
@@ -74,6 +77,7 @@ function recorder(session: AgentSession) {
 
 let session: AgentSession | undefined
 let resumed: AgentSession | undefined
+let trusting: AgentSession | undefined
 try {
   session = await openPiBackendSession({ kind: 'create', cwd: home.cwd }, host)
   const sessionId = session.ref.sessionId
@@ -224,9 +228,35 @@ try {
   check('a deleted session leaves the catalog', (await piBackend.catalog!.info!(forked.sessionId, home.cwd)) === undefined)
   await assert.rejects(openPiBackendSession({ kind: 'resume', sessionId: 'no-such-session' }, host), /No pi session no-such-session was found/u)
   check('resuming an unknown session fails loudly', true)
+
+  // ── Project trust ──
+  const project = join(home.root, 'trusting')
+  mkdirSync(join(project, '.pi', 'prompts'), { recursive: true })
+  writeFileSync(join(project, '.pi', 'prompts', 'hello.md'), 'say hello from the project template')
+  trusting = await openPiBackendSession({ kind: 'create', cwd: project }, host)
+  const trustLog = recorder(trusting)
+  const question = await trustLog.waitFor('question.request', event => event.request.requestId.startsWith('pi-trust:'), 20_000, 0)
+  check('an untrusted project is asked about on open', question.request.questions[0]?.options[0]?.label === 'Trust', question.request)
+  const names = async (): Promise<string[]> => (await trusting!.capabilities.commands!.list()).map(command => command.name)
+  check('untrusted, real pi leaves the project template out', !(await names()).includes('hello'))
+  trusting.capabilities.questions!.respond(question.request.requestId, { answers: [{ selected: ['Trust'] }] })
+  await trustLog.waitFor('notice', event => event.key === 'pi-trust' && /restarted with/u.test(event.text), 30_000, 0)
+  check('trusted, the restarted pi lists the project template', (await names()).includes('hello'))
+  check('the answer is in pi\'s trust.json', JSON.parse(readFileSync(join(home.agentDir, 'trust.json'), 'utf8'))[realpathSync(project)] === true)
+  check('pi\'s note on recreating the unsaved session stays out of the notices', !stderr.some(line => /No project session found/u.test(line)), stderr)
+  mark = trustLog.events.length
+  await trusting.submit({ text: '/hello', clientMessageId: 'c-hello' }, 'turn')
+  await trustLog.waitFor('turn.end', () => true, 20_000, mark)
+  const echoed = trustLog.since(mark).find(event => event.type === 'assistant.message')
+  check('the restarted pi runs the template on the same session', echoed?.type === 'assistant.message' && echoed.blocks.some(block => (block.text ?? '').includes('say hello from the project template')) && trusting.ref.sessionId !== '', echoed)
+  const trustedId = trusting.ref.sessionId
+  await trusting.dispose()
+  const reopened = await prompts(trustedId)
+  check('real pi reopens the restarted session with its prompt', reopened.users.includes('/hello') || reopened.users.some(text => text.includes('say hello')), reopened)
   console.log(`verify-pi-live OK (${checks} checks, pi ${executable.version})`)
 } finally {
   await session?.dispose().catch(() => undefined)
   await resumed?.dispose().catch(() => undefined)
+  await trusting?.dispose().catch(() => undefined)
   home.cleanup()
 }

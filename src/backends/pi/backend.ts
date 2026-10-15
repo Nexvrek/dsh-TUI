@@ -7,12 +7,14 @@
  * their settings, models, logins, extensions, skills and prompt templates
  * apply as in pi itself, and sessions are shared with it (`pi --session`
  * opens a session started here). Project-local resources load only for a
- * project pi already trusts — RPC mode has no trust prompt, and this backend
- * never trusts on pi's behalf.
+ * project pi trusts; RPC mode never asks, so the session asks instead
+ * (`session/trust-prompt.ts`), and a session-only answer reaches each later
+ * child as `--approve` / `--no-approve`.
  *
  * A resume opens the session file by path: `--session <id>` would make pi ask
  * on stdin about a session of another project (eating the first command),
- * and `--session-id <id>` silently starts a new session when none matches.
+ * and `--session-id <id>` silently starts a new session when none matches —
+ * which is what a restart of a session pi has not saved yet wants.
  */
 import { existsSync } from 'node:fs'
 import type { AgentBackend, BackendHost, OpenTarget } from '../../agent/backend.js'
@@ -22,7 +24,7 @@ import { MIN_PI_VERSION, PI_BACKEND_ID, PI_BACKEND_LABEL, piResumeCommand, piVer
 import { createPiCatalog, findPiSessionFile } from './catalog.js'
 import { detectPi } from './detect.js'
 import { piAgentDir } from './paths.js'
-import { piTrustUnsettled } from './trust.js'
+import { piTrustArgs } from './trust.js'
 import { filePiPrefs, memoryPiPrefs, type PiPrefs } from './prefs.js'
 import { buildPiEnv, resolvePiExecutable, type PiExecutable } from './rpc/binary.js'
 import { spawnPiRpc, type PiRpcSpawnOptions } from './rpc/transport.js'
@@ -47,10 +49,16 @@ const rememberHost = (host: BackendHost): void => {
 
 const prefsOf = (host: BackendHost): PiPrefs => host.dataDir === undefined ? memoryPiPrefs() : filePiPrefs(host.dataDir, host.debug)
 
-/** pi's arguments for one session: RPC mode, no themes (nothing renders them). */
-export function piRpcArgs(sessionPath?: string): string[] {
-  return ['--mode', 'rpc', '--no-themes', ...(sessionPath === undefined ? [] : ['--session', sessionPath])]
+/** pi's arguments for one session: RPC mode, no themes (nothing renders
+ *  them), the session file or id to open, and the trust flag. */
+export function piRpcArgs(options: { readonly sessionPath?: string; readonly sessionId?: string; readonly trust?: readonly string[] } = {}): string[] {
+  const session = options.sessionPath !== undefined ? ['--session', options.sessionPath] : options.sessionId !== undefined ? ['--session-id', options.sessionId] : []
+  return ['--mode', 'rpc', '--no-themes', ...session, ...(options.trust ?? [])]
 }
+
+/** pi's warning for `--session-id` creating the session: a restart of an
+ *  unsaved session means exactly that. */
+const SESSION_ID_CREATED = /No project session found with id/u
 
 /** Open (create or resume) a session on its own child. */
 export async function openPiBackendSession(target: OpenTarget, host: BackendHost, options: PiOpenOptions = {}): Promise<AgentSession> {
@@ -70,21 +78,22 @@ export async function openPiBackendSession(target: OpenTarget, host: BackendHost
     }
     sessionPath = found.path
   }
-  const link = spawnPiRpc({
+  const spawnChild = (args: { readonly sessionPath?: string; readonly sessionId?: string }) => spawnPiRpc({
     command: executable.command,
-    args: [...executable.prefixArgs, ...piRpcArgs(sessionPath)],
+    args: [...executable.prefixArgs, ...piRpcArgs({ ...args, trust: piTrustArgs(cwd) })],
     cwd,
     env: buildPiEnv(env),
-    stderr: line => host.stderr?.(line),
+    stderr: line => { if (!SESSION_ID_CREATED.test(line)) host.stderr?.(line) },
     debug: host.debug,
     ...(options.spawn === undefined ? {} : { spawn: options.spawn }),
   })
   return openPiSession({
-    link, executable, target, cwd,
+    link: spawnChild(sessionPath === undefined ? {} : { sessionPath }),
+    respawn: next => spawnChild(next.sessionFile === undefined ? { sessionId: next.sessionId } : { sessionPath: next.sessionFile }),
+    executable, target, cwd, env,
     prefs: options.prefs ?? prefsOf(host),
     host: { debug: host.debug, locale: host.locale },
     agentDir: piAgentDir(env),
-    ...(piTrustUnsettled(cwd, env) ? { startNotices: [{ key: 'pi-trust', text: piText('pi-trust-unsettled') }] } : {}),
   })
 }
 

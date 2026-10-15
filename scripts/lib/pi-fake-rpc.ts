@@ -2,7 +2,8 @@
  * A fake `pi --mode rpc` child for the pi backend's session regressions: a
  * stand-in for `child_process.spawn` (the transport's `spawn` seam) whose
  * stdin records every command and whose stdout the test scripts. Commands
- * without a handler get a plain success response. Nothing is spawned.
+ * without a handler get a plain success response. Nothing is spawned. A
+ * later spawn (a restart) replaces the child; handlers and the record stay.
  */
 import { EventEmitter } from 'node:events'
 import { PassThrough, Writable } from 'node:stream'
@@ -17,6 +18,8 @@ export interface FakePi {
   readonly received: Rec[]
   /** The arguments of the last spawn. */
   args: readonly string[]
+  /** The arguments of every spawn, in order. */
+  readonly spawns: (readonly string[])[]
   /** Answer commands of `type` (return the response `data`, or throw to fail it;
    *  return `undefined` and call `respond` yourself to answer later). */
   on(type: string, handler: (command: Rec) => unknown): void
@@ -47,8 +50,12 @@ export function createFakePi(options: { readonly exitOnStdinEnd?: boolean } = {}
   const fake: FakePi = {
     received,
     args: [],
+    spawns: [],
     spawn(_command, args) {
       fake.args = args
+      fake.spawns.push(args)
+      exited = false
+      buffer = ''
       const stdout = new PassThrough()
       const stderr = new PassThrough()
       const stdin = new Writable({
@@ -104,9 +111,10 @@ export function createFakePi(options: { readonly exitOnStdinEnd?: boolean } = {}
     exit(code, signal = null) {
       if (exited || child === undefined) return
       exited = true
-      child.stdout.end()
-      child.stderr.end()
-      setTimeout(() => child!.emit('exit', code, signal), 1)
+      const ending = child
+      ending.stdout.end()
+      ending.stderr.end()
+      setTimeout(() => ending.emit('exit', code, signal), 1)
     },
     next(type) {
       return new Promise(resolve => { waiters.push({ type, resolve }) })

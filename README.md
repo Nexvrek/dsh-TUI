@@ -305,8 +305,9 @@ interrupts, `/model` (provider tabs, as on DSH), `/effort`
 templates and skills, extension dialogs (on the questionnaire), images,
 `/rename`, `/fork` and the double-`Esc` rewind (conversation only) use the
 existing surfaces. pi does not approve tools and neither
-does dsh-TUI; sign in through pi; a project's `.pi/` resources load only when
-pi trusts the project. An end-to-end run of the local pi 0.87.1 on a scripted
+does dsh-TUI; sign in through pi; pi's project trust question (which RPC mode
+never asks) shows on the questionnaire with pi's choices, and `/trust` reopens
+it. An end-to-end run of the local pi 0.87.1 on a scripted
 faux model (no network, no charge) and real `deepseek-flash` turns passed.
 Details: [pi backend](docs/pi-backend.en.md).
 

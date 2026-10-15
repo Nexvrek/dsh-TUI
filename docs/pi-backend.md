@@ -27,8 +27,9 @@ dsh-tui --backend pi
   dsh-tui 配置行写 `backend: pi`，或设置 `DSH_TUI_BACKEND=pi`。一个进程只用一个后端，
   切换需要重启。
 - 使用你的 pi 目录（`PI_CODING_AGENT_DIR`，默认 `~/.pi/agent`）：settings、
-  models、登录、扩展、skills、prompt 模板照常生效。dsh-TUI **不写 pi 的配置**；
-  自己的偏好（上次会话、`/color`）保存在 `~/.dsh-tui/backends/pi/prefs.json`。
+  models、登录、扩展、skills、prompt 模板照常生效。dsh-TUI **不写 pi 的配置**，唯一例外
+  是你在信任提问里选了要记住的答案（写进 pi 的 `trust.json`，见下文）；自己的偏好（上次
+  会话、`/color`）保存在 `~/.dsh-tui/backends/pi/prefs.json`。
 
 恢复 pi 或 dsh-TUI 建立的会话：
 
@@ -58,6 +59,7 @@ pi --session <session-id>            # 换回 pi 自己的界面
 | 扩展对话框 | 扩展的 select / confirm / input / editor 显示在问卷面板，notify 变为提示；带超时的对话框到点自动收起 |
 | 图片 | 粘贴或 `@` 引用的图片随消息发送，由 pi 按模型限制缩放 |
 | `/rename`、`/color`、`/doctor` | 改名写进 pi 会话；颜色保存在本机；`/doctor` 显示 pi 路径、版本、会话文件与模型 |
+| 项目信任、`/trust` | pi 自己的界面会问的信任问题，这里在问卷面板上问，选项与 pi 相同；`/trust` 随时重新打开它。详见下文「项目信任」 |
 | `/fork`、双击 Esc 回退 | `/fork` 把当前分支复制成新会话，当前会话不受影响；回退把被选消息之前的对话复制成新会话并切过去，被选消息回到输入框。只回退对话，不回退文件（pi 不记录文件快照） |
 | 会话浏览器 | 列出、预览、改名（与 pi 的 `/name` 相同，写入一条 `session_info`）、删除（有 `trash` 命令时移入回收站，与 pi 的 `/resume` 相同） |
 
@@ -65,10 +67,6 @@ pi --session <session-id>            # 换回 pi 自己的界面
 
 - **没有工具审批**：pi 本身在执行工具前不询问，dsh-TUI 也不拦截（`/permission` 显示
   不支持）。需要确认时可以安装 pi 的 permission-gate 类扩展，它的确认框会出现在问卷面板。
-- **项目资源的信任**：RPC 模式没有信任提示。项目 `.pi/` 下的设置、扩展、skills、prompt
-  模板（以及上层目录的 `.agents/skills`），只有你曾在 pi 里信任过该项目时才会加载。pi 还没
-  有信任决定时，dsh-TUI 打开会话会提示一次；在终端运行一次 `pi` 并选择信任，或在 pi 设置里
-  配置 `defaultProjectTrust`。dsh-TUI 不替 pi 做信任决定。
 - **登录在 pi 里完成**：RPC 没有登录接口。没有可用模型时 pi 启动即退出，dsh-TUI 会显示
   pi 的原话；用 `pi` 的 `/login`，或设置 provider 的 API key 环境变量。
 - 扩展的自定义组件（`ctx.ui.custom()`）、状态栏与小部件（`setStatus`/`setWidget`）、
@@ -77,6 +75,26 @@ pi --session <session-id>            # 换回 pi 自己的界面
   子代理与后台任务。
 - 每个会话一个 pi 子进程。pi 进程意外退出后，该会话不再接收消息，用 `/resume` 重新打开。
 
+## 项目信任
+
+项目 `.pi/` 下的设置、MCP 配置、扩展、skills、prompt 模板、主题与系统提示（以及本目录或
+上层目录的 `.agents/skills`）只有在 pi 信任该项目时才加载。pi 自己的界面遇到还没有信任
+决定的项目会先问；RPC 模式不问，直接当作不信任。dsh-TUI 替 pi 把这个问题问出来：
+
+- 打开会话时，如果项目有这类资源、pi 的 `trust.json` 里没有它（或上层目录）的决定、
+  `defaultProjectTrust` 也是默认的 `ask`，问卷面板会列出发现的资源并给出 pi 的五个选项：
+  信任、信任上级文件夹、仅本次信任、不信任、仅本次不信任。
+- 「信任」「信任上级文件夹」「不信任」会记住：按 pi 的格式写进 pi 的 `trust.json`（与 pi
+  自己的界面共用，写入时持 pi 的锁）。「仅本次」两项不写文件，只在这次运行里有效；之后在
+  同一目录打开的会话直接沿用（子进程带 `--approve` / `--no-approve`），下次启动再问。
+- pi 只在启动时决定信任，所以改变了已加载状态的选择会让 pi 子进程在**同一个会话**上重启：
+  对话、会话 id 与文件都不变，项目的 prompt 模板、skills、扩展随之出现或消失。正在跑的
+  回合会先跑完再重启。
+- 直接关掉开场的提问，等于这次运行里不信任（与关掉 pi 的提示相同）。`/trust` 随时重新
+  打开提问，并显示当前是否已加载项目资源；关掉 `/trust` 的提问什么也不改。
+- 已经在 pi 设置里配了 `defaultProjectTrust: always` / `never`，或 `trust.json` 已有决定，
+  就不会问。全局或命令行扩展的 `project_trust` 处理器若另作决定，以 pi 为准。
+
 ## 数据与环境
 
 - 会话文件是 pi 自己的：`~/.pi/agent/sessions/--<目录>--/<时间>_<id>.jsonl`（或
@@ -84,6 +102,7 @@ pi --session <session-id>            # 换回 pi 自己的界面
   只有三种用户操作会写：`/fork` 与回退按 pi 的会话格式写一份新文件（新 header 加原样复制的
   分支条目，与 pi 自己的分叉相同），会话浏览器的改名追加一条 `session_info`，删除移除文件。
   当前会话的改名经 pi 子进程写入。
+- pi 目录里唯一会写的是 `trust.json`，只在你选了要记住的信任答案时（见「项目信任」）。
 - 子进程继承你的环境，只去掉父级 pi 会话导出给工具进程的变量（`PI_SESSION_ID`、
   `PI_SESSION_FILE`、`PI_PROVIDER`、`PI_MODEL`、`PI_REASONING_LEVEL`、`PI_CODING_AGENT`），
   因为 dsh-tui 可能本身就跑在一个 pi 会话的终端里。
@@ -93,14 +112,17 @@ pi --session <session-id>            # 换回 pi 自己的界面
 
 - **已验证**：
   - 本机 pi 0.87.1 驱动脚本化 faux 模型（零网络、零费用）的端到端冒烟
-    `scripts/verify-pi-live.ts`，共 48 项：工具回合、扩展对话框、思考等级、中断、插话并入
-    当前回合、`/fork` 与回退（写出的文件由真 pi 打开）、离线改名与删除、恢复回放后继续对话。
+    `scripts/verify-pi-live.ts`，共 55 项：工具回合、扩展对话框、思考等级、中断、插话并入
+    当前回合、`/fork` 与回退（写出的文件由真 pi 打开）、离线改名与删除、恢复回放后继续对话、
+    项目信任（回答前真 pi 不加载项目 prompt 模板，信任后重启的 pi 加载它并在同一会话上执行，
+    写出的 `trust.json` 由真 pi 读取）。
   - 真实 provider：`deepseek/deepseek-flash` 跑 `scripts/verify-pi-real.ts`（25 项，只允许
     flash/mini/haiku 等廉价档，隔离的 agent 目录、凭据取自环境变量）：纯文本、bash 与 edit
     工具（文件确实被改）、思考块、中断、插话、`/context`、真实压缩、压缩后恢复并继续、分叉；
     并在真实终端里用同一模型跑过 TUI。
   - CI 回归：录制夹具的实时与回放一致性（`verify-pi-translate`）、假子进程会话层
-    （`verify-pi-session`）、离线目录（`verify-pi-catalog`）、跨后端事件不变量。
+    （`verify-pi-session`，含信任提问的各个选项、`trust.json` 的格式与锁、重启与回合后
+    重启、`/trust`）、离线目录（`verify-pi-catalog`）、跨后端事件不变量。
 - **未验证**：加载你自己全套 pi 扩展时的运行（如 `pi-permission-system`、记忆类扩展；实测
   特意隔离以免写入你的记忆与设置）、pi 1.x 实机（只按协议文档与源码对齐，新增字段一律按
   可选处理）、Windows。

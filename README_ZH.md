@@ -249,9 +249,9 @@ dsh-tui --backend pi --resume <session-id>
 分标签）、`/effort`（pi 的思考等级）、`/compact`、`/context`、pi 的扩展
 命令 / prompt 模板 / skills、扩展对话框（进问卷面板）、图片、`/rename`、`/fork` 与双击 Esc
 回退（只回退对话）复用现有界面。
-pi 本身不做工具审批，dsh-TUI 也不拦；登录在 pi 里完成；项目 `.pi/` 资源只在 pi 信任过
-该项目时加载。本机 pi 0.87.1 驱动脚本化 faux 模型的端到端检查（零网络、零费用）与
-`deepseek-flash` 真实回合检查均通过。详见 [pi 后端](docs/pi-backend.md)。
+pi 本身不做工具审批，dsh-TUI 也不拦；登录在 pi 里完成；pi 的项目信任提问（RPC 模式
+不会问）改在问卷面板上问，选项与 pi 相同，`/trust` 可随时重新打开。本机 pi 0.87.1 驱动
+脚本化 faux 模型的端到端检查（零网络、零费用）与 `deepseek-flash` 真实回合检查均通过。详见 [pi 后端](docs/pi-backend.md)。
 
 ## 快捷键与鼠标
 

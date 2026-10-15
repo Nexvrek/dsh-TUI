@@ -15,11 +15,15 @@
  *   read back with `get_state` after the command that changed it.
  * - The child dying is final for the session: the open turn closes as an
  *   error, dialogs and the queue are dropped, and input is refused.
+ * - Project trust (`trust-prompt.ts`): pi settles it once, at startup, so a
+ *   choice that changes what the child loaded restarts the child on the same
+ *   session — after the running turn, if one is going. Commands sent
+ *   meanwhile wait for the new child.
  * - Dispose: withdraw dialogs, abort a running turn, close the child.
  *   Idempotent.
  */
 import { existsSync } from 'node:fs'
-import type { AgentEvent, AgentEventMeta } from '../../../agent/events.js'
+import type { AgentEvent, AgentEventMeta, CommandInfo } from '../../../agent/events.js'
 import type { BackendLocale, OpenTarget } from '../../../agent/backend.js'
 import type { ModelOption, ModelRef } from '../../../agent/capabilities.js'
 import type { AgentSession, AgentSessionStatus, CancelCause } from '../../../agent/session.js'
@@ -27,8 +31,9 @@ import { installPiLocale, piText } from '../text.js'
 import { PI_BACKEND_ID, piVersionDrift, VALIDATED_PI_VERSIONS } from '../contract.js'
 import { arr, errorText, num, rec, str, strings, type Rec } from '../narrow.js'
 import type { PiExecutable } from '../rpc/binary.js'
-import type { PiRpcEvent, PiRpcLink } from '../rpc/transport.js'
+import type { PiExitInfo, PiRpcEvent, PiRpcLink } from '../rpc/transport.js'
 import type { PiPrefs } from '../prefs.js'
+import { piChildTrusted, piTrustUnsettled } from '../trust.js'
 import { createPiContext } from '../translate/core.js'
 import { PI_IMAGE_LIMITS } from '../translate/images.js'
 import { createLiveTranslator } from '../translate/live.js'
@@ -37,14 +42,20 @@ import { resolveUserEntry, writePiBranch, type PiBranchSource } from './branch.j
 import { createPiDialogs } from './dialogs.js'
 import { createPiInput } from './input.js'
 import { clampPiThinkingLevel, findPiModelRow, piThinkingLevels } from './models.js'
+import { createPiTrustPrompt } from './trust-prompt.js'
 
 type Listener = (batch: readonly AgentEvent[], meta: AgentEventMeta) => void
 
 export interface PiSessionDeps {
   readonly link: PiRpcLink
+  /** A new child on this session (`--session <file>`, or `--session-id` for
+   *  one pi has not saved yet), started with the trust decided by then. */
+  readonly respawn: (target: { readonly sessionId: string; readonly sessionFile?: string }) => PiRpcLink
   readonly executable: PiExecutable
   readonly target: OpenTarget
   readonly cwd: string
+  /** The child's environment (pi's agent directory: the trust store). */
+  readonly env: NodeJS.ProcessEnv
   readonly prefs: PiPrefs
   readonly host: { readonly debug: (message: string) => void; readonly locale?: () => BackendLocale }
   /** pi's agent directory (`/doctor`). */
@@ -52,8 +63,6 @@ export interface PiSessionDeps {
   readonly now?: () => number
   /** Bound for the readiness probe and the history read. */
   readonly startTimeoutMs?: number
-  /** Notices the backend found while opening (a project pi will not trust). */
-  readonly startNotices?: readonly { readonly key: string; readonly text: string }[]
 }
 
 /** The model facts of `get_state` / `set_model` answers. */
@@ -76,15 +85,19 @@ function modelOf(value: unknown): ModelState | undefined {
  *  pi does not come up; the child is closed then. */
 export async function openPiSession(deps: PiSessionDeps): Promise<AgentSession> {
   if (deps.host.locale !== undefined) installPiLocale(deps.host.locale)
-  const { link } = deps
+  let link = deps.link
   const debug = deps.host.debug
   const startTimeoutMs = deps.startTimeoutMs ?? 90_000
+  // What the child was started with, and whether pi's own interface would
+  // have asked about this project.
+  let childTrusted = piChildTrusted(deps.cwd, deps.env)
+  const askTrust = piTrustUnsettled(deps.cwd, deps.env)
 
   // Events can arrive while the probe and the history read are in flight
   // (an extension's notify on session start): hold them for the replay.
   const held: PiRpcEvent[] = []
   let handle: ((event: PiRpcEvent) => void) | undefined
-  const offEvent = link.onEvent(event => { if (handle === undefined) held.push(event); else handle(event) })
+  let offEvent = link.onEvent(event => { if (handle === undefined) held.push(event); else handle(event) })
 
   let state: Rec
   let replay: readonly AgentEvent[] = []
@@ -120,6 +133,10 @@ export async function openPiSession(deps: PiSessionDeps): Promise<AgentSession> 
   let disposing = false
   let disposePromise: Promise<void> | undefined
   let extensionCommands: ReadonlySet<string> = new Set()
+  /** Every command name pi lists (its own `trust` would win over this backend's). */
+  let piCommands: ReadonlySet<string> = new Set()
+  /** A trust restart asked for while a turn was running. */
+  let restartAfterTurn = false
   const listeners = new Set<Listener>()
   const backlog: [readonly AgentEvent[], AgentEventMeta][] = []
   let replayHistory: readonly AgentEvent[] | undefined = replay
@@ -153,17 +170,39 @@ export async function openPiSession(deps: PiSessionDeps): Promise<AgentSession> 
     emit([{ type: 'session.status', status: next }])
   }
 
+  /** A restart in progress (see `relink`). */
+  let relinking: Promise<void> | undefined
+  /** A command to the current child; one sent during a restart goes to the new child. */
+  const request = async (type: string, params?: Rec, options?: { readonly timeoutMs?: number }): Promise<unknown> => {
+    while (relinking !== undefined) await relinking
+    return link.request(type, params, options)
+  }
+
   const dialogs = createPiDialogs({
     respond: record => link.send(record),
     emit: events => { emit(events, 'sync', true); publishStatus() },
     debug,
   })
 
+  const trust = createPiTrustPrompt({
+    cwd: deps.cwd,
+    env: deps.env,
+    emit: events => emit(events, 'sync', true),
+    trusted: () => childTrusted,
+    restart: () => restart(),
+  })
+
   const input = createPiInput({
-    request: (type, params, options) => link.request(type, params, options),
+    request,
     emit: events => emit(events),
     running: () => running,
     extensionCommands: () => extensionCommands,
+    local: text => {
+      // pi's `/trust` belongs to its own interface; here it opens the question.
+      if (!/^\/trust(?:\s|$)/u.test(text.trim()) || piCommands.has('trust')) return false
+      trust.ask('command')
+      return true
+    },
     beforeAbort: () => dialogs.withdrawAll(),
     noteCancel: () => { ctx.cancelRequested = true },
     debug,
@@ -171,35 +210,39 @@ export async function openPiSession(deps: PiSessionDeps): Promise<AgentSession> 
 
   const live = createLiveTranslator(ctx, { claimUser: text => input.claimUser(text) })
 
-  /** Re-read what pi does not announce (model, clamped thinking level). */
+  /** Take in a `get_state` answer: what pi does not announce (a model
+   *  switch, a clamped thinking level) and the session file. */
+  const applyState = (next: Rec): void => {
+    const nextModel = modelOf(next.model)
+    if (nextModel !== undefined && (nextModel.id !== model?.id || nextModel.provider !== model?.provider)) {
+      model = nextModel
+      ctx.model = nextModel.id
+      ctx.contextWindow = nextModel.contextWindow
+      emit([
+        { type: 'model.changed', model: nextModel.id, ...(nextModel.provider === '' ? {} : { provider: nextModel.provider }), source: 'user' },
+        ...(nextModel.contextWindow === undefined ? [] : [{ type: 'context.capacity' as const, contextWindow: nextModel.contextWindow }]),
+      ])
+    }
+    const level = str(next.thinkingLevel)
+    if (level !== undefined && level !== thinkingLevel) {
+      thinkingLevel = level
+      emit([{ type: 'effort.changed', effort: level }])
+    }
+    sessionFile = str(next.sessionFile) ?? sessionFile
+  }
+
   const refreshState = async (): Promise<void> => {
     try {
-      const next = rec(await link.request('get_state'))
-      if (next === undefined) return
-      const nextModel = modelOf(next.model)
-      if (nextModel !== undefined && (nextModel.id !== model?.id || nextModel.provider !== model?.provider)) {
-        model = nextModel
-        ctx.model = nextModel.id
-        ctx.contextWindow = nextModel.contextWindow
-        emit([
-          { type: 'model.changed', model: nextModel.id, ...(nextModel.provider === '' ? {} : { provider: nextModel.provider }), source: 'user' },
-          ...(nextModel.contextWindow === undefined ? [] : [{ type: 'context.capacity' as const, contextWindow: nextModel.contextWindow }]),
-        ])
-      }
-      const level = str(next.thinkingLevel)
-      if (level !== undefined && level !== thinkingLevel) {
-        thinkingLevel = level
-        emit([{ type: 'effort.changed', effort: level }])
-      }
-      sessionFile = str(next.sessionFile) ?? sessionFile
+      const next = rec(await request('get_state'))
+      if (next !== undefined) applyState(next)
     } catch (error) {
       debug(`pi: get_state failed (${errorText(error)})`)
     }
   }
 
-  const refreshLevels = async (): Promise<void> => {
+  const refreshLevels = async (via: typeof request = request): Promise<void> => {
     try {
-      levels = strings(rec(await link.request('get_available_thinking_levels'))?.levels)
+      levels = strings(rec(await via('get_available_thinking_levels'))?.levels)
     } catch (error) {
       debug(`pi: thinking levels unavailable (${errorText(error)})`)
     }
@@ -232,24 +275,92 @@ export async function openPiSession(deps: PiSessionDeps): Promise<AgentSession> 
     if (event.type === 'agent_settled') {
       running = false
       publishStatus()
+      if (restartAfterTurn) {
+        restartAfterTurn = false
+        restart()
+      }
     }
   }
 
-  const offExit = link.onExit(info => {
-    if (disposing) return
+  /** The child is gone for good: the open turn closes as an error, what
+   *  waited is dropped, and input is refused from now on. */
+  const lose = (text: string): void => {
     lost = true
     running = false
-    const tail = info.stderr.slice(-3).join(' · ')
-    const reason = tail === '' ? `code ${info.code ?? info.signal ?? '?'}` : tail
     dialogs.withdrawAll()
+    trust.withdraw()
     emit([
-      ...live.forceClose({ kind: 'error', message: piText('pi-process-exited', { err: reason }) }),
+      ...live.forceClose({ kind: 'error', message: text }),
       ...input.reset(),
-      { type: 'notice', level: 'error', key: 'pi-exit', text: piText('pi-process-exited', { err: reason }) },
+      { type: 'notice', level: 'error', key: 'pi-exit', text },
       { type: 'session.status', status: 'idle' },
     ])
     lastStatus = 'idle'
-  })
+  }
+
+  const onExit = (info: PiExitInfo): void => {
+    if (disposing) return
+    const tail = info.stderr.slice(-3).join(' · ')
+    lose(piText('pi-process-exited', { err: tail === '' ? `code ${info.code ?? info.signal ?? '?'}` : tail }))
+  }
+  let offExit = link.onExit(onExit)
+
+  /** Restart pi on this session with the trust decided by now. The old
+   *  child goes first (one writer per session file); the new one must open
+   *  the same session. A failure loses the session, as a crash does. */
+  const relink = async (): Promise<void> => {
+    if (disposing || lost) return
+    // A later answer (during the turn this waited for) may have undone it.
+    if (piChildTrusted(deps.cwd, deps.env) === childTrusted) return
+    // One keyed toast: the outcome below replaces it (trust-prompt.ts).
+    emit([{ type: 'notice', level: 'notice', key: 'pi-trust', text: piText('pi-trust-restarting') }])
+    dialogs.withdrawAll()
+    offEvent()
+    offExit()
+    try {
+      await link.close()
+      if (disposing) return
+      const file = sessionFile !== undefined && existsSync(sessionFile) ? sessionFile : undefined
+      link = deps.respawn({ sessionId, ...(file === undefined ? {} : { sessionFile: file }) })
+      offEvent = link.onEvent(event => handle?.(event))
+      offExit = link.onExit(onExit)
+      const next = rec(await link.request('get_state', {}, { timeoutMs: startTimeoutMs }))
+      if (disposing) return
+      if (str(next?.sessionId) !== sessionId) throw new Error(`pi opened session ${str(next?.sessionId) ?? '?'}, not ${sessionId}`)
+      childTrusted = piChildTrusted(deps.cwd, deps.env)
+      applyState(next!)
+    } catch (error) {
+      // A child that died at startup was already lost through its exit.
+      if (disposing || lost) return
+      offEvent()
+      offExit()
+      void link.close({ graceMs: 500 })
+      lose(piText('pi-trust-restart-failed', { err: errorText(error) }))
+      return
+    }
+    // The new child's thinking levels and commands (project prompts,
+    // skills and extensions come and go with trust).
+    await refreshLevels(link.request.bind(link))
+    try {
+      emit([{ type: 'commands.changed', commands: await listCommands(link.request.bind(link)) }])
+    } catch (error) {
+      debug(`pi: get_commands failed (${errorText(error)})`)
+    }
+    emit([{ type: 'notice', level: 'notice', key: 'pi-trust', text: piText(childTrusted ? 'pi-trust-applied' : 'pi-trust-revoked') }])
+  }
+
+  /** Restart for a changed trust decision, once the running turn ends. */
+  const restart = (): void => {
+    if (disposing || lost) return
+    if (running) {
+      if (!restartAfterTurn) emit([{ type: 'notice', level: 'notice', key: 'pi-trust', text: piText('pi-trust-deferred') }])
+      restartAfterTurn = true
+      return
+    }
+    const run = (relinking ?? Promise.resolve()).then(relink)
+    relinking = run
+    void run.finally(() => { if (relinking === run) relinking = undefined })
+  }
 
   const version = deps.executable.version
   const drift = piVersionDrift(version)
@@ -266,7 +377,6 @@ export async function openPiSession(deps: PiSessionDeps): Promise<AgentSession> 
   }])
   if (drift !== undefined) emit([{ type: 'notice', level: 'warning', key: 'pi-drift', text: piText('pi-version-drift', { version: drift, validated: VALIDATED_PI_VERSIONS.join(', ') }) }])
   if (model === undefined) emit([{ type: 'notice', level: 'warning', key: 'pi-no-model', text: piText('pi-no-model') }])
-  for (const notice of deps.startNotices ?? []) emit([{ type: 'notice', level: 'info', key: notice.key, text: notice.text }])
   if (model?.contextWindow !== undefined) emit([{ type: 'context.capacity', contextWindow: model.contextWindow }], 'none')
   if (thinkingLevel !== undefined) emit([{ type: 'effort.changed', effort: thinkingLevel }], 'none')
   const rememberedColor = deps.prefs.read().colors?.[sessionId]
@@ -274,20 +384,35 @@ export async function openPiSession(deps: PiSessionDeps): Promise<AgentSession> 
   if (running) emit([{ type: 'session.status', status: 'running' }], 'none')
   lastStatus = running ? 'running' : 'idle'
   for (const event of held.splice(0)) handle(event)
+  if (askTrust) trust.ask('open')
 
   /** The live branch a fork or rewind copies: pi's own entries, read from
    *  the child (never a file pi may be appending to), and the session file. */
   const branchSource = async (): Promise<PiBranchSource> => {
     const file = sessionFile
     if (file === undefined || !existsSync(file)) throw new Error(piText('pi-fork-unsaved'))
-    const answer = rec(await link.request('get_entries'))
+    const answer = rec(await request('get_entries'))
     return { file, entries: arr(answer?.entries), leafId: answer?.leafId === null ? null : str(answer?.leafId) }
+  }
+
+  /** pi's commands (extension commands, prompt templates, skills), plus
+   *  `/trust` unless pi lists one of that name. */
+  const listCommands = async (via: typeof request = request): Promise<CommandInfo[]> => {
+    const answer = rec(await via('get_commands'))
+    const rows = arr(answer?.commands).map(rec).filter((row): row is Rec => row !== undefined && str(row.name) !== undefined)
+    extensionCommands = new Set(rows.filter(row => row.source === 'extension').map(row => str(row.name)!))
+    piCommands = new Set(rows.map(row => str(row.name)!))
+    const list: CommandInfo[] = rows.map(row => {
+      const description = str(row.description)
+      return { name: str(row.name)!, ...(description === undefined || description === '' ? {} : { description }) }
+    })
+    return piCommands.has('trust') ? list : [...list, { name: 'trust', description: piText('pi-trust-command') }]
   }
 
   /** The last catalog read (the picker previews efforts from it). */
   let catalog: readonly Rec[] = []
   const listModels = async (): Promise<readonly ModelOption[]> => {
-    const answer = rec(await link.request('get_available_models'))
+    const answer = rec(await request('get_available_models'))
     catalog = arr(answer?.models).map(rec).filter((row): row is Rec => row !== undefined && (str(row.id) ?? '') !== '')
     return catalog.map(row => {
       const provider = str(row.provider) ?? ''
@@ -303,8 +428,14 @@ export async function openPiSession(deps: PiSessionDeps): Promise<AgentSession> 
     capabilities: {
       native: {},
       questions: {
-        respond: (requestId, answers) => { dialogs.respond(requestId, answers) },
-        cancel: requestId => { dialogs.cancel(requestId) },
+        respond: (requestId, answers) => {
+          if (trust.owns(requestId)) void trust.respond(requestId, answers)
+          else dialogs.respond(requestId, answers)
+        },
+        cancel: requestId => {
+          if (trust.owns(requestId)) trust.cancel(requestId)
+          else dialogs.cancel(requestId)
+        },
       },
       models: {
         // pi serves many providers, and one model id may come from several.
@@ -321,7 +452,7 @@ export async function openPiSession(deps: PiSessionDeps): Promise<AgentSession> 
           }
           if (provider === undefined || provider === '') return { kind: 'refused', reason: piText('pi-model-unknown', { model: ref.model }) }
           try {
-            await link.request('set_model', { provider, modelId: ref.model })
+            await request('set_model', { provider, modelId: ref.model })
           } catch (error) {
             return { kind: 'refused', reason: errorText(error) }
           }
@@ -342,30 +473,20 @@ export async function openPiSession(deps: PiSessionDeps): Promise<AgentSession> 
         async set(id) {
           if (id === null) return
           if (levels.length > 0 && !levels.includes(id)) throw new Error(piText('effort-invalid', { id, ids: levels.join(', ') }))
-          await link.request('set_thinking_level', { level: id })
+          await request('set_thinking_level', { level: id })
           await refreshState()
         },
       },
       compact: {
         async run() {
-          await link.request('compact', {}, { timeoutMs: 0 })
+          await request('compact', {}, { timeoutMs: 0 })
         },
       },
-      commands: {
-        async list() {
-          const answer = rec(await link.request('get_commands'))
-          const rows = arr(answer?.commands).map(rec).filter((row): row is Rec => row !== undefined && str(row.name) !== undefined)
-          extensionCommands = new Set(rows.filter(row => row.source === 'extension').map(row => str(row.name)!))
-          return rows.map(row => {
-            const description = str(row.description)
-            return { name: str(row.name)!, ...(description === undefined || description === '' ? {} : { description }) }
-          })
-        },
-      },
+      commands: { list: () => listCommands() },
       images: { limits: PI_IMAGE_LIMITS },
       context: {
         async usage() {
-          const stats = rec(await link.request('get_session_stats'))
+          const stats = rec(await request('get_session_stats'))
           const usage = rec(stats?.contextUsage)
           const max = num(usage?.contextWindow) ?? model?.contextWindow
           const used = num(usage?.tokens) ?? 0
@@ -374,7 +495,7 @@ export async function openPiSession(deps: PiSessionDeps): Promise<AgentSession> 
       },
       rename: {
         async rename(title) {
-          await link.request('set_session_name', { name: title })
+          await request('set_session_name', { name: title })
         },
       },
       fork: {
@@ -447,7 +568,10 @@ export async function openPiSession(deps: PiSessionDeps): Promise<AgentSession> 
     },
     async cancel(cause: CancelCause) {
       if (disposing || lost) return { stillQueued: [], outcome: 'unknown' }
-      if (cause === 'switch' || cause === 'dispose') dialogs.withdrawAll()
+      if (cause === 'switch' || cause === 'dispose') {
+        dialogs.withdrawAll()
+        trust.withdraw()
+      }
       return input.cancel(cause)
     },
     dispose(): Promise<void> {
@@ -457,6 +581,7 @@ export async function openPiSession(deps: PiSessionDeps): Promise<AgentSession> 
           dialogs.withdrawAll()
           if (running) await input.abort().catch(() => false)
         }
+        trust.withdraw()
         disposing = true
         offEvent()
         offExit()

@@ -5,13 +5,14 @@
  * clears pi's queue first, extension dialogs (answers, timeouts, withdrawal
  * before an abort), an extension command that must not block input, a
  * refused prompt, the controls read back after a change, a crash, a failed
- * startup, resume by session file path, fork and rewind wiring, the project
- * trust notice, and dispose. No real process.
+ * startup, resume by session file path, fork and rewind wiring, project
+ * trust (the question, pi's trust.json and lock, the restart, /trust), and
+ * dispose. No real process.
  *
  *   node --import tsx/esm scripts/verify-pi-session.ts
  */
 import assert from 'node:assert/strict'
-import { mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, utimesSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { AgentEvent } from '../src/agent/events.js'
@@ -20,6 +21,7 @@ import { openPiBackendSession } from '../src/backends/pi/backend.js'
 import { piSessionDirName } from '../src/backends/pi/paths.js'
 import { memoryPiPrefs } from '../src/backends/pi/prefs.js'
 import type { PiExecutable } from '../src/backends/pi/rpc/binary.js'
+import { writePiTrust } from '../src/backends/pi/trust.js'
 import { createFakePi, fakeState, type FakePi } from './lib/pi-fake-rpc.js'
 import { loadPiWire } from './lib/pi-translate-harness.js'
 
@@ -154,7 +156,7 @@ try {
     await session.capabilities.rename!.rename('Renamed')
     check('rename sets pi\'s session name', fake.received.some(command => command.type === 'set_session_name' && command.name === 'Renamed'))
     const commands = await session.capabilities.commands!.list()
-    check('backend commands are pi\'s extension, prompt and skill commands', commands.map(command => command.name).join(',') === 'ask-me,council,skill:review' && commands[1]?.description === 'Run a council', commands)
+    check('backend commands are pi\'s extension, prompt and skill commands, then /trust', commands.map(command => command.name).join(',') === 'ask-me,council,skill:review,trust' && commands[1]?.description === 'Run a council', commands)
     const lines = session.capabilities.diagnostics!.lines()
     check('/doctor names the executable, version and session', lines.some(line => line.includes('/fake/bin/pi') && line.includes('0.87.1')) && lines.some(line => line.includes('fake-session')), lines)
 
@@ -340,40 +342,252 @@ try {
     await assert.rejects(open(standardFake(), { kind: 'resume', sessionId: gone }), /no longer exists/u)
     check('a session whose directory is gone fails before pi starts', true)
   }
-  // ── The project trust notice ──
+  // ── Project trust: the question, pi's store, the restart ──
   {
-    const project = join(root, 'trusting')
-    mkdirSync(join(project, '.pi'), { recursive: true })
-    writeFileSync(join(project, '.pi', 'settings.json'), '{}')
-    const noticeOf = async (): Promise<boolean> => {
-      const fake = standardFake()
-      const session = await open(fake, { kind: 'create', cwd: project })
-      const log = record(session)
-      await log.waitFor('session.ready')
-      await tick(5)
-      const seen = log.events.some(event => event.type === 'notice' && event.key === 'pi-trust')
-      await session.dispose()
-      return seen
+    /** A project with a pi resource that needs trust. */
+    const project = (name: string): string => {
+      const dir = join(root, name)
+      mkdirSync(join(dir, '.pi', 'prompts'), { recursive: true })
+      writeFileSync(join(dir, '.pi', 'prompts', 'hello.md'), 'Say hello')
+      return realpathSync(dir)
     }
-    check('a project pi has not decided to trust gets a notice', await noticeOf())
     mkdirSync(agentDir, { recursive: true })
-    writeFileSync(join(agentDir, 'trust.json'), JSON.stringify({ [project]: false }))
-    check('a project the user declined gets none', !(await noticeOf()))
-    writeFileSync(join(agentDir, 'trust.json'), JSON.stringify({}))
-    writeFileSync(join(agentDir, 'settings.json'), JSON.stringify({ defaultProjectTrust: 'never' }))
-    check('a default of never gets none', !(await noticeOf()))
-    rmSync(join(agentDir, 'settings.json'))
-    rmSync(join(agentDir, 'trust.json'))
-    check('a project without pi resources gets none', !(await (async () => {
+    const trustFile = join(agentDir, 'trust.json')
+    const readTrust = (): string => existsSync(trustFile) ? readFileSync(trustFile, 'utf8') : ''
+    const trustQuestion = (log: ReturnType<typeof record>, from = 0) =>
+      log.waitFor('question.request', event => event.request.requestId.startsWith('pi-trust:'), from)
+    const answer = (session: AgentSession, requestId: string, label: string): void => {
+      session.capabilities.questions!.respond(requestId, { answers: [{ selected: [label] }] })
+    }
+    const asked = (log: ReturnType<typeof record>): boolean => log.events.some(event => event.type === 'question.request' && event.request.requestId.startsWith('pi-trust:'))
+    const trustNotice = (log: ReturnType<typeof record>, text: RegExp, from = 0) =>
+      log.waitFor('notice', event => event.key === 'pi-trust' && text.test(event.text), from)
+
+    // Opening asks, with pi's choices; "Trust" is remembered as pi writes it.
+    const remembered = project('remembered')
+    writeFileSync(trustFile, JSON.stringify({ '/zz/other': false, '/aa/other': true }))
+    const savedFile = join(root, 'remembered-session.jsonl')
+    writeFileSync(savedFile, '')
+    {
+      const fake = standardFake({ sessionFile: savedFile })
+      const session = await open(fake, { kind: 'create', cwd: remembered })
+      const log = record(session)
+      const question = await trustQuestion(log)
+      const item = question.request.questions[0]!
+      check('a project pi has no decision for is asked about on open', item.header === 'Project trust' && item.hideCustomInput === true && (item.detail ?? '').includes(remembered) && (item.detail ?? '').includes(join('.pi', 'prompts')), item)
+      check('the choices are pi\'s own, in pi\'s order', item.options.map(option => option.label).join(' | ') === `Trust | Trust parent folder (${realpathSync(root)}) | Trust (this session only) | Do not trust | Do not trust (this session only)`, item.options)
+      check('the old notice is gone', !log.events.some(event => event.type === 'notice' && event.key === 'pi-trust'))
+      answer(session, question.request.requestId, 'Trust')
+      await trustNotice(log, /pi restarted with the project's resources/u)
+      const sorted = Object.fromEntries(Object.entries({ '/zz/other': false, '/aa/other': true, [remembered]: true }).sort(([a], [b]) => (a < b ? -1 : 1)))
+      check('"Trust" is written to pi\'s trust.json as pi writes it (sorted, two spaces)', readTrust() === `${JSON.stringify(sorted, null, 2)}\n`, readTrust())
+      check('the lock is released', !existsSync(`${trustFile}.lock`))
+      check('the child restarts on the saved session file, no trust flag (pi reads the store)', fake.spawns.length === 2 && JSON.stringify(fake.spawns[1]) === JSON.stringify(['--mode', 'rpc', '--no-themes', '--session', savedFile]), fake.spawns)
+      check('the question settles', log.events.some(event => event.type === 'question.settled' && event.requestId === question.request.requestId))
+      check('the new child\'s commands are announced', log.events.some(event => event.type === 'commands.changed' && event.commands.some(command => command.name === 'council')))
+      const restarting = log.events.findIndex(event => event.type === 'notice' && event.key === 'pi-trust' && /Restarting pi/u.test(event.text))
+      check('a restart says so first (one keyed toast)', restarting >= 0 && log.events.every(event => event.type !== 'notice' || event.key !== 'pi-trust' || event.level === 'notice'))
+      fake.on('get_session_stats', () => ({ contextUsage: { tokens: 7, contextWindow: 1000 } }))
+      check('commands after the restart reach the new child', (await session.capabilities.context!.usage('summary')).used === 7)
+      await session.dispose()
+    }
+    {
       const fake = standardFake()
-      const session = await open(fake)
+      const session = await open(fake, { kind: 'create', cwd: remembered })
       const log = record(session)
       await log.waitFor('session.ready')
       await tick(5)
-      const seen = log.events.some(event => event.type === 'notice' && event.key === 'pi-trust')
+      check('a remembered project is not asked about again', !asked(log) && fake.spawns.length === 1)
       await session.dispose()
-      return seen
-    })()))
+    }
+
+    // "Trust (this session only)": nothing written, the restart approves,
+    // and later sessions of this process approve without asking.
+    const once = project('once')
+    {
+      const before = readTrust()
+      const fake = standardFake()
+      const session = await open(fake, { kind: 'create', cwd: once })
+      const log = record(session)
+      answer(session, (await trustQuestion(log)).request.requestId, 'Trust (this session only)')
+      await trustNotice(log, /pi restarted with the project's resources/u)
+      check('a session-only trust writes nothing', readTrust() === before)
+      check('an unsaved session restarts under its id, approved', JSON.stringify(fake.spawns[1]) === JSON.stringify(['--mode', 'rpc', '--no-themes', '--session-id', 'fake-session', '--approve']), fake.spawns)
+      await session.dispose()
+      const again = standardFake()
+      const next = await open(again, { kind: 'create', cwd: once })
+      const nextLog = record(next)
+      await nextLog.waitFor('session.ready')
+      await tick(5)
+      check('the next session in this process starts approved, unasked', !asked(nextLog) && again.args.includes('--approve'), again.args)
+      await next.dispose()
+    }
+
+    // "Do not trust" is remembered; the untrusted child stays.
+    const refused = project('refused')
+    {
+      const fake = standardFake()
+      const session = await open(fake, { kind: 'create', cwd: refused })
+      const log = record(session)
+      answer(session, (await trustQuestion(log)).request.requestId, 'Do not trust')
+      await trustNotice(log, /not trusted.*\/trust/u)
+      check('"Do not trust" is written as false', JSON.parse(readTrust())[refused] === false)
+      check('nothing restarts for a refusal', fake.spawns.length === 1)
+      await session.dispose()
+    }
+
+    // Dismissing the opening question declines for this process, as in pi.
+    const dismissed = project('dismissed')
+    {
+      const before = readTrust()
+      const fake = standardFake()
+      const session = await open(fake, { kind: 'create', cwd: dismissed })
+      const log = record(session)
+      session.capabilities.questions!.cancel((await trustQuestion(log)).request.requestId)
+      await trustNotice(log, /not trusted.*\/trust/u)
+      check('a dismissal writes nothing and restarts nothing', readTrust() === before && fake.spawns.length === 1)
+      await session.dispose()
+      const again = standardFake()
+      const next = await open(again, { kind: 'create', cwd: dismissed })
+      const nextLog = record(next)
+      await nextLog.waitFor('session.ready')
+      await tick(5)
+      check('the next session in this process starts declined, unasked', !asked(nextLog) && again.args.includes('--no-approve'), again.args)
+      await next.dispose()
+    }
+
+    // A choice made during a turn applies once the turn ends; /trust
+    // reopens the question and can take trust back.
+    const busy = project('busy')
+    {
+      const fake = standardFake()
+      const session = await open(fake, { kind: 'create', cwd: busy })
+      const log = record(session)
+      const question = await trustQuestion(log)
+      fake.emit({ type: 'agent_start' })
+      await tick(5)
+      answer(session, question.request.requestId, 'Trust')
+      await trustNotice(log, /once this turn ends/u)
+      check('no restart while a turn runs', fake.spawns.length === 1)
+      fake.emit({ type: 'agent_settled' })
+      await trustNotice(log, /pi restarted with the project's resources/u)
+      check('the restart follows the turn', fake.spawns.length === 2)
+
+      const commands = await session.capabilities.commands!.list()
+      check('/trust joins pi\'s commands', commands.at(-1)?.name === 'trust' && (commands.at(-1)?.description ?? '') !== '', commands)
+      let mark = log.events.length
+      const prompts = fake.received.filter(command => command.type === 'prompt').length
+      const accepted = await session.submit({ text: '/trust', clientMessageId: 't1' }, 'turn')
+      check('/trust is accepted and claimed at once, nothing goes to pi', accepted.accepted && log.events.slice(mark).some(event => event.type === 'pending.changed' && (event.claimed ?? []).includes('t1')) && fake.received.filter(command => command.type === 'prompt').length === prompts)
+      const reopened = await trustQuestion(log, mark)
+      check('/trust says what the child loaded', (reopened.request.questions[0]!.detail ?? '').includes('Now: trusted'), reopened.request.questions[0])
+      mark = log.events.length
+      session.capabilities.questions!.cancel(reopened.request.requestId)
+      await tick(10)
+      check('dismissing /trust changes nothing', fake.spawns.length === 2 && !log.events.slice(mark).some(event => event.type === 'notice' && event.key === 'pi-trust'))
+      await session.submit({ text: '/trust', clientMessageId: 't2' }, 'turn')
+      const revoke = await trustQuestion(log, mark)
+      answer(session, revoke.request.requestId, 'Do not trust (this session only)')
+      await trustNotice(log, /pi restarted without the project's resources/u, mark)
+      check('a session-only refusal restarts the child declined', JSON.stringify(fake.spawns[2]) === JSON.stringify(['--mode', 'rpc', '--no-themes', '--session-id', 'fake-session', '--no-approve']), fake.spawns)
+      check('the remembered trust stays in trust.json', JSON.parse(readTrust())[busy] === true)
+      await session.dispose()
+    }
+
+    // A later answer during the turn can undo the restart it waited for.
+    const undone = project('undone')
+    {
+      const fake = standardFake()
+      const session = await open(fake, { kind: 'create', cwd: undone })
+      const log = record(session)
+      const question = await trustQuestion(log)
+      fake.emit({ type: 'agent_start' })
+      await tick(5)
+      answer(session, question.request.requestId, 'Trust (this session only)')
+      await trustNotice(log, /once this turn ends/u)
+      const mark = log.events.length
+      await session.submit({ text: '/trust', clientMessageId: 'u1' }, 'steer')
+      answer(session, (await trustQuestion(log, mark)).request.requestId, 'Do not trust (this session only)')
+      await trustNotice(log, /not trusted/u, mark)
+      fake.emit({ type: 'agent_settled' })
+      await tick(30)
+      check('an answer undone before the turn ends restarts nothing', fake.spawns.length === 1 && !log.events.some(event => event.type === 'notice' && /Restarting pi/u.test(event.text)), fake.spawns)
+      await session.dispose()
+    }
+
+    // A restart that fails loses the session, as a crash does.
+    const broken = project('broken')
+    {
+      const fake = standardFake()
+      const session = await open(fake, { kind: 'create', cwd: broken })
+      const log = record(session)
+      const question = await trustQuestion(log)
+      fake.on('get_state', () => fakeState({ sessionId: 'someone-else' }))
+      answer(session, question.request.requestId, 'Trust (this session only)')
+      const failed = await log.waitFor('notice', event => event.key === 'pi-exit')
+      check('a restart onto another session fails loudly', /pi failed to restart: .*someone-else/u.test(failed.text), failed.text)
+      await assert.rejects(session.submit({ text: 'hi', clientMessageId: 'b1' }, 'turn'), /cannot take messages/u)
+      check('the session takes no more input', true)
+      await session.dispose()
+    }
+
+    // pi's lock: a fresh one is waited for, a stale one is taken over.
+    {
+      const lock = `${trustFile}.lock`
+      mkdirSync(lock)
+      const writing = writePiTrust([{ path: '/locked/project', decision: true }], env)
+      await tick(120)
+      check('a write waits while pi holds the lock', JSON.parse(readTrust())['/locked/project'] === undefined)
+      rmSync(lock, { recursive: true })
+      await writing
+      check('the write lands once the lock is released', JSON.parse(readTrust())['/locked/project'] === true)
+      mkdirSync(lock)
+      const past = new Date(Date.now() - 60_000)
+      utimesSync(lock, past, past)
+      await writePiTrust([{ path: '/locked/project', decision: null }], env)
+      check('a stale lock is taken over; null removes the key', JSON.parse(readTrust())['/locked/project'] === undefined && !existsSync(lock))
+      const kept = readTrust()
+      writeFileSync(trustFile, JSON.stringify({ '/kept': null, '/b': true }))
+      await writePiTrust([{ path: '/a', decision: false }], env)
+      check('pi\'s null entries stay, as pi keeps them', readTrust() === `${JSON.stringify({ '/a': false, '/b': true, '/kept': null }, null, 2)}\n`, readTrust())
+      writeFileSync(trustFile, '{ not json')
+      await assert.rejects(writePiTrust([{ path: '/a', decision: true }], env))
+      check('a store pi could not read is never overwritten', readTrust() === '{ not json' && !existsSync(lock))
+      const unreadable = project('unreadable')
+      const fake = standardFake()
+      const session = await open(fake, { kind: 'create', cwd: unreadable })
+      const log = record(session)
+      answer(session, (await trustQuestion(log)).request.requestId, 'Trust')
+      const failed = await log.waitFor('notice', event => event.key === 'pi-trust' && event.level === 'error')
+      check('a failed write says so and restarts nothing', /Could not write pi's trust.json/u.test(failed.text) && fake.spawns.length === 1 && readTrust() === '{ not json', failed.text)
+      await session.dispose()
+      writeFileSync(trustFile, kept)
+    }
+
+    // Nothing to ask: a decision, a default, or no resources.
+    const quiet = async (dir: string): Promise<boolean> => {
+      const fake = standardFake()
+      const session = await open(fake, { kind: 'create', cwd: dir })
+      const log = record(session)
+      await log.waitFor('session.ready')
+      await tick(5)
+      const seen = asked(log)
+      await session.dispose()
+      return !seen
+    }
+    const defaulted = project('defaulted')
+    writeFileSync(join(agentDir, 'settings.json'), JSON.stringify({ defaultProjectTrust: 'never' }))
+    check('a default of never asks nothing', await quiet(defaulted))
+    rmSync(join(agentDir, 'settings.json'))
+    check('a project without pi resources asks nothing', await quiet(cwd))
+    {
+      const session = await open(standardFake())
+      const log = record(session)
+      await session.submit({ text: '/trust', clientMessageId: 'q1' }, 'turn')
+      await trustNotice(log, /no pi resources that need trust/u)
+      check('/trust without resources says so instead of asking', !asked(log))
+      await session.dispose()
+    }
   }
   console.log(`verify-pi-session OK (${checks} checks)`)
 } finally {
