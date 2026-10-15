@@ -2009,9 +2009,22 @@ export function PromptInput({
   }
 
   /**
+   * Run a line picked from the command menu (Enter, click). A command the
+   * screen does not run itself — a backend's (pi's prompt templates and
+   * skills, a filesystem skill) — goes to the backend as its text, as the
+   * launchpad and an Enter with the menu closed send it.
+   */
+  const runPicked = (line: string): void => {
+    if (tryRunCommand(line)) return
+    if (channel.working) steerSend(line)
+    else submitText(line)
+  }
+
+  /**
    * The Enter main path, shared by the inline prompt, the expanded
    * editor's Ctrl+Enter, and its Send button:
-   * - command menu open → run the SELECTED command (never send `/mo`);
+   * - command menu open → run the SELECTED command (never send `/mo`); a
+   *   backend's command goes out as its line (`runPicked`);
    * - model working → a KNOWN command is still a command; anything else
    *   STEERS into the running turn (next step boundary, agent continues —
    *   the "immediate" send; Codex/pi semantics);
@@ -2039,7 +2052,7 @@ export function PromptInput({
     if (overlayOpen && value === completionInput) {
       const command = suggestions[selectedCommand]
       if (command) {
-        tryRunCommand(command.commandLine)
+        runPicked(command.commandLine)
         return
       }
     }
@@ -2656,7 +2669,8 @@ export function PromptInput({
       if (line.startsWith('/')) {
         const matches = channel.commandCompletions(line)
         if (matches.length === 1) {
-          tryRunCommand(matches[0]!.commandLine)
+          // As below: what no command runs goes out as text.
+          if (!tryRunCommand(matches[0]!.commandLine)) submitText(matches[0]!.commandLine)
           return
         }
       }
@@ -4396,7 +4410,9 @@ export function PromptInput({
             // 点击行 = 运行该命令（与 Enter 同路径）
             onPick={(index) => {
               const command = suggestions[index]
-              if (command) tryRunCommand(valueRef.current === completionInput ? command.commandLine : valueRef.current)
+              if (command === undefined) return
+              if (valueRef.current === completionInput) runPicked(command.commandLine)
+              else tryRunCommand(valueRef.current)
             }}
             // 滚轮 = 移动选中行（与 ↑/↓ 同路径，窗口跟随）
             onWheelStep={(step) => {

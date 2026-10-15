@@ -12,6 +12,9 @@
  *   5. 窄终端（36 列）每行不越界、不换行（卡片每行仍是 │ … │）；
  *   6. 浏览型命令归正常区：`/resume`（只打开界面，切换是界面里另外确认的动作，
  *      且 DSH 下只停放）留在上方，同族的 `/rewind`（core 路径回合中直接拒绝）沉底。
+ *   7. 界面自己不跑的后端命令（pi 的 prompt 模板/skill、文件系统技能）从浮窗选中
+ *      （Enter、点击、一次到达的「行+回车」）照常作为文本发给后端：空闲时 submit、
+ *      回合中 steer、部分输入发选中行的完整命令；界面命令照旧只运行不发送。
  *
  * 运行：node --import tsx/esm scripts/verify-command-hold-overlay.tsx
  */
@@ -85,7 +88,7 @@ function makeChannel(working: boolean, commands = COMMANDS) {
   }
 }
 
-async function boot(cols: number, working: boolean, commands = COMMANDS) {
+async function boot(cols: number, working: boolean, commands = COMMANDS, screenRuns: (name: string) => boolean = () => true) {
   const term = new XTerm({ cols, rows: ROWS, scrollback: 0, allowProposedApi: true })
   const frames: string[] = []
   const stdout = new Writable({
@@ -120,7 +123,7 @@ async function boot(cols: number, working: boolean, commands = COMMANDS) {
         channel,
         helpOpen: false,
         onToggleHelp() {},
-        onRunCommand: (name: string) => { channel.runs.push(name); return true },
+        onRunCommand: (name: string) => { channel.runs.push(name); return screenRuns(name) },
         selectionActive: false,
       }),
     ),
@@ -270,6 +273,62 @@ async function run(): Promise<void> {
   check('同族的 /rewind 仍沉灰区（core 路径回合中直接拒绝）',
     rewindRow > resumeRow && browse.frames().includes(`${SUBTLE}  rewind`))
   browse.instance.unmount()
+
+  // ── 7: 后端命令从浮窗选中时照常发给后端 ─────────────────────────────────
+  // Chat 的 runCommand 对后端命令返回 false（界面不跑它），这里同样返回 false。
+  const BACKEND = [
+    { name: 'status', description: 'Show session status' },
+    { name: 'hello', description: 'A pi prompt template', skill: true },
+  ]
+  const screenOnly = (name: string): boolean => name === 'status'
+  const picked = await boot(100, false, BACKEND, screenOnly)
+  // 每次发出后等浮窗收起、草稿清空的那一帧，并越过 80ms 的双回车合并窗口。
+  const nextDraft = async (): Promise<void> => {
+    await settled(() => rowOf(picked.lines(), 'hello') < 0 && rowOf(picked.lines(), 'status') < 0)
+    await new Promise(resolve => setTimeout(resolve, 120))
+  }
+  const typeAndOpen = async (text: string, row: string): Promise<void> => {
+    picked.stdin.write(text)
+    await settled(() => rowOf(picked.lines(), row) >= 0)
+  }
+  await typeAndOpen('/hello', 'hello')
+  picked.stdin.write('\r')
+  check('后端命令：浮窗开着回车，命令行作为文本发出',
+    await settled(() => picked.channel.submitted.at(-1) === '/hello') && picked.channel.runs.at(-1) === 'hello',
+    JSON.stringify({ runs: picked.channel.runs, submitted: picked.channel.submitted }))
+  await nextDraft()
+  await typeAndOpen('/hel', 'hello')
+  picked.stdin.write('\r')
+  check('后端命令：部分输入回车，发出选中行的完整命令（不是 /hel）',
+    await settled(() => picked.channel.submitted.length === 2) && picked.channel.submitted[1] === '/hello',
+    JSON.stringify(picked.channel.submitted))
+  await nextDraft()
+  await typeAndOpen('/hello', 'hello')
+  const pickedLines = picked.lines()
+  clickRow(picked.stdin, pickedLines, rowOf(pickedLines, 'hello'), 'hello')
+  check('后端命令：点击浮窗行同样发出',
+    await settled(() => picked.channel.submitted.length === 3) && picked.channel.submitted[2] === '/hello',
+    JSON.stringify(picked.channel.submitted))
+  await nextDraft()
+  picked.stdin.write('/hell\r')
+  check('后端命令：「行+回车」一次到达（唯一补全）同样发出',
+    await settled(() => picked.channel.submitted.length === 4) && picked.channel.submitted[3] === '/hello',
+    JSON.stringify(picked.channel.submitted))
+  await nextDraft()
+  await typeAndOpen('/status', 'status')
+  picked.stdin.write('\r')
+  check('界面命令：照旧只运行、不作为文本发出',
+    await settled(() => picked.channel.runs.at(-1) === 'status') && picked.channel.submitted.length === 4,
+    JSON.stringify({ runs: picked.channel.runs, submitted: picked.channel.submitted }))
+  picked.instance.unmount()
+  const steering = await boot(100, true, BACKEND, screenOnly)
+  steering.stdin.write('/hello')
+  await settled(() => rowOf(steering.lines(), 'hello') >= 0)
+  steering.stdin.write('\r')
+  check('后端命令：回合中从浮窗回车按 steer 发出（与浮窗关着时同路）',
+    await settled(() => steering.channel.steered.at(-1) === '/hello') && steering.channel.submitted.length === 0,
+    JSON.stringify({ steered: steering.channel.steered, submitted: steering.channel.submitted }))
+  steering.instance.unmount()
 
   console.log(failed === 0 ? 'verify-command-hold-overlay OK' : `verify-command-hold-overlay: ${failed} 项失败`)
   process.exit(failed === 0 ? 0 : 1)
