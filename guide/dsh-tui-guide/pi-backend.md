@@ -95,7 +95,12 @@ pi --session <session-id>            # 换回 pi 自己的界面
   - 本机 pi 0.87.1 驱动脚本化 faux 模型（零网络、零费用）的端到端冒烟
     `scripts/verify-pi-live.ts`，共 48 项：工具回合、扩展对话框、思考等级、中断、插话并入
     当前回合、`/fork` 与回退（写出的文件由真 pi 打开）、离线改名与删除、恢复回放后继续对话。
+  - 真实 provider：`deepseek/deepseek-flash` 跑 `scripts/verify-pi-real.ts`（25 项，只允许
+    flash/mini/haiku 等廉价档，隔离的 agent 目录、凭据取自环境变量）：纯文本、bash 与 edit
+    工具（文件确实被改）、思考块、中断、插话、`/context`、真实压缩、压缩后恢复并继续、分叉；
+    并在真实终端里用同一模型跑过 TUI。
   - CI 回归：录制夹具的实时与回放一致性（`verify-pi-translate`）、假子进程会话层
     （`verify-pi-session`）、离线目录（`verify-pi-catalog`）、跨后端事件不变量。
-- **未验证**：真实 provider 的模型回合与费用、pi 1.x 实机（只按协议文档与源码对齐，
-  新增字段一律按可选处理）、Windows、真实 TTY 下的完整交互。
+- **未验证**：加载你自己全套 pi 扩展时的运行（如 `pi-permission-system`、记忆类扩展；实测
+  特意隔离以免写入你的记忆与设置）、pi 1.x 实机（只按协议文档与源码对齐，新增字段一律按
+  可选处理）、Windows。

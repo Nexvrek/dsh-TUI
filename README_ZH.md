@@ -250,8 +250,8 @@ dsh-tui --backend pi --resume <session-id>
 命令 / prompt 模板 / skills、扩展对话框（进问卷面板）、图片、`/rename`、`/fork` 与双击 Esc
 回退（只回退对话）复用现有界面。
 pi 本身不做工具审批，dsh-TUI 也不拦；登录在 pi 里完成；项目 `.pi/` 资源只在 pi 信任过
-该项目时加载。本机 pi 0.87.1 驱动脚本化 faux 模型的端到端检查通过（零网络、零费用），
-真实 provider 回合未运行。详见 [pi 后端](docs/pi-backend.md)。
+该项目时加载。本机 pi 0.87.1 驱动脚本化 faux 模型的端到端检查（零网络、零费用）与
+`deepseek-flash` 真实回合检查均通过。详见 [pi 后端](docs/pi-backend.md)。
 
 ## 快捷键与鼠标
 

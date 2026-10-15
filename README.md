@@ -307,7 +307,7 @@ templates and skills, extension dialogs (on the questionnaire), images,
 existing surfaces. pi does not approve tools and neither
 does dsh-TUI; sign in through pi; a project's `.pi/` resources load only when
 pi trusts the project. An end-to-end run of the local pi 0.87.1 on a scripted
-faux model passed (no network, no charge); real provider turns were not run.
+faux model (no network, no charge) and real `deepseek-flash` turns passed.
 Details: [pi backend](docs/pi-backend.en.md).
 
 ## Keybindings & Mouse

@@ -326,7 +326,7 @@ CI 回归都要跑。窄改动还要跑最近的聚焦脚本：
 | Claude 后端 | 对应的 `scripts/verify-claude-*`（假 SDK，不花钱）与 `node --import tsx/esm scripts/verify-backend-channel.ts`；`verify:claude-live`/`verify:claude-headless` 调用真实 CLI，只在有意花费时手动跑（钉在 haiku） |
 | 归档语义与后端 OAuth 登出 | `node --import tsx/esm scripts/verify-session-archive.tsx`（真实无头浏览器、假目录），`node --import tsx/esm scripts/verify-backend-logout.ts`（真实 channel/UI facade、假 OAuth host）；不触碰原生登录/真实凭据，DSH/Claude 默认删除语义保持 |
 | Codex 原生后端 | `pnpm verify:codex-contract`、对应 `scripts/verify-codex-*` 的假 app-server/fixture 回归、`node --import tsx/esm scripts/verify-backend-channel.ts`；中立层改动再跑 DSH 黄金投影、Claude 对照与 `verify-agent-event-invariants.ts`。真实 `verify-codex-live.ts` / 探针只经 `codex-cheap-only.mjs` 守卫，真实 ChatGPT 登录/TTY 未跑须单列 |
-| pi 后端 | `scripts/verify-pi-translate.ts`、`verify-pi-session.ts`、`verify-pi-catalog.ts` 与 `verify-agent-event-invariants.ts`；协议行为变化时用 `scripts/capture-pi-fixtures.ts` 重录夹具（真 pi + 脚本化 faux 模型，零网络零费用），有本机 pi 时再跑 `verify-pi-live.ts`；真实 provider 回合未跑须单列 |
+| pi 后端 | `scripts/verify-pi-translate.ts`、`verify-pi-session.ts`、`verify-pi-catalog.ts` 与 `verify-agent-event-invariants.ts`；协议行为变化时用 `scripts/capture-pi-fixtures.ts` 重录夹具（真 pi + 脚本化 faux 模型，零网络零费用），有本机 pi 时再跑 `verify-pi-live.ts`；真实 provider 只经 `verify-pi-real.ts`（`PI_REAL_MODEL` 指定廉价档，隔离 agent 目录），未跑须单列 |
 | Channel submit/steer/pending 行为 | `node scripts/verify-submit.mjs` |
 | 回退后编辑重发与历史 Inbox 清理 | `pnpm verify:rewind-edit` |
 | 提示队列行为 | `node scripts/verify-queue.mjs` |

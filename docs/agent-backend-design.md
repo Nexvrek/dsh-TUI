@@ -322,7 +322,8 @@ SDK `settings` 选项把路由钉回 `https://api.anthropic.com`。CLI 拒绝令
 - **验证**：`verify-pi-translate`（真 pi 0.87.1 驱动 `scripts/fixtures/pi/faux-ext.ts`
   的脚本化 faux 模型录下的线缆夹具）、`verify-pi-session`（假子进程）、`verify-pi-catalog`、
   跨后端事件不变量；`verify-pi-live` 用本机真 pi 与同一个 faux 模型做端到端（零网络、零费用，
-  不进 CI）。
+  不进 CI）；`verify-pi-real` 跑真实 provider，只允许 `PI_REAL_MODEL` 指定的廉价档、在隔离的
+  agent 目录里（`deepseek-flash` 已通过）。
 
 ## DSH 后端
 

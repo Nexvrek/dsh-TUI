@@ -113,10 +113,18 @@ pi --session <session-id>            # back to pi's own interface
     extension dialogs, thinking level, interrupt, a steer joining the running
     turn, `/fork` and rewind (real pi opens the files they write), offline
     rename and delete, and a resume that replays and continues.
+  - A real provider: `deepseek/deepseek-flash` through `scripts/verify-pi-real.ts`
+    (25 checks; only cheap tiers such as flash/mini/haiku run, in a throwaway
+    agent directory, with the credential from the environment): a plain reply,
+    bash and edit tools (the file really changes), thinking, an interrupt, a
+    steer, `/context`, a real compaction, a resume that continues after it, and a
+    fork; the TUI also ran on the same model in a real terminal.
   - CI regressions: live/replay agreement over recorded fixtures
     (`verify-pi-translate`), the session layer on a fake child
     (`verify-pi-session`), the offline catalog (`verify-pi-catalog`), and the
     cross-backend event invariants.
-- **Not verified**: model turns and charges on a real provider, pi 1.x on a
-  real machine (aligned with the protocol docs and source only; newer fields are
-  read as optional), Windows, and full interaction on a real TTY.
+- **Not verified**: a run with your own full set of pi extensions (such as
+  `pi-permission-system` or a memory extension; the real run was isolated on
+  purpose so nothing reached your memories or settings), pi 1.x on a real
+  machine (aligned with the protocol docs and source only; newer fields are read
+  as optional), and Windows.
