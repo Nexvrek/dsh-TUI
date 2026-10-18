@@ -1352,7 +1352,8 @@ DSH 专用服务、完整/轻量 profile 与入口 slot；发现前的路由只�
 1. **补 `dsh-plugin.json`**（包根、唯一，`TUI-PKG-001`）：
    - `$schema` 用绝对 URI；`manifestVersion: "0.15"`；manifest 由固定 revision 的
      `@dsh-std/manifest` parser 接受（**不要求联网取 schema**）；
-   - `id` 稳定且唯一（不随版本变），`name` / `version` 与 `package.json` 对齐；
+   - `id` 稳定且唯一（不随版本变）；`version` 与 `package.json` 对齐；`name` 是展示名
+     （`projectManifest` 的 `displayName`），不必等于包名；
    - `facets.host`：`entry` 指向包内入口（相对路径，不许 `..`）、`apiVersion` 写
      `v1alpha1`（facet API 版本，不是私有协议坐标；私有协议坐标见第 3 步）；不写
      `client` / `worker` facet；
