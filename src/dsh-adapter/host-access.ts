@@ -192,34 +192,23 @@ export function deferRootCapabilityGuard(root: Context): () => void {
 }
 
 function releaseDeferredGuard(root: Context): void {
-  armedGuardRoots.delete(root as object)
   if (!deferredGuardRoots.delete(root as object)) return
   if (trackedRoots.has(root as object)) guardRootCapabilities(root)
 }
 
-/** Deferred roots whose guard the first TUI row activation installs (below). */
-const armedGuardRoots = new WeakSet<object>()
-
 /**
- * The composition of a deferred root starts: the guard now arrives with the
- * first TUI row's activation, as on the `dsh --profile` path, so every row
- * after it (third-party ones included) is guarded. The release still installs
- * it once the composition settles if no TUI row activated.
+ * The guard stays deferred for the whole initial composition.
+ *
+ * It used to be installed by the first TUI row's activation, but profile rows
+ * activate concurrently: a dsh-base row can still be inside `apply` (calling
+ * `ctx.root.effect`) after the TUI row resolved the composition root. That
+ * latent race surfaces whenever an extra third-party bundle shifts the
+ * schedule — core rows such as plugin-manager/llm then fail with
+ * `root.effect is unavailable from a plugin activation`. host-entry.ts installs
+ * the guard once `root.compose()` settles instead, so startup behaves like
+ * `dsh --profile` while later activations (HMR, plugin install/reload) stay
+ * guarded.
  */
-export function armRootCapabilityGuard(root: Context): void {
-  if (deferredGuardRoots.has(root as object)) armedGuardRoots.add(root as object)
-}
-
-/** A plugin activation of `root` (not the root's own, not host code) is
- * resolving its composition through the TUI's host code: a TUI row. */
-function noteTuiRowActivation(root: Context): void {
-  if (!armedGuardRoots.has(root as object)) return
-  if (hostCapabilityStorage.getStore() === true) return
-  const token = activationStorage.getStore()
-  const rootFiber = rootFibers.get(root as object)
-  if (token === undefined || token.root !== root || rootFiber === token.fiber) return
-  releaseDeferredGuard(root)
-}
 
 function invalidateActivation(fiber: object): void {
   activationGenerations.set(fiber, (activationGenerations.get(fiber) ?? 0) + 1)
@@ -598,12 +587,9 @@ export function activationContext(ctx: Context): Context | undefined {
 
 /** Resolve a service's composition root once.  Service methods are invoked
  * through caller-bound Cordis proxies; keeping this root in host state avoids
- * resolving sibling services through an attacker-provided caller shadow.
- * Also the first TUI row's activation signal for an armed deferred guard. */
+ * resolving sibling services through an attacker-provided caller shadow. */
 export function compositionRoot(ctx: Context): Context {
-  const root = resolveCompositionRoot(ctx)
-  noteTuiRowActivation(root)
-  return root
+  return resolveCompositionRoot(ctx)
 }
 
 function resolveCompositionRoot(ctx: Context): Context {

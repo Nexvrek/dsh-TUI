@@ -151,9 +151,11 @@ Also an experimental public surface:
   (themes, panels, status views and the rest join live). A runtime theme the
   user had chosen is applied once its plugin registers it; until then the
   first frames use the auto-detected palette. The root-capability guard is
-  the same as under `dsh --profile`: a row activating after the first TUI row
-  cannot use `ctx.root` capabilities (`root.plugin`, `root.effect`,
-  `root.on`, …) in its apply. A plugin that waits for something in its apply
+  installed only after the initial profile composition settles: rows activated
+  later (HMR, plugin install/reload) cannot use `ctx.root` capabilities
+  (`root.plugin`, `root.effect`, `root.on`, …) in their apply, while the
+  initial composition itself follows the `dsh --profile` rules. A plugin that
+  waits for something in its apply
   holds the composition: start long work detached, not awaited. On a scene's
   `TuiSceneProps.channel`, `ready` is `false` (and `status` `'starting'`)
   while no session stands behind the channel, e.g. after the startup session

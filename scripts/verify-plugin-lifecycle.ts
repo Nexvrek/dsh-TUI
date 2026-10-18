@@ -534,11 +534,13 @@ check('overwritten fiber.effect cannot retain a contribution', !status.getSnapsh
 
 await root.fiber.dispose()
 
-// The package's own entry defers the root-capability guard while it mounts
-// and arms it for the profile's composition: the first TUI row (a plugin
-// activation reaching host code) installs it, as on the profile path.
+// The package's own entry defers the root-capability guard while it mounts,
+// and installs it only after the profile composition settles (host-entry.ts
+// finally). Profile rows activate concurrently, so installing it on the first
+// TUI row rejects dsh-base rows that are still in apply(); the regression
+// below resumes a core row after the TUI row activated.
 {
-  const { armRootCapabilityGuard, compositionRoot, deferRootCapabilityGuard } = await import('../src/dsh-adapter/host-access.js')
+  const { compositionRoot, deferRootCapabilityGuard } = await import('../src/dsh-adapter/host-access.js')
   const entryRoot = new Context()
   const release = deferRootCapabilityGuard(entryRoot)
   compositionRoot(entryRoot)
@@ -552,17 +554,39 @@ await root.fiber.dispose()
   }
   const results: Record<string, string> = {}
   await entryRoot.plugin({ name: 'mount-time', apply(ctx: Context) { compositionRoot(ctx); results.mount = tryRoot(ctx) } })
-  armRootCapabilityGuard(entryRoot)
   await entryRoot.plugin({ name: 'dsh-row', apply(ctx: Context) { results.dsh = tryRoot(ctx) } })
   check('deferred guard: unarmed host-code activations do not install it', results.mount === 'allowed', JSON.stringify(results))
-  check('armed guard: a row before the first TUI row keeps root capabilities', results.dsh === 'allowed', JSON.stringify(results))
+  check('deferred guard: a row before the TUI row keeps root capabilities', results.dsh === 'allowed', JSON.stringify(results))
   results.host = tryRoot(entryRoot)
-  check('armed guard: host code on the root does not install it', results.host === 'allowed', JSON.stringify(results))
+  check('deferred guard: host code on the root keeps root capabilities', results.host === 'allowed', JSON.stringify(results))
+
+  // The race that a third-party bundle exposes: a core row is still inside
+  // apply() (awaiting) when the TUI row activates. It must keep root
+  // capabilities when it resumes.
+  let markCoreEntered = (): void => {}
+  const coreEntered = new Promise<void>(resolve => { markCoreEntered = () => resolve() })
+  let resumeCore = (): void => {}
+  const coreGate = new Promise<void>(resolve => { resumeCore = () => resolve() })
+  const coreFiber = entryRoot.plugin({
+    name: 'core-slow',
+    async apply(ctx: Context) {
+      markCoreEntered()
+      await coreGate
+      results.core = tryRoot(ctx)
+    },
+  })
+  await coreEntered
   await entryRoot.plugin({ name: 'tui-row', apply(ctx: Context) { compositionRoot(ctx) } })
-  await entryRoot.plugin({ name: 'third-party', apply(ctx: Context) { results.third = tryRoot(ctx) } })
-  check('armed guard: the first TUI row installs it for every later row', results.third === 'denied', JSON.stringify(results))
+  resumeCore()
+  await coreFiber
+  check('deferred guard: a core row resuming after the TUI row keeps root capabilities', results.core === 'allowed', JSON.stringify(results))
+
+  await entryRoot.plugin({ name: 'third-party-during', apply(ctx: Context) { results.thirdDuring = tryRoot(ctx) } })
+  check('deferred guard: initial composition follows the profile path for third-party rows', results.thirdDuring === 'allowed', JSON.stringify(results))
   release()
   check('host code still uses the root after the guard is installed', tryRoot(entryRoot) === 'allowed')
+  await entryRoot.plugin({ name: 'third-party-after', apply(ctx: Context) { results.thirdAfter = tryRoot(ctx) } })
+  check('settled guard: a later third-party activation is denied', results.thirdAfter === 'denied', JSON.stringify(results))
   await entryRoot.fiber.dispose()
 }
 
@@ -574,7 +598,7 @@ await root.fiber.dispose()
 // reaches `compositionLoader` (and the composition root) rather than returning
 // early; the undeferred control shows the check can fail.
 {
-  const { armRootCapabilityGuard, deferRootCapabilityGuard } = await import('../src/dsh-adapter/host-access.js')
+  const { deferRootCapabilityGuard } = await import('../src/dsh-adapter/host-access.js')
   const { assembleBackendsFromProfile } = await import('../src/dsh-adapter/backend-assembly.js')
   const { mkdtempSync, readFileSync, rmSync, writeFileSync } = await import('node:fs')
   const { tmpdir } = await import('node:os')
@@ -589,7 +613,6 @@ await root.fiber.dispose()
     try {
       const assembled = assembleBackendsFromProfile(entryRoot)
       if (assembled.scanned.length !== 1) return `assembly scanned ${assembled.scanned.length} bundle(s)`
-      armRootCapabilityGuard(entryRoot)
       let result = 'allowed'
       await entryRoot.plugin({ name: 'dsh-remote-row', apply(ctx: Context) {
         try { ctx.root.accessor('invocation', { get: () => undefined }) } catch (error) { result = error instanceof Error ? error.message : String(error) }
@@ -661,12 +684,11 @@ await root.fiber.dispose()
 // own effect stays refused. Real registry, mounted before the guard (the
 // profile's base row, the usual order) and after it.
 for (const order of ['registry first', 'guard first'] as const) {
-  const { armRootCapabilityGuard, compositionRoot, concreteService, deferRootCapabilityGuard } = await import('../src/dsh-adapter/host-access.js')
+  const { compositionRoot, concreteService, deferRootCapabilityGuard } = await import('../src/dsh-adapter/host-access.js')
   const { SessionProjectionRegistry } = await import('@deepseek-ai/dsh-session-projection')
   const teamRoot = new Context()
   const release = deferRootCapabilityGuard(teamRoot)
   compositionRoot(teamRoot)
-  armRootCapabilityGuard(teamRoot)
   if (order === 'registry first') await teamRoot.plugin(SessionProjectionRegistry)
   await teamRoot.plugin({ name: 'tui-row', apply(ctx: Context) { compositionRoot(ctx) } })
   release()

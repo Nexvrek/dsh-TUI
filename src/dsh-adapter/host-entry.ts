@@ -135,7 +135,7 @@ async function runInEntry(kernelBeforeHost: KernelBackendId): Promise<void> {
       return
     }
   }
-  const [{ Config }, { apply, handleStartupError }, { assembleBackendsFromProfile }, { createEntrySlot }, { deferRootCapabilityGuard, armRootCapabilityGuard }, { processGuardActive }, { logRestartEvent }] = await Promise.all([
+  const [{ Config }, { apply, handleStartupError }, { assembleBackendsFromProfile }, { createEntrySlot }, { deferRootCapabilityGuard }, { processGuardActive }, { logRestartEvent }] = await Promise.all([
     import('./index.js'),
     import('./plugin.js'),
     import('./backend-assembly.js'),
@@ -205,7 +205,12 @@ async function runInEntry(kernelBeforeHost: KernelBackendId): Promise<void> {
   // synchronous stretch.
   await slot.firstFrameFlushed?.()
   markBoot('entry-compose-start')
-  armRootCapabilityGuard(ctx)
+  // The root-capability guard stays deferred through the whole composition:
+  // profile rows activate concurrently, and installing it on the first TUI row
+  // makes dsh-base rows that are still in apply() fail on their own root
+  // effects whenever an extra bundle shifts the schedule. The finally below
+  // installs it once the composition settles; HMR and later activations stay
+  // guarded.
   const loaderOf = (): { await(): Promise<unknown> } | undefined => ctx.get('loader' as never) as { await(): Promise<unknown> } | undefined
   const composition = trackComposition(ctx, async () => { await loaderOf()?.await() })
   let failure: { readonly error: unknown } | undefined
