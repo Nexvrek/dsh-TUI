@@ -45,7 +45,7 @@ const isLocal = (name: string): boolean =>
 // ── 1+2: the gated set names real commands with real notices ───────────────
 const gated = Object.keys(WORKING_GATE_NOTICES)
 assert.deepEqual(gated, [
-  'new', 'compact', 'fork', 'model', 'preset', 'workspace', 'update', 'restart',
+  'new', 'compact', 'fork', 'model', 'preset', 'workspace', 'update',
   'resume', 'rewind', 'kernel', 'dsh', 'codex', 'claude', 'channel',
 ])
 for (const name of gated) {
@@ -103,6 +103,10 @@ assert.equal(workingHoldOf('tree'), undefined, '/tree inspects the session tree;
 assert.equal(workingHoldOf('resume'), undefined, '/resume opens the session manager; a switch parks, it does not interrupt')
 assert.equal(workingHoldOf('rewind'), 'gated', '/rewind is refused by the core while a turn runs')
 assert.equal(workingHoldOf('clear'), 'conversation', '/clear acts on the conversation view itself')
+// `/restart` respawns the process (interrupting the turn) and resumes the
+// session. It must stay available mid-turn: it is the recovery hatch when an
+// abort never converges, and the worst dead end of that bug was the refusal.
+assert.equal(workingHoldOf('restart'), 'conversation', '/restart must be allowed while a turn runs')
 for (const name of ['tree', 'resume']) {
   assert.ok(!WORKING_CONVERSATION_COMMANDS.includes(name), `/${name} must not be listed as a hold`)
 }

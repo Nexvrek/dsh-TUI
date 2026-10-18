@@ -135,6 +135,10 @@ export function createInputActions(
       input.cancelInFlight = true
       input.cancelCause = 'user'
       state.cancelPending = true
+      // Publish the window: the UI needs to show that the interrupt was
+      // received (and its watchdog needs the state change) even when the
+      // abort never converges and no backend event follows.
+      state.emit()
       void session.cancel('user')
     },
 

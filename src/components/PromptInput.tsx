@@ -1163,6 +1163,15 @@ export function PromptInput({
   const editorBusyRef = React.useRef(false)
   /** Enter dedupe window: cmd pipelines can deliver one Enter as `\r`+`\n`. */
   const lastEnterAtRef = React.useRef(0)
+  /**
+   * Ctrl+Enter already carried the non-docked queue through its interrupt and
+   * re-queued it: those previews are the parked copies now, so a second
+   * Ctrl+Enter during the same convergence must not list them again.
+   */
+  const interruptRequeuedRef = React.useRef(false)
+  React.useEffect(() => {
+    if (!channel.cancelPending) interruptRequeuedRef.current = false
+  }, [channel.cancelPending])
   React.useEffect(() => {
     return () => {
       if (escTimerRef.current) clearTimeout(escTimerRef.current)
@@ -1698,14 +1707,36 @@ export function PromptInput({
     setFileSelected(0)
   }
 
+  /**
+   * A channel action that throws synchronously (owner/lifetime race while the
+   * process is tearing down or a registration changed) is swallowed by Ink's
+   * stdin pump — stderr only, no UI. Reporting it here is the difference
+   * between "the send failed" and "my text vanished". The draft is never
+   * cleared before the call succeeds, so the text stays editable either way.
+   */
+  const reportSendFailure = (error: unknown): void => {
+    const message = error instanceof Error ? error.message : String(error)
+    try {
+      channel.notify(t('send-failed', { err: message }), { color: 'error' })
+    } catch {
+      // The channel that threw is gone too; the original failure already
+      // reached stderr through the renderer's handler.
+    }
+  }
+
   const submitText = (text: string, notice?: string) => {
     const trimmed = text.trim()
     if (!trimmed) return
     const images = imageRefsFor(trimmed)
     if (shellImagesUnsupported(trimmed, images)) return
     rememberHistory(trimmed, images)
+    try {
+      channel.submit(trimmed, images)
+    } catch (error) {
+      reportSendFailure(error)
+      return
+    }
     clearDeliveredDraft()
-    channel.submit(trimmed, images)
     if (notice) {
       channel.notify(notice, { timeoutMs: 2500 })
     } else if (channel.working) {
@@ -1725,8 +1756,20 @@ export function PromptInput({
     if (!trimmed) return
     const images = imageRefsFor(trimmed)
     rememberHistory(trimmed, images)
+    try {
+      channel.steer(trimmed, images)
+    } catch (error) {
+      reportSendFailure(error)
+      return
+    }
     clearDeliveredDraft()
-    channel.steer(trimmed, images)
+    // While an abort is still converging the step boundary this steer waits
+    // for may be the very thing the wedged turn never reaches: do not promise
+    // an immediate next step then.
+    if (channel.cancelPending) {
+      channel.notify(t('input-steer-pending'), { color: 'warning', timeoutMs: 4000 })
+      return
+    }
     channel.notify(t('input-interrupted-next'), { timeoutMs: 2500 })
   }
 
@@ -1740,8 +1783,13 @@ export function PromptInput({
     const images = imageRefsFor(trimmed)
     if (shellImagesUnsupported(trimmed, images)) return
     rememberHistory(trimmed, images)
+    try {
+      channel.submit(trimmed, images)
+    } catch (error) {
+      reportSendFailure(error)
+      return
+    }
     clearDeliveredDraft()
-    channel.submit(trimmed, images)
     channel.notify(t('input-queued-after-turn'), { timeoutMs: 2500 })
   }
 
@@ -1804,7 +1852,14 @@ export function PromptInput({
   /** Send the whole dock now (⏎ on an empty draft, or the hint row click):
    *  FIFO, exactly once, through the channel's own delivery chain. */
   const sendDocked = (): void => {
-    const sent = channel.deliverDocked()
+    let sent: number
+    try {
+      sent = channel.deliverDocked()
+    } catch (error) {
+      // The dock rows are still parked: no "sent" claim may be made here.
+      reportSendFailure(error)
+      return
+    }
     if (sent > 0) channel.notify(t('input-dock-sent', { n: sent }), { timeoutMs: 2500 })
     setDockSelected(null)
   }
@@ -1891,15 +1946,42 @@ export function PromptInput({
     // immediately once the abort settles. Docked rows are NOT listed here:
     // the channel's interruptAndDeliver takes the dock itself first (same
     // FIFO order), so including them would send each docked text twice.
+    const interruptWasPending = channel.cancelPending
     const images = imageRefsFor(trimmed)
+    // A cancel already in flight did NOT carry the queue: either it is a plain
+    // Esc/Ctrl+C cancel (the backend kept the rows, and the interrupt below
+    // drops them, so re-listing them here is what re-delivers them) or a
+    // previous Ctrl+Enter already re-queued them (re-listing would duplicate
+    // every one). `interruptRequeuedRef` tells the two apart across the
+    // convergence window.
+    const includePending = !interruptWasPending || !interruptRequeuedRef.current
+    const hasQueued = channel.pending.some(item => item.docked !== true)
     const queued: ComposerSubmission[] = [
-      ...channel.pending.filter(item => item.docked !== true).map(item => ({ text: item.text, images: item.images ?? [] })),
+      ...(includePending
+        ? channel.pending.filter(item => item.docked !== true).map(item => ({ text: item.text, images: item.images ?? [] }))
+        : []),
       { text: value, images },
     ]
-    const count = channel.interruptAndDeliver(queued)
+    const count = (() => {
+      try {
+        return channel.interruptAndDeliver(queued)
+      } catch (error) {
+        reportSendFailure(error)
+        return 0
+      }
+    })()
     if (count === 0) return
+    // This request owns the queue's re-delivery from here on.
+    if (includePending && hasQueued) interruptRequeuedRef.current = true
     rememberHistory(trimmed, images)
     clearDeliveredDraft()
+    // A cancel already in flight means the text was re-queued behind an abort
+    // that has not converged; the "immediate" claim would be false until it
+    // does (the wedged-turn case). The channel keeps the messages queued.
+    if (interruptWasPending) {
+      channel.notify(t('input-interrupt-deferred'), { color: 'warning', timeoutMs: 4000 })
+      return
+    }
     channel.notify(t('input-interrupt-immediate'), { timeoutMs: 2500 })
   }
 
@@ -4363,7 +4445,7 @@ export function PromptInput({
                   // 点击提示行 = 全部发送（与空输入 ⏎ 同路径）
                   onClick={() => { sendDocked() }}
                 >
-                  <Text dimColor>{' '}{t('input-pending-dock-hint')}</Text>
+                  <Text dimColor>{' '}{t(channel.working ? 'input-pending-dock-hint-working' : 'input-pending-dock-hint')}</Text>
                 </Box>
               </Box>
             )}

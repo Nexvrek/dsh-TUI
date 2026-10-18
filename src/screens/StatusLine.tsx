@@ -579,7 +579,11 @@ const selectionBadge = formatSelectionBadge(channel.selection)
   const hint = selectionActive
     ? t('statusline-hint-select')
     : channel.working
-      ? t('statusline-hint-working')
+      // An interrupt already requested but not yet converged: "esc to
+      // interrupt" would promise an action the channel ignores by contract
+      // (and a wedged turn can hold this state forever). Say what the state
+      // is instead, so the key never looks dead.
+      ? t(channel.cancelPending ? 'statusline-hint-interrupting' : 'statusline-hint-working')
       : statusBar.shortcutHint && !helpOpen
         ? t('statusline-hint-shortcuts')
         : ''

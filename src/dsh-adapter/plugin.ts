@@ -3367,6 +3367,16 @@ function superviseReplacement<T extends TuiRestartOptions>(exitSeam: ProcessExit
 
 function runRestart(ctx: Context, profile: string | undefined, sessionId: string, hint: (sessionId: string) => string = id => resumeCommand(profile, id), options: TuiRestartOptions = {}, exitSeam?: ProcessExitSeam): void {
   logRestartEvent('runRestart: entered, disposing cordis root')
+  // A wedged turn makes the root dispose wait forever: the agent teardown
+  // waits for the loop to reach quiescence, and a tool that ignores its
+  // AbortSignal never settles (dsh-agent-loop drains every dispatched tool on
+  // abort). Spawning the replacement then would race this process for the
+  // session mount, so the only honest answer is the resume hint the user can
+  // run after this process is gone.
+  const stalled = (): void => {
+    writeHandoffNotice(`\ndsh-tui restart timed out while stopping the current turn.${preservedSessionTail(sessionId, hint)}`)
+    process.exit(1)
+  }
   disposeRootAndThen(ctx, () => {
     logRestartEvent('runRestart: root disposed, starting restartTui')
     const supervision = superviseReplacement(exitSeam, options)
@@ -3396,7 +3406,7 @@ function runRestart(ctx: Context, profile: string | undefined, sessionId: string
         process.exit(1)
       },
     )
-  })
+  }, stalled)
 }
 
 function runUpdate(

@@ -235,6 +235,16 @@ const LOCAL_BLOCK_CELLS = 4000
  *  file, but a healthy import of thousands of conversations finishes well
  *  inside this; without a cap a wedged child would hang the loop forever. */
 const MIGRATE_CHILD_TIMEOUT_MS = 30 * 60 * 1000
+
+/**
+ * How long an interrupt may stay unconverged before the TUI says so. A normal
+ * abort ends the turn in well under a second; a tool that ignores its
+ * `AbortSignal` keeps the agent loop waiting forever (dsh-agent-loop awaits
+ * every dispatched tool on abort), so `working`/`cancelPending` never clear.
+ * The notice names `/restart` as the recovery hatch; this only ends the silent
+ * dead end in which every key seemed to do nothing.
+ */
+const INTERRUPT_STUCK_MS = 10_000
 /**
  * 落地页参数行四段能点开的既有选择器（第五版）：模型 → /model、思考深度 →
  * /effort、模式 → /plan、权限预设 → /permission。盖在落地页之上时键盘归
@@ -4165,12 +4175,17 @@ export function Chat({
         // (cordis.yml root config, frozen fullscreen layout, newly built
         // code), so /restart respawns the process with the original argv and
         // resumes this session — the /update handoff minus the pnpm step.
+        // Allowed mid-turn on purpose: a turn whose abort never converges
+        // (a tool ignoring its AbortSignal) can leave `working` true forever,
+        // and refusing the one command that can rebuild the process would
+        // leave the user with no way out. The fresh process resumes this
+        // session; the interrupted turn is the price of recovery, and the
+        // notice says so.
         setHelpOpen(false)
         if (onRestart === undefined) {
           channel.notify(t('restart-unavailable'), { color: 'warning' })
-        } else if (channel.working) {
-          channel.notify(t(WORKING_GATE_NOTICES.restart), { color: 'warning' })
         } else {
+          if (channel.working) channel.notify(t('restart-during-turn'), { color: 'warning', timeoutMs: 6_000 })
           channel.notify(t('restart-starting'))
           onRestart()
         }
@@ -4619,6 +4634,39 @@ export function Chat({
   const closeCoupon = React.useCallback(() => {
     if (coupon !== null) bonusNotices?.dismiss(coupon.orderId)
   }, [bonusNotices, coupon])
+
+  /**
+   * Escalation surface for a wedged abort. `cancelPending` means a turn was
+   * asked to stop and has not produced its terminal event yet; a tool that
+   * never settles can hold that state forever. The channel-side `cancel()`
+   * ignores repeats while the abort converges, so a repeated Esc used to be a
+   * silent no-op — the user's "I pressed Esc and nothing happened". The
+   * watchdog raises the warning once per interrupt episode and Esc answers
+   * every press; `/restart` (no longer gated on `working`) is the way out.
+   */
+  const interruptWatchdogRef = React.useRef<ReturnType<typeof setTimeout> | null>(null)
+  const interruptWarnedRef = React.useRef(false)
+  const clearInterruptWatchdog = React.useCallback((): void => {
+    if (interruptWatchdogRef.current !== null) clearTimeout(interruptWatchdogRef.current)
+    interruptWatchdogRef.current = null
+  }, [])
+  React.useEffect(() => {
+    if (!channel.working || !channel.cancelPending) {
+      // The turn settled (or the session was replaced): the next interrupt
+      // episode starts with a fresh warning.
+      clearInterruptWatchdog()
+      interruptWarnedRef.current = false
+      return
+    }
+    if (interruptWatchdogRef.current !== null) return
+    interruptWatchdogRef.current = setTimeout(() => {
+      interruptWatchdogRef.current = null
+      if (!channel.working || !channel.cancelPending || interruptWarnedRef.current) return
+      interruptWarnedRef.current = true
+      channel.notify(t('interrupt-stuck'), { color: 'warning', timeoutMs: 10_000 })
+    }, INTERRUPT_STUCK_MS)
+  }, [channel.working, channel.cancelPending])
+  React.useEffect(() => () => clearInterruptWatchdog(), [clearInterruptWatchdog])
 
   useInput((input, key, event) => {
     // 开屏"求 star"弹窗开着时键盘全归它（↑/↓/Enter/Esc 由它自己的
@@ -5547,8 +5595,20 @@ export function Chat({
       // vim mode (either submode) yields: there Esc is a MODE key (INSERT→
       // NORMAL, NORMAL = no-op/cancel pending d) and the prompt owns it;
       // interrupting still works via Ctrl+C / Ctrl+Enter.
-      if (channel.pending.length > 0) {
-        if (channel.interruptAndDock() === 0) channel.cancel()
+      const undocked = channel.pending.some(item => item.docked !== true)
+      if (undocked) {
+        // Docking is Esc's documented meaning for queued rows, and it starts
+        // its own interrupt; keep it even while a plain abort is in flight.
+        if (channel.interruptAndDock() === 0 && !channel.cancelPending) channel.cancel()
+      } else if (channel.cancelPending) {
+        // The abort is already in flight: `cancel()`/`interruptAndDock()`
+        // ignore repeats by contract, so answer the press instead of
+        // swallowing it. Past the watchdog window the turn is wedged, and
+        // the warning names `/restart` (allowed mid-turn) as the way out.
+        channel.notify(t(interruptWarnedRef.current ? 'interrupt-stuck' : 'interrupt-pending'), {
+          color: 'warning',
+          timeoutMs: interruptWarnedRef.current ? 10_000 : 4_000,
+        })
       } else {
         channel.cancel()
       }

@@ -244,7 +244,10 @@ export function createInputDelivery(
       if (!result.accepted) {
         if (attach !== undefined) attachedByMessageId.delete(message.id)
         untrackPending(message.id)
+        // A refusal with no reason is still a refusal: say so, or the send
+        // looks successful while nothing was queued.
         if (result.reason !== undefined && result.reason !== '') notify(result.reason, { color: 'warning', timeoutMs: 4000 })
+        else notify(t('input-not-accepted'), { color: 'warning', timeoutMs: 4000 })
         return
       }
     } catch (error) {
