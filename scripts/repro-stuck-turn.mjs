@@ -4,19 +4,20 @@
  *
  * Bug under guard: after a tool call stops responding, the first interrupt
  * leaves the turn running forever — `channel.working` / `cancelPending` stay
- * true. Today repeated Esc is a silent no-op (`InputActions.cancel()` early
- * returns while `cancelInFlight`), Enter steers into a turn that will never
- * advance, and `/restart` is refused by the `channel.working` gate, so the
- * user has no in-app way out.
+ * true. Before the fix repeated Esc was a silent no-op (`InputActions.cancel()`
+ * early returns while `cancelInFlight`), Enter steered into a turn that would
+ * never advance, and `/restart` was refused by the `channel.working` gate, so
+ * the user had no in-app way out.
  *
  * The script renders the REAL `<Chat>` (compiled lib) against a fake channel
  * exactly like `scripts/repro-ctrlc.tsx` / `scripts/verify-queue.mjs` do
  * (headless xterm, fake TTY streams), drives keys over stdin and asserts only
  * observable behavior: how many effective `cancel()` calls the channel saw,
- * whether a notice was raised and painted, whether `onRestart` fired, and what
- * the docked-queue baseline does. It never asserts on invented future copy.
+ * whether a notice was raised and painted, whether `onRestart` fired, how many
+ * times one text reached the backend, and what the docked-queue baseline does.
+ * It never asserts on invented future copy.
  *
- * Groups / checks (ids in brackets; the serialized id is the flip handle):
+ * Groups / checks:
  *   A. first Esc interrupts once; a second Esc while that abort is converging
  *      must not be a silent no-op [A1, A2]
  *   B. a permanently pending abort (cancelPending never clears) still answers
@@ -25,32 +26,30 @@
  *      works when idle [C1, C2, C3]
  *   D. Enter while the abort is stuck must not promise immediate processing
  *      of the steer [D1]
- *   E. baseline sanity that must stay green: empty Enter while idle sends the
- *      docked queue (FIFO, once) [E1, E2, E3]
+ *   E. baseline sanity: empty Enter while idle sends the docked queue
+ *      (FIFO, once) [E1, E2, E3]
  *   F. a channel action that throws synchronously must not eat the draft: the
  *      send is reported and the text stays editable (Ink's stdin pump only
  *      logs the throw to stderr) [F1, F2, F3]; the dock rows survive a
  *      throwing deliverDocked with no false "sent" claim [F4, F5]
+ *   G. two Ctrl+Enter presses inside one cancelPending window deliver each
+ *      text exactly once (a repeated interrupt must not re-list the copies the
+ *      first press re-queued) [G1, G2]
  *
- * The recovery checks below were all red before the fix (they are the bug's
- * acceptance criteria): A2, B1, C1 and D1. `EXPECTED_FAILING_TODAY` is empty
- * now — keep it empty unless a red test is deliberately landed ahead of its
- * fix.
+ * Every check is required: any failure exits non-zero.
  *
  * Run after a build (plain node against `lib/types/`):
  *     node scripts/repro-stuck-turn.mjs
- * After the fix, require every recovery check to pass without editing:
- *     node scripts/repro-stuck-turn.mjs --expect-fixed
- * Exit code is non-zero when any required check fails.
  *
  * Two fake-channel seams are deliberate:
- * - `SUPPRESS_CANCEL_WHILE_PENDING` mirrors today's real `InputActions.cancel()`
+ * - `SUPPRESS_CANCEL_WHILE_PENDING` mirrors the real `InputActions.cancel()`
  *   (`if (input.cancelInFlight) return`) and is what makes repeated Esc a
  *   no-op. If the fix moves the re-issue into the channel, flip this to false;
  *   the assertions do not change.
  * - `PROBE_MS` bounds the "did anything happen?" poll for negative/async
- *   expectations. A time-based cancel watchdog with a longer threshold can be
- *   exercised with `REPRO_STUCK_PROBE_MS=<ms>`.
+ *   expectations. The 10 s cancel watchdog and its `interrupt-stuck` copy are
+ *   not covered here (the threshold is a product constant); B pins the
+ *   `interrupt-pending` answer that precedes the watchdog.
  */
 
 import { closeSync, openSync } from 'node:fs'
@@ -77,59 +76,37 @@ const { setLang } = i18n
 const { render } = ui
 const { settle, settled, viewportLines, screenHas } = termTest
 
-// ── parameters / flip handles ───────────────────────────────────────────────
+// ── parameters ──────────────────────────────────────────────────────────────
 const COLS = 110
 const ROWS = 40
 
-/** Ids expected to fail even after the fix (deliberately red work). Empty:
- *  every check below is a fix acceptance criterion. */
-const EXPECTED_FAILING_TODAY = new Set([])
-
-/** Mirrors the real channel seam today. FLIP to false if the fix lets the
+/** Mirrors the real channel seam. FLIP to false if the fix lets the
  *  channel re-issue an abort while one is already in flight. */
 const SUPPRESS_CANCEL_WHILE_PENDING = true
 
 /** How long a "must respond" / "must not claim X" probe may wait for the
- *  effect that a fix would produce. Overridable for watchdog-based designs. */
+ *  effect under test. */
 const PROBE_MS = Number.parseInt(process.env.REPRO_STUCK_PROBE_MS ?? '', 10) || 1500
 
-/** The immediate-processing claim the steer notice makes today
+/** The immediate-processing claim the steer notice makes on the healthy path
  *  ("Interrupted · processed next" / "已插话 · 下一步立即处理"). D1 rejects
  *  this copy family while `cancelPending` means the abort has not converged.
  *  PARAMETERIZE: extend/adjust here when product copy changes. */
 const IMMEDIATE_PROCESSING_CLAIM = /immediate|next|立即|下一步/i
 
-const expectFixed = process.argv.includes('--expect-fixed')
-const isExpectedFailing = id => !expectFixed && EXPECTED_FAILING_TODAY.has(id)
-
 // ── PASS/FAIL reporting ─────────────────────────────────────────────────────
 let passed = 0
 let failed = 0
-let knownFailing = 0
-let unexpected = 0
-const staleMarkers = []
 
 function check(id, name, ok, extra = '') {
-  const expectedFailing = isExpectedFailing(id)
   const suffix = extra === '' ? '' : `  (${extra})`
   if (ok) {
     passed += 1
-    const stale = expectedFailing && !expectFixed
     console.log(`PASS: ${id} ${name}${suffix}`)
-    if (stale) {
-      staleMarkers.push(id)
-      console.log(`      note: ${id} is in EXPECTED_FAILING_TODAY but passes — flip/remove that marker`)
-    }
     return
   }
   failed += 1
-  if (expectedFailing) {
-    knownFailing += 1
-    console.log(`FAIL: ${id} ${name}  [known-failing today]${suffix}`)
-  } else {
-    unexpected += 1
-    console.log(`FAIL: ${id} ${name}${suffix}`)
-  }
+  console.log(`FAIL: ${id} ${name}${suffix}`)
 }
 
 const banner = title => console.log(`\n── ${title} ──`)
@@ -139,7 +116,7 @@ const banner = title => console.log(`\n── ${title} ──`)
  *  stdout's `.fd` (falling back to the process's real fd 1). Route those to
  *  /dev/null so per-scenario unmounts do not spray restore sequences into the
  *  PASS/FAIL stream; the rendered screen still comes from the xterm above. */
-const SINK_FD = openSync('/dev/null', 'w')
+const SINK_FD = openSync(process.platform === 'win32' ? 'NUL' : '/dev/null', 'w')
 
 function makeStreams(term) {
   const stdout = new Writable({ write(chunk, _enc, cb) { term.write(String(chunk), cb) } })
@@ -177,8 +154,15 @@ function makeChannel({ working = false, cancelPending = false, pending = [] } = 
     deliverDockedCalls: 0,
     delivered: [],
     onRestartCalls: 0,
+    interruptCalls: [],
   }
   let noticeSeq = 0
+  let pendingSeq = 0
+  let interruptToken = 0
+  /** The channel's convergence bookkeeping: an interrupt is already in flight
+   *  and did NOT drop the copies it re-queued (a later call must not re-list
+   *  them). */
+  let interruptInFlight = false
   const channel = {
     // Determinism: the idle whale animation must not repaint the probe window.
     whaleIdle: false,
@@ -255,7 +239,32 @@ function makeChannel({ working = false, cancelPending = false, pending = [] } = 
       return docked.length
     },
     interruptAndDock() { return 0 },
-    interruptAndDeliver() { return 0 },
+    // Faithful interruptAndDeliver seam: the inputs are re-queued as
+    // followups in a microtask (they surface as pending previews); a repeated
+    // call while an interrupt is already in flight does NOT fire a new abort
+    // and does NOT drop the copies the first call re-queued.
+    interruptAndDeliver(inputs) {
+      const texts = inputs
+        .map(input => typeof input === 'string' ? input.trim() : input.text.trim())
+        .filter(text => text !== '')
+      if (texts.length === 0) return 0
+      probe.interruptCalls.push([...texts])
+      if (!interruptInFlight) {
+        interruptInFlight = true
+        probe.effectiveCancels += 1
+      }
+      channel.cancelPending = true
+      const token = ++interruptToken
+      queueMicrotask(() => {
+        if (token !== interruptToken) return
+        for (const text of texts) {
+          channel.pending = [...channel.pending, { id: `p${++pendingSeq}`, text, placement: 'followup' }]
+          probe.submitCalls.push(text)
+        }
+        channel.emit()
+      })
+      return texts.length
+    },
     removePending() { return true },
     clear() {},
     cycleMode() {},
@@ -340,6 +349,15 @@ async function typeAndEnter(term, stdin, text) {
   stdin.write(text)
   await settled(() => screen(term) !== before && screen(term).includes(text), { timeoutMs: 4000 })
   stdin.write('\r')
+}
+
+/** Type a line, then press Ctrl+Enter as the kitty CSI-u encoding modern
+ *  terminals send ("explicit send / interrupt" in the inline composer). */
+async function typeAndCtrlEnter(term, stdin, text) {
+  const before = screen(term)
+  stdin.write(text)
+  await settled(() => screen(term) !== before && screen(term).includes(text), { timeoutMs: 4000 })
+  stdin.write('\x1b[13;5u')
 }
 
 // ── scenario A: repeated Esc while the first abort is still converging ──────
@@ -558,6 +576,41 @@ async function scenarioF() {
   await second.instance.unmount()
 }
 
+// ── scenario G: repeated Ctrl+Enter inside one cancelPending window ────────
+async function scenarioG() {
+  banner('G. second Ctrl+Enter during the same convergence')
+  const { channel, probe: calls } = makeChannel({ working: true })
+  const { term, stdin, instance } = await mount(channel)
+
+  await typeAndCtrlEnter(term, stdin, 'AAAA')
+  const first = await settled(() => calls.submitCalls.length === 1 && channel.pending.length === 1, { timeoutMs: 4000 })
+  check(
+    'G0',
+    'first Ctrl+Enter with an empty queue re-queues its draft once',
+    first && calls.submitCalls[0] === 'AAAA',
+    JSON.stringify({ submits: calls.submitCalls, pending: channel.pending.map(item => item.text), cancelPending: channel.cancelPending }),
+  )
+
+  await typeAndCtrlEnter(term, stdin, 'BBBB')
+  await settled(() => calls.submitCalls.length >= 2, { timeoutMs: 4000 })
+  const aaaa = calls.submitCalls.filter(text => text === 'AAAA').length
+  const bbbb = calls.submitCalls.filter(text => text === 'BBBB').length
+  check(
+    'G1',
+    'the first draft is not re-delivered by the second Ctrl+Enter',
+    aaaa === 1,
+    JSON.stringify({ submits: calls.submitCalls, interruptCalls: calls.interruptCalls }),
+  )
+  check(
+    'G2',
+    'the second draft is delivered exactly once',
+    bbbb === 1 && calls.submitCalls.length === 2,
+    JSON.stringify({ submits: calls.submitCalls, interruptCalls: calls.interruptCalls }),
+  )
+
+  await instance.unmount()
+}
+
 // ── main ────────────────────────────────────────────────────────────────────
 setLang('en')
 try {
@@ -566,23 +619,14 @@ try {
   await scenarioC()
   await scenarioE()
   await scenarioF()
+  await scenarioG()
 } catch (error) {
   console.error(`\nHARNESS ERROR: ${error instanceof Error ? error.stack ?? error.message : String(error)}`)
   process.exit(2)
 }
 
 console.log('\n──────────────────────────────────────────────────────────────────────')
-console.log(`SUMMARY: ${passed} passed, ${failed} failed (${knownFailing} expected/known-failing today, ${unexpected} unexpected)`)
-if (expectFixed) {
-  console.log('MODE: --expect-fixed — the recovery checks are required to pass.')
-} else {
-  if (EXPECTED_FAILING_TODAY.size > 0) {
-    console.log(`Known-failing today: ${[...EXPECTED_FAILING_TODAY].join(', ')} (expected until the fix lands).`)
-  }
-  if (staleMarkers.length > 0) {
-    console.log(`Stale expected-failing markers (now passing — flip them): ${staleMarkers.join(', ')}`)
-  }
-}
-console.log(failed === 0 ? 'RESULT: all required checks passed' : `RESULT: ${failed} check(s) failed`)
+console.log(`SUMMARY: ${passed} passed, ${failed} failed`)
+console.log(failed === 0 ? 'RESULT: all checks passed' : `RESULT: ${failed} check(s) failed`)
 closeSync(SINK_FD)
 process.exit(failed === 0 ? 0 : 1)

@@ -1719,8 +1719,9 @@ export function PromptInput({
     try {
       channel.notify(t('send-failed', { err: message }), { color: 'error' })
     } catch {
-      // The channel that threw is gone too; the original failure already
-      // reached stderr through the renderer's handler.
+      // A channel whose owner is already gone cannot show a toast either.
+      // The draft surviving is the important half; the renderer's stdin
+      // catch only writes the throw to stderr.
     }
   }
 
@@ -1955,7 +1956,6 @@ export function PromptInput({
     // every one). `interruptRequeuedRef` tells the two apart across the
     // convergence window.
     const includePending = !interruptWasPending || !interruptRequeuedRef.current
-    const hasQueued = channel.pending.some(item => item.docked !== true)
     const queued: ComposerSubmission[] = [
       ...(includePending
         ? channel.pending.filter(item => item.docked !== true).map(item => ({ text: item.text, images: item.images ?? [] }))
@@ -1971,8 +1971,11 @@ export function PromptInput({
       }
     })()
     if (count === 0) return
-    // This request owns the queue's re-delivery from here on.
-    if (includePending && hasQueued) interruptRequeuedRef.current = true
+    // This request owns the queue's re-delivery from here on — including the
+    // fresh draft, whose preview enters `pending` as a followup. A later
+    // Ctrl+Enter during the same convergence must not list that preview again
+    // (a repeated interrupt does not drop the earlier copies).
+    if (includePending) interruptRequeuedRef.current = true
     rememberHistory(trimmed, images)
     clearDeliveredDraft()
     // A cancel already in flight means the text was re-queued behind an abort

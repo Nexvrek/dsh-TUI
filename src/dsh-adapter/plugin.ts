@@ -2164,7 +2164,11 @@ export async function apply(ctx: Context, runtimeConfig: RuntimeConfig<Config>, 
           ctx,
           instance,
           bootedFullscreen,
-          t('restart-starting'),
+          // This line is the one the user actually sees before the terminal is
+          // handed over (the composer's toast dies with the unmount): a
+          // mid-turn restart must say that the running turn and its queued
+          // input are dropped, not promise a clean resume.
+          t(channel.working ? 'restart-during-turn' : 'restart-starting'),
           undefined,
           () => runRestart(ctx, profile, handoffSessionId(), handoffHint, { kernel: backendChoice }, exitSeam),
         )

@@ -342,7 +342,7 @@ The command menu = built-in commands (aliases included) + DSH registry commands 
 | `/home` / `/agentview` / `/bg` | none | the same session manager (`/home`=workspace view · `/agentview`=hosted session state · `/bg`=send to background and open, alias `/background`) |
 | `/tree` | none | session fork tree: hover to preview, click to rewind / fork / switch branch |
 | `/fork` | none | copy the current session into a resumable clone (original unaffected) |
-| `/restart` | none | restart the process and resume this session. Allowed mid-turn too: the running turn is interrupted — the recovery hatch when a turn is wedged (a tool ignoring the interrupt leaves the rest of the UI gated) |
+| `/restart` | none | restart the process and resume this session. Allowed mid-turn too: the running turn is interrupted and queued input is not kept; if a tool ignores the interrupt and the process cannot shut down cleanly, it exits after ~5 s and prints the command that resumes this session |
 | `/kernel` | none | kernel picker: switch between DSH, Codex and the experimental Claude backend; remembers the pick and restarts into a new session (rejected mid-turn); see [Claude backend](claude-backend.en.md) |
 | `/dsh` / `/codex` / `/claude` | none | directly choose the named kernel through the same checks and restart flow as `/kernel`; the current kernel does not restart, a running turn blocks switching, and missing Claude opens the install wizard |
 | `/rename` | `<新名称>` | rename the current session (no arg shows the current title and usage) |
@@ -748,7 +748,7 @@ When dsh exits unexpectedly, safe mode gives a **read-only** environment diagnos
 11. Context pressure ≥80% turns amber, ≥95% red — time to `/compact` (unavailable under minimal preset).
 12. Session manager (`/resume`, `/home`, `/agentview`, `/bg`, or `⌸` at the input line start):
     type to filter, `★` pin, `Ctrl+X` stop a background session; switching just parks it.
-13. Mid-turn, `/compact` and `/model` are rejected — `Ctrl+C` first or wait for the turn to end. `/restart` always works: it interrupts the running turn, restarts the process and resumes this session; use it when Esc or `Ctrl+C` cannot stop a turn (a tool ignoring the interrupt).
+13. Mid-turn, `/compact` and `/model` are rejected — `Ctrl+C` first or wait for the turn to end. `/restart` is not gated: it interrupts the running turn (queued input is not kept) and restarts; if Esc or `Ctrl+C` cannot stop a turn (a tool ignoring the interrupt) the process exits after ~5 s and prints the command that resumes this session — run it to get back in.
 14. `/model` switches subsequent requests in the same session (ID and history kept); the choice is saved as the default for new sessions, while a resumed session keeps its last recorded request route.
 
 **Ask the manual**

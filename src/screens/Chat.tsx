@@ -4178,15 +4178,18 @@ export function Chat({
         // Allowed mid-turn on purpose: a turn whose abort never converges
         // (a tool ignoring its AbortSignal) can leave `working` true forever,
         // and refusing the one command that can rebuild the process would
-        // leave the user with no way out. The fresh process resumes this
-        // session; the interrupted turn is the price of recovery, and the
-        // notice says so.
+        // leave the user with no way out. The handoff notice written by the
+        // exit funnel owns the visible copy (and says what the restart
+        // interrupts); this toast only covers embedders whose onRestart does
+        // not tear the screen down.
         setHelpOpen(false)
         if (onRestart === undefined) {
           channel.notify(t('restart-unavailable'), { color: 'warning' })
         } else {
-          if (channel.working) channel.notify(t('restart-during-turn'), { color: 'warning', timeoutMs: 6_000 })
-          channel.notify(t('restart-starting'))
+          channel.notify(
+            t(channel.working ? 'restart-during-turn' : 'restart-starting'),
+            channel.working ? { color: 'warning', timeoutMs: 6_000 } : undefined,
+          )
           onRestart()
         }
         return true

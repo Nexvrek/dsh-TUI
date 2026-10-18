@@ -231,7 +231,7 @@ const dict = {
   'interrupt-failed': { zh: '打断请求失败：排队消息没有撤回，仍会在下一回合发送；已取消暂存，避免重复发送', en: 'The interrupt request failed: the queued messages were not withdrawn and will still run next turn; they are no longer held, so nothing is sent twice' },
   'interrupt-unconfirmed': { zh: '无法确认排队消息已撤回：它们仍会在下一回合发送，不再暂存', en: 'Could not confirm the queued messages were withdrawn: they will still run next turn and are no longer held' },
   'interrupt-pending': { zh: '中断请求已发出，正在等待回合停止……', en: 'Interrupt requested; waiting for the turn to stop…' },
-  'interrupt-stuck': { zh: '中断迟迟没有生效（工具可能没有响应中断）。可用 /restart 重启并恢复本会话。', en: 'The interrupt is not taking effect (a tool may be ignoring it). Use /restart to restart and resume this session.' },
+  'interrupt-stuck': { zh: '中断迟迟没有生效（工具可能没有响应中断）。可用 /restart：它会中断当前回合并尝试重启；若进程无法正常收尾，退出后会打印恢复本会话的命令（排队输入不保留）。', en: 'The interrupt is not taking effect (a tool may be ignoring it). Use /restart: it interrupts this turn and tries to restart; if the process cannot shut down cleanly it exits and prints the command that resumes this session (queued input is not kept).' },
   'cmd-unavailable-backend': { zh: '/{{cmd}} 在 {{backend}} 内核下不可用', en: '/{{cmd}} is not available on the {{backend}} kernel' },
   'export-user-section': { zh: '## 用户', en: '## User' },
   'export-thinking-section': { zh: '## 思考', en: '## Thinking' },
@@ -761,7 +761,7 @@ const dict = {
   'reload-kind-activity': { zh: '活动指示', en: 'activity' },
   // ── /restart (process restart with session resume) ────────────────────
   'restart-starting': { zh: '正在重启 dsh-tui，完成后自动恢复当前会话……', en: 'Restarting dsh-tui. The session resumes when it comes back…' },
-  'restart-during-turn': { zh: '当前回合仍在运行；重启会中断它，之后恢复本会话。', en: 'The current turn is still running; restarting interrupts it and resumes this session afterwards.' },
+  'restart-during-turn': { zh: '当前回合仍在运行，正在中断重启；排队输入不会保留。若进程无法正常收尾，退出后会打印恢复本会话的命令。', en: 'The current turn is still running; interrupting and restarting. Queued input is not kept. If the process cannot shut down cleanly it exits and prints the command that resumes this session.' },
   'restart-unavailable': { zh: '当前运行方式不支持进程内重启（未挂载重启通道）。', en: 'Restart is unavailable in this launch mode (no restart channel mounted).' },
   'streaming-folded': { zh: '…（前 {{count}} 字符流式期间已折叠，落定后完整显示）', en: '…(first {{count}} chars folded while streaming; full text renders once the turn settles)' },
   'mermaid-too-wide': { zh: '（图需要 {{width}} 列，当前宽度不足，显示源码）', en: '(diagram needs {{width}} columns; showing the source)' },
@@ -1282,7 +1282,7 @@ const dict = {
   'hint-rewind-back': { zh: '**Enter** 回退 · Esc 返回', en: '**Enter** to rewind · Esc to back' },
   'statusline-hint-select': { zh: 'esc 返回输入', en: 'esc to return to input' },
   'statusline-hint-working': { zh: 'esc 中断', en: 'esc to interrupt' },
-  'statusline-hint-interrupting': { zh: '中断中… esc 重试', en: 'interrupting… esc retries' },
+  'statusline-hint-interrupting': { zh: '中断中…', en: 'interrupting…' },
   'statusline-hint-shortcuts': { zh: '? 查看快捷键', en: '? for shortcuts' },
   // ── 底栏字段 hover 明细（补充行读出；技术标签 ctx/free/read 等保持不译）──
   'status-detail-session-id': { zh: '会话日志目录与此 id 同名', en: 'the session log directory is named after this id' },

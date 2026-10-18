@@ -306,6 +306,12 @@ const stateTmp = mkdtempSync(join(tmpdir(), 'verify-handoff-atomic-'))
     /runRestart\(ctx, profile, handoffSessionId\(\), handoffHint, \{ kernel: backendChoice \}(, exitSeam)?\)/.test(plugin)
     && /runUpdate\(ctx, profile, handoffSessionId\(\), updateTargetVersion, backendChoice, handoffHint(, exitSeam)?\)/.test(plugin)
     && /updateTuiAndRestart\(sessionId, profile, targetVersion, kernel(, superviseReplacement\(exitSeam, \{\}\))?\)/.test(plugin))
+  // The toast the composer raises for `/restart` dies with the unmount; the
+  // handoff notice written by finishExit is the line the user actually reads.
+  // It must own the mid-turn warning (turn interrupted, queue dropped), or the
+  // recovery hatch promises a clean resume it cannot deliver on a wedged agent.
+  check('plugin.ts: the /restart handoff notice warns when the turn is interrupted',
+    /t\(channel\.working \? 'restart-during-turn' : 'restart-starting'\)/.test(plugin))
   // A turn whose abort never converges keeps the agent teardown in
   // `whenIdle()` forever; the 5 s dispose bound must then print the resume
   // hint instead of a bare exit, or the advertised recovery hatch "restarts"

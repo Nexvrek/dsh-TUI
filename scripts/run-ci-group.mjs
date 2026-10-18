@@ -148,8 +148,9 @@ const GROUPS = {
 // 卡死回合的逃生面回归（真实 Chat + 假 channel）：工具不响应中断时
 // cancelPending 永不收敛——第一次 Esc 之后重复 Esc 过去被 in-flight 闸门
 // 静默吞掉、/restart 被 working 门禁拒绝、Enter 插话还承诺「下一步立即
-// 处理」，用户无路可走。断言 Esc 每次都有可见应答、超时后提示 /restart、
-// `/restart` 在回合中直达 onRestart、卡住时的插话提示不再承诺立即处理；
+// 处理」，用户无路可走。断言 Esc 每次都有可见应答、`/restart` 在回合中直达
+// onRestart、卡住时的插话提示不再承诺立即处理、同一收敛窗口内两次
+// Ctrl+Enter 不重复投递、channel 同步抛错时草稿不丢且失败可见；
 // 另含「空闲空输入 ⏎ 发送停靠队列」基线防回归。
     ["repro-stuck-turn", ['node', 'scripts/repro-stuck-turn.mjs']],
 // /settings 设置屏回归（issue #165）：开屏、staged 编辑、revision 栅栏
