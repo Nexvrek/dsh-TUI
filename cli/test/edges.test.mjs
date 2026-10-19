@@ -112,7 +112,8 @@ test('locator follows npm shim without executing it; explicit bin is package-own
   await writeFile(shim, `#!/bin/sh\nnode "${fixture}" "$@"\n`)
   await chmod(shim, 0o755)
   assert.equal(locateDsh({ cwd: root }, { PATH: bin }).version, '0.2.0-rc.2')
-  assert.equal(locateDsh({ cwd: root, dshBin: fixture }, {}).path, await realpath(fixture))
+  // Windows sync realpath can retain 8.3 names; resolve both sides with the same API.
+  assert.equal(await realpath(locateDsh({ cwd: root, dshBin: fixture }, {}).path), await realpath(fixture))
   const stray = join(temp, 'unowned.mjs')
   await writeFile(stray, '')
   assert.throws(() => locateDsh({ cwd: root, dshBin: stray }, {}), /belong to/u)
