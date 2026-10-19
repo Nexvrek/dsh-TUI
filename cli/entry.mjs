@@ -23,7 +23,7 @@ export async function main(argv = process.argv.slice(2), options = {}) {
     request = parse(argv)
     if (request.help) { io.stdout.write(help()); return 0 }
     let directory
-    try { directory = await stat(request.cwd) } catch { throw new CliError('INVALID_ARGUMENT', 'Working directory does not exist', 2) }
+    try { request.cwd = await realpath(request.cwd); directory = await stat(request.cwd) } catch { throw new CliError('INVALID_ARGUMENT', 'Working directory does not exist', 2) }
     if (!directory.isDirectory()) throw new CliError('INVALID_ARGUMENT', 'Working directory is not a directory', 2)
     if (request.timeout > 0) timer = setTimeout(() => abort('TIMEOUT', 'Invocation deadline exceeded', 124), request.timeout)
     return await execute(request, options.adapter ?? createDshAdapter(), io, controller.signal)
