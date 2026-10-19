@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict'
 import { test, after } from 'node:test'
-import { mkdtemp, mkdir, writeFile, copyFile, readFile, rm, chmod } from 'node:fs/promises'
+import { mkdtemp, mkdir, writeFile, copyFile, readFile, rm, chmod, realpath, symlink } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, delimiter } from 'node:path'
-import { spawn } from 'node:child_process'
+import { spawn, spawnSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import { Readable, Writable } from 'node:stream'
 import { main } from '../entry.mjs'
@@ -112,10 +112,21 @@ test('locator follows npm shim without executing it; explicit bin is package-own
   await writeFile(shim, `#!/bin/sh\nnode "${fixture}" "$@"\n`)
   await chmod(shim, 0o755)
   assert.equal(locateDsh({ cwd: root }, { PATH: bin }).version, '0.2.0-rc.2')
-  assert.equal(locateDsh({ cwd: root, dshBin: fixture }, {}).path, fixture)
+  assert.equal(locateDsh({ cwd: root, dshBin: fixture }, {}).path, await realpath(fixture))
   const stray = join(temp, 'unowned.mjs')
   await writeFile(stray, '')
   assert.throws(() => locateDsh({ cwd: root, dshBin: stray }, {}), /belong to/u)
+})
+
+test('direct CLI entry runs through a symlinked parent path', async () => {
+  const linkedRoot = join(temp, 'linked-root')
+  await symlink(root, linkedRoot, process.platform === 'win32' ? 'junction' : 'dir')
+  const result = spawnSync(process.execPath, [join(linkedRoot, 'cli/entry.mjs'), '--help'], {
+    cwd: root, encoding: 'utf8', timeout: 10000,
+  })
+  assert.equal(result.status, 0, result.stdout + result.stderr)
+  assert.match(result.stdout, /dst run/u)
+  assert.equal(result.stderr, '')
 })
 
 test('unvalidated versions fail before starting a task; native forwarding is retained', async () => {

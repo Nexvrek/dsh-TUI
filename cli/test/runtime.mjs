@@ -5,11 +5,13 @@ import { mkdtempSync, writeFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { locateDsh } from '../adapters/dsh/locate.mjs'
 
 const bin = process.env.DST_TEST_DSH_BIN
-if (!bin) throw new Error('Set DST_TEST_DSH_BIN to an installed DSH 0.2.0-rc.2 built JS bin')
+if (!bin) throw new Error('Set DST_TEST_DSH_BIN to an installed DSH 0.2.0-rc.2 or 0.2.1-rc.2 built JS bin')
 const temporary = mkdtempSync(join(tmpdir(), 'dst-real-'))
 const root = fileURLToPath(new URL('../../', import.meta.url))
+const runtime = locateDsh({ cwd: root, dshBin: bin }, {})
 const launcher = process.env.DST_TEST_CLI_BIN ?? join(root, 'bin/dsh-tui.js')
 const provider = fileURLToPath(new URL('./fixtures/provider.mjs', import.meta.url))
 const overlay = join(temporary, 'provider.json')
@@ -18,12 +20,12 @@ writeFileSync(overlay, JSON.stringify([
   { id: 'session-title-llm', disabled: true },
   { insert: [{ id: 'dst-test-provider', name: provider }] },
 ]))
-const run = args => {
+const run = (args, expectedCode = 0) => {
   const result = spawnSync(process.execPath, [launcher, ...args, '--dsh-bin', bin, '--patch', overlay, '--json', '--timeout=30000'], {
     cwd: temporary, encoding: 'utf8', input: '', timeout: 45000,
-    env: { ...process.env, DSH_HOME: join(temporary, 'home'), DSH_TUI_CLI_DSH_BIN: bin, DST_TEST_DSH_BIN: bin, DSH_TELEMETRY_DISABLED: '1' },
+    env: { ...process.env, HOME: temporary, USERPROFILE: temporary, DSH_HOME: join(temporary, 'home'), DSH_TUI_CLI_DSH_BIN: bin, DST_TEST_DSH_BIN: bin, DSH_TELEMETRY_DISABLED: '1' },
   })
-  assert.equal(result.status, 0, result.stdout + result.stderr)
+  assert.equal(result.status, expectedCode, result.stdout + result.stderr)
   return JSON.parse(result.stdout)
 }
 try {
@@ -38,6 +40,11 @@ try {
   assert(Array.isArray(run(['models', 'list']).data))
   assert(Array.isArray(run(['skills', 'list']).data))
   assert.equal(run(['mcp', 'status']).data.connectionHealth, 'unavailable')
-  assert.equal(typeof run(['auth', 'status']).data.configured, 'boolean')
+  // DSH 0.2.1 headless intentionally omits the interactive credential store.
+  if (runtime.version === '0.2.1-rc.2') assert.equal(run(['auth', 'status'], 3).error.code, 'CAPABILITY_UNAVAILABLE')
+  else assert.equal(typeof run(['auth', 'status']).data.configured, 'boolean')
+  const credentialsOverlay = join(temporary, 'credentials.json')
+  writeFileSync(credentialsOverlay, JSON.stringify([{ id: 'credentials', disabled: false }]))
+  assert.equal(typeof run(['auth', 'status', '--patch', credentialsOverlay]).data.configured, 'boolean')
   console.log('PASS: real DSH profile, headless run/resume/continue, query/export/models/skills/MCP/auth (no model/network)')
 } finally { rmSync(temporary, { recursive: true, force: true, maxRetries: 3 }) }

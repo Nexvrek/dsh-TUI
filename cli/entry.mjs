@@ -1,5 +1,5 @@
 /** Composition root: the only module binding the engine to its default adapter. */
-import { stat } from 'node:fs/promises'
+import { realpath, stat } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 import { parse, help, errorFormat } from './args.mjs'
 import { execute, reportFailure } from './engine.mjs'
@@ -43,4 +43,6 @@ export async function main(argv = process.argv.slice(2), options = {}) {
   }
 }
 
-if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) process.exitCode = await main()
+// Node resolves module URLs, but argv may retain a symlinked path (including macOS /var).
+const invokedPath = process.argv[1] && await realpath(process.argv[1]).catch(() => undefined)
+if (invokedPath && await realpath(fileURLToPath(import.meta.url)) === invokedPath) process.exitCode = await main()

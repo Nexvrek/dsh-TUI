@@ -8,12 +8,12 @@ import { startProcess, records, parseRecord } from '../../process.mjs'
 import { locateDsh } from './locate.mjs'
 
 const manager = fileURLToPath(new URL('./management-plugin.mjs', import.meta.url))
-const validated = new Set(['0.2.0-rc.2'])
+const validated = new Set(['0.2.0-rc.2', '0.2.1-rc.2'])
 const allowedEvents = new Set(['session', 'status', 'text', 'thinking', 'tool_call', 'tool_result', 'error', 'final'])
 
 function requireContract(runtime) {
   // A new version is not proof of wire compatibility. Passthrough is ungated.
-  if (!validated.has(runtime.version)) throw new CliError('ADAPTER_UNAVAILABLE', 'This adapter validates DSH 0.2.0-rc.2; use dst dsh for another runtime', 3)
+  if (!validated.has(runtime.version)) throw new CliError('ADAPTER_UNAVAILABLE', `This adapter validates DSH ${[...validated].join(' or ')}; use dst dsh for another runtime`, 3)
 }
 
 /** Create the default adapter; host/process facilities are injectable in tests. */
