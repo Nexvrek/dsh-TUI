@@ -640,6 +640,7 @@ In inline mode, the terminal emulator owns native scrollback and selection.
 - **Double/triple click** — Select and copy a word/line (exception: the
   `scrollGutter: scrollbar` track is a drag target, so multi-clicks there no longer select a line).
 - **`Esc`** — Cancel an active drag (or an existing selection) without copying.
+- **Code blocks** — A body-anchored selection joins soft-wrapped rows without frame padding or extra newlines, for light and full frames. Hard line breaks and hard-line insets keep their existing screen-copy behavior; this is not a byte-for-byte source export.
 - **Single-click a message row** — Plain text rows (user/assistant) do nothing — the
   transcript is a reading surface, selection is the mouse's job there.
 - **Single-click a tool card / thinking / compact summary** — Expand / collapse (header
