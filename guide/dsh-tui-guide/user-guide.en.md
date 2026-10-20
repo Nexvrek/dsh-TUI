@@ -144,8 +144,8 @@ While a turn is running, the `/` overlay groups commands by their impact on the 
 | `/vim` | **vim editing mode toggle** (per-session, not persisted): shows an `INSERT` badge, `Esc` to `NORMAL`, `i/I/a/A/o/O` back to INSERT. NORMAL keys below |
 | typing | **replaces the whole selection when one exists** (like a standard editor), cursor lands after the inserted text |
 | right-click / `Ctrl+Shift+V` | terminal-native paste (newlines inserted as-is) |
-| `Esc` (input) | closes layer by layer: help → **image preview** → command menu → file menu (only the current `@` token) → **clear selection if any (text stays)** → re-send interrupt → clear input → double-press = time-travel |
-| double-press `Esc` (empty input) | **time-travel rewind** (press twice within 3 s) |
+| `Esc` (input) | closes layer by layer: help → **image preview** → command menu → file menu (only the current `@` token) → leave the held-queue selector → **clear selection if any (text stays)** → collapse the draft editor → unfold a pasted block → remove context chips → interrupt and hold queued messages (ordinary draft kept; no automatic re-send) → clear non-empty idle input → double-press on empty idle input = time-travel |
+| double-press `Esc` (empty idle input) | **time-travel rewind** (press twice within 3 s) |
 
 **vim NORMAL keys**: move `h/l` `j/k` `0/^/$` `w/b`;
 delete `x/X` `dd`/`d$`/`d0`/`d^`/`dw`; `u` undo, `Enter` send.

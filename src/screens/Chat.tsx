@@ -5667,8 +5667,9 @@ export function Chat({
         setSelectedId(null)
       }
     } else if (key.escape && promptControllerRef.current?.consumeEscape()) {
-      // Selection/editor Esc stays with the composer even though Chat's
-      // global listener runs first. Consume it before interrupting the turn.
+      // Local menu/preview/selection/editor Esc stays with the composer even
+      // though Chat's global listener runs first. Only an unconsumed Esc
+      // reaches the working-turn interrupt below.
       event.stopImmediatePropagation()
     } else if (key.escape && channel.working && !helpOpen && !promptControllerRef.current?.vimActive()) {
       // Esc interrupts a running turn (the prompt input

@@ -453,7 +453,7 @@ export interface PromptController {
    * branch calls this first, before its clear/exit semantics.
    */
   consumeSelectionCopy(): boolean
-  /** Consume selection/editor Esc before Chat's working-turn interrupt. */
+  /** Consume a local overlay/editor Esc before Chat's working-turn interrupt. */
   consumeEscape(): boolean
   /** Toggle vim editing mode (`/vim`); returns the new state (true = on). */
   toggleVim(): boolean
@@ -570,9 +570,9 @@ export interface PromptInputProps {
   onCaretImage?(image: TranscriptImage | undefined, title: string | undefined, reason: 'caret' | 'click'): void
   /**
    * True while the caller shows the caret-driven preview. Esc then goes to
-   * `onDismissCaretPreview` ahead of every other Esc meaning (the ladder's
-   * "close the image preview" rung): this input's listener runs before
-   * Chat's, and the prompt is NOT inert under a caret preview.
+   * `onDismissCaretPreview` after help and before ordinary editing (the
+   * "close the image preview" rung). Chat can delegate through the prompt
+   * controller; the prompt remains active under a caret preview.
    */
   caretPreviewOpen?: boolean
   onDismissCaretPreview?(): void
@@ -1117,7 +1117,7 @@ export function PromptInput({
         // The selection stays: copy never clears it (Esc/typing/delete do).
         return true
       },
-      consumeEscape: consumeEditingEscape,
+      consumeEscape: consumeLocalEscape,
       toggleVim: () => {
         const next = !vimEnabledRef.current
         vimEnabledRef.current = next
@@ -1314,16 +1314,17 @@ export function PromptInput({
   }, [channel, mention?.query, atTrigger])
   // Esc dismisses the overlay for the token being edited (it reopens once the
   // text changes); it must NOT clear a mid-message input.
-  const fileEscRef = React.useRef(-1)
-  React.useEffect(() => {
-    fileEscRef.current = -1
-  }, [value])
+  const fileEscRef = React.useRef<{ edit: number; start: number } | null>(null)
+  const [, refreshFileMenu] = React.useState(0)
+  const fileMenuDismissed = (start: number): boolean =>
+    fileEscRef.current?.edit === inputEditSequenceRef.current && fileEscRef.current.start === start
   const fileOverlayOpen =
+    mention !== undefined &&
     fileMatches.length > 0 &&
     !expanded &&
     !helpOpen &&
     !selectionActive &&
-    fileEscRef.current !== mention?.start
+    !fileMenuDismissed(mention.start)
 
   /**
    * The `[Image #N]` tokens of `text` that carry a live draft capability.
@@ -2199,19 +2200,55 @@ export function PromptInput({
 
   /** Local Esc layers, shared by the prompt listener and Chat's delegation.
    * Refs preserve this order even when expansion and Esc share a stdin batch. */
-  const consumeEditingEscape = (): boolean => {
-    // The docked-queue selector folds first: Esc leaves the selector and the
-    // dock itself stays put (⏎/↑ keep working afterwards).
+  const consumeLocalEscape = (): boolean => {
+    if (helpOpen) {
+      onToggleHelp()
+      return true
+    }
+    if (caretPreviewOpen) {
+      onDismissCaretPreview?.()
+      return true
+    }
+    // Read the live draft: typing `/`, Esc and more text can arrive in the
+    // same stdin batch before React has rendered the command menu (#1310).
+    const current = valueRef.current
+    if (!expandedRef.current && !selectionActive) {
+      if (current.startsWith('/') && !current.includes('\n') && channel.commandCompletions(current).length > 0) {
+        clearDraftUndoably()
+        return true
+      }
+      const currentMention = mentionAtCaret(current, cursorRef.current)
+      if (currentMention !== undefined && fileMatches.length > 0 && !fileMenuDismissed(currentMention.start)) {
+        // An edit sequence makes the dismissal token-local and resets it
+        // on the next text edit, including one in the same stdin batch.
+        fileEscRef.current = { edit: inputEditSequenceRef.current, start: currentMention.start }
+        refreshFileMenu(tick => tick + 1)
+        return true
+      }
+    }
+    // Esc leaves the docked-queue selector; the dock itself stays put
+    // (⏎/↑ keep working afterwards).
     if (dockSelectedRef.current !== null) {
       setDockSelected(null)
       return true
     }
-    if (selectionRef.current && !helpOpen && !overlayOpen && !fileOverlayOpen) {
+    if (selectionRef.current) {
       clearSelection()
       return true
     }
     if (expandedRef.current) {
       collapseEditor()
+      return true
+    }
+    if (foldBlockRef.current !== null) {
+      updateFoldBlock(null)
+      return true
+    }
+    // Send-to-Chat chips peel before the draft; that same Esc must not
+    // interrupt a running turn. Vim keeps its existing mode-key ownership.
+    const stagedContexts = channel.attachedContexts ?? []
+    if (!vimEnabledRef.current && stagedContexts.length > 0) {
+      for (const staged of [...stagedContexts]) channel.detachContext(staged.id)
       return true
     }
     return false
@@ -2381,24 +2418,13 @@ export function PromptInput({
     const cursor = cursorRef.current
     const selection = selectionRef.current
 
-    // ── caret-driven image preview ──────────────────────────────────────
-    // Esc dismisses the preview the caret opened, before any other Esc
-    // meaning (help stays above it: the help menu is modal over the prompt).
-    if (key.escape && caretPreviewOpen && !helpOpen) {
-      event?.stopImmediatePropagation()
-      onDismissCaretPreview?.()
-      return
-    }
-
-    // ── mouse selection (drag / Shift+click / double-click) ─────────────
-    // Layered ahead of the fold-block rules: with an active selection, Esc
-    // ONLY drops the highlight (text untouched), and Backspace/Delete
-    // delete the selected span. Arrows/typing handle the selection at their
-    // own arms below.
-    if (key.escape && consumeEditingEscape()) {
+    // Share the local Esc ladder with Chat's earlier global listener.
+    if (key.escape && consumeLocalEscape()) {
       event.stopImmediatePropagation()
       return
     }
+    // Mouse selection (drag / Shift+click / double-click): Backspace/Delete
+    // remove the span; arrows/typing handle it at their own arms below.
     if ((key.backspace || key.delete) && selection) {
       // Removing a selection is atomic: it must undo in one step, not fold
       // into whatever the caret-continuity rule would otherwise see.
@@ -2422,10 +2448,6 @@ export function PromptInput({
     const clampRowEnd = (pos: number) =>
       block && cursor <= block.start ? Math.min(pos, block.start) : pos
     if (block) {
-      if (key.escape) {
-        updateFoldBlock(null)
-        return
-      }
       if ((key.backspace && cursor === block.end) || (key.delete && cursor === block.start)) {
         const next = value.slice(0, block.start) + value.slice(block.end)
         updateFoldBlock(null)
@@ -3444,28 +3466,6 @@ export function PromptInput({
     }
 
     if (key.escape) {
-      if (helpOpen) {
-        onToggleHelp()
-        return
-      }
-      // A single Esc closes the open command menu first;
-      // the double-tap-clear semantics only apply to ordinary input.
-      if (overlayOpen) {
-        clearDraftUndoably()
-        return
-      }
-      // File overlay: Esc dismisses the menu for THIS token only — clearing
-      // the input would nuke a mid-message `@` mention's surrounding text.
-      if (fileOverlayOpen) {
-        fileEscRef.current = mention?.start ?? -1
-        return
-      }
-      // The docked-queue selector folds before anything else: Esc leaves the
-      // selector (Chat's delegation reaches this through consumeEscape too).
-      if (dockSelectedRef.current !== null) {
-        setDockSelected(null)
-        return
-      }
       // With pending messages while working, Esc = interrupt and DOCK the
       // queue (Claude Code parity): the previews park channel-side and the
       // dock hint offers ↑ to edit one / ⏎ to send them all — nothing
@@ -3473,17 +3473,6 @@ export function PromptInput({
       // turn still needs its plain abort.
       if (channel.working && channel.pending.length > 0) {
         if (channel.interruptAndDock() === 0) channel.cancel()
-        return
-      }
-      // "Send to Chat" chips peel before the draft: the first Esc drops the
-      // contexts panels staged and leaves the typed text untouched, so a second
-      // Esc then clears the input as usual. The press is CONSUMED — this rung
-      // has exactly one meaning, and a running turn must not be interrupted by
-      // the same key that only dropped a chip.
-      const stagedContexts = channel.attachedContexts ?? []
-      if (stagedContexts.length > 0) {
-        event?.stopImmediatePropagation()
-        for (const staged of [...stagedContexts]) channel.detachContext(staged.id)
         return
       }
       // A single Esc clears the current input (if any); the double-tap
