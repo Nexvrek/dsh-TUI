@@ -1257,6 +1257,8 @@ const GROUPS = {
     ["verify-session-tree", ['node', '--import', 'tsx/esm', 'scripts/verify-session-tree.tsx']],
 // /model 保留压缩；fork/rewind 在快照前取消压缩。落盘失败须与通用失败区分。
     ["verify-compact-switch", ['node', '--import', 'tsx/esm', 'scripts/verify-compact-switch.tsx']],
+// /resume 的预检抛错归还 reservation；转交后的 pin 保留到恢复事务结束。
+    ["verify-resume-reservation", ['node', '--import', 'tsx/esm', 'scripts/verify-resume-reservation.ts']],
     ["verify-live-session", ['node', '--import', 'tsx/esm', 'scripts/verify-live-session.ts']],
 // /model 保留会话与自动标题资格；路由及其异步快照跟随停放中的 agent。
     ["verify-session-title-lineage", ['node', '--import', 'tsx/esm', 'scripts/verify-session-title-lineage.ts']],
