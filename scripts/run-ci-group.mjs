@@ -436,6 +436,8 @@ const GROUPS = {
 // 直达启动器回归（issue #108）：参数透传、残骸 profile 重装、
 // 版本不一致提示、双语消息、shellQuote 转义规则。
     ["verify-launcher", ['node', 'scripts/verify-launcher.mjs']],
+// 包入口与启动器不继承工作区的 React 开发模式；专用调试开关仍可启用。
+    ['verify-production-react', ['node', 'scripts/verify-production-react.mjs']],
 // 本包入口的路由：内核判定排序、profile 补丁的 backend 钉、重启 argv、宿主 dsh 查找。
     ["verify-host-entry", ['node', '--import', 'tsx/esm', 'scripts/verify-host-entry.ts']],
 // 第三方插件的身份准入：真 Cordis 组合上驱动 armAdmissionLoader，面板带 manifest id；

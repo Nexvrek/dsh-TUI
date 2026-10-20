@@ -463,6 +463,12 @@ Full list: [Architecture and limitations → Known limitations](docs/architectur
 
 CI uses Node 24 and pnpm 11. The package supports Node `^22.19 || >=24`.
 
+TUI entry points use production React even when the workspace sets
+`NODE_ENV=development`. For renderer debugging, explicitly set
+`DSH_TUI_REACT_DEV=1` (for example, `DSH_TUI_REACT_DEV=1 pnpm dev` or
+`DSH_TUI_REACT_DEV=1 pnpm tui`). This selects development React before it
+loads; its render instrumentation can accumulate memory in long sessions.
+
 ```sh
 pnpm install --frozen-lockfile
 pnpm build

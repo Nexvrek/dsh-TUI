@@ -390,6 +390,11 @@ TUI 只负责交互与呈现：会话日志是唯一事实源，模型、工具�
 
 CI 使用 Node 24 与 pnpm 11，本包支持 Node `^22.19 || >=24`。
 
+TUI 启动入口默认使用 production React，即使工作区设置了 `NODE_ENV=development`。
+调试渲染器时请显式设置 `DSH_TUI_REACT_DEV=1`，例如
+`DSH_TUI_REACT_DEV=1 pnpm dev` 或 `DSH_TUI_REACT_DEV=1 pnpm tui`；它会在 React
+加载前选择开发构建，其渲染插桩在长会话中可能累积内存。
+
 ```sh
 pnpm install --frozen-lockfile
 pnpm build
