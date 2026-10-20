@@ -1766,6 +1766,12 @@ function renderNodeToOutput(
         ) {
           node.stickyScroll = true
           node.onStickyRestore?.()
+        } else if (pending !== undefined && node.pendingScrollDelta === undefined) {
+          // Draining and boundary clamps mutate the handle after its input
+          // notification. Publish the settled position once, so virtual
+          // windows can tighten without relying on an unrelated React tick.
+          // A bottom re-pin already notified the same subscribers above.
+          node.onScrollDrainEnd?.()
         }
         scrollTop = clamped
 
