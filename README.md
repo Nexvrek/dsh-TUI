@@ -406,8 +406,6 @@ Full reference: [Interaction and commands](docs/interaction.en.md).
 
 `/resume` · `/home` · `/agentview` · `/bg` · `⌸` open the same session manager: workspace rail, live state, filter, ★ pins. Also `/model` `/new` `/compact` `/export` `/btw` `/tree` `/fork` `/rewind` `/settings` `/setup` `/status` `/cost` `/jobs` `/skills` `/mcp` `/provider` `/auth` `/login` `/update`.
 
-If a `/resume` attempt fails or is cancelled before switching, it releases any session occupancy acquired by that attempt so the session can be retried.
-
 `/dsh`, `/codex`, and `/claude` switch directly to the named kernel, just like choosing it in `/kernel`: the choice is remembered and the process restarts into a new session. A running turn blocks switching; choosing the current kernel keeps the session. Availability checks and the Claude install wizard follow the same picker flow.
 
 `/model` shows models and reasoning effort on one page. DSH has provider tabs with **Recently used** first, moving the current model to the top; `Tab` / `Shift+Tab` select the next / previous provider. Codex and Claude open their model catalogs directly, without provider or recents tabs. `↑/↓` select a model, `←/→` adjust its effort, `Enter` applies the model and any explicit effort draft, and `Esc` cancels. Changing only the model preserves the backend's preference handling. Mouse users can click the available tabs, models, effort levels, and select/cancel hints; clicking an effort level immediately applies the focused model and that effort and closes the picker. The wheel moves through models.
@@ -422,6 +420,8 @@ The session manager shows the selected workspace's absolute path once, beneath t
 With DSH's current JSONL backend, startup and `/new` keep initial permission events in memory until further session activity saves the complete log. Flushing a session that holds only initialization leaves it unstored. Restarting an unstored empty session starts fresh.
 Removing a workspace registration keeps its sessions accessible under a "History only" directory in the rail.
 History-only directories offer edit and new-session actions; rename and remove are available for registered workspaces.
+
+If a `/resume` attempt fails or is cancelled before switching, it releases any session occupancy acquired by that attempt so the session can be retried.
 
 **Background jobs**: card headers open the focused task panel. Click the card body or use `Ctrl+O` to toggle the command between its first statement and full script. Commands and output use separate colored edges with `❯` (`>` on Windows) and `≡` on their first rows; output always stays at the latest two visible rows. `/jobs` and the side panel keep the full output scrollable, while `e` toggles the focused command. Consecutive blank script lines collapse to one.
 
