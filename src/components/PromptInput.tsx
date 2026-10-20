@@ -24,6 +24,7 @@ import { stringWidth } from '../ink/stringWidth.js'
 import { truncateToWidth } from '../ink/truncateToWidth.js'
 import { getGraphemeSegmenter } from '../utils/intl.js'
 import { draftWordRangeAt, isDraftWordBoundary } from '../utils/draftWordBoundary.js'
+import { wordBoundaryLeft, wordBoundaryRight } from '../utils/inputWordBoundary.js'
 import { formatClipboardInsert, readClipboard } from '../utils/clipboard.js'
 import { imagePathMediaType, parsePastedImagePath, readBoundedRegularFile, stageClipboardFilePaths } from '../utils/pastedImagePath.js'
 import { editInExternalEditor } from '../utils/externalEditor.js'
@@ -246,23 +247,6 @@ export function composerImageRefsForText(
     if (stageId !== undefined) refs.push({ token, stageId })
   }
   return refs
-}
-
-/** Index of the word boundary at or before `cursor` (readline alt+b). */
-function wordBoundaryLeft(text: string, cursor: number): number {
-  let index = cursor
-  while (index > 0 && /\s/.test(text[index - 1]!)) index--
-  while (index > 0 && !/\s/.test(text[index - 1]!)) index--
-  return index
-}
-
-/** Index of the word boundary after `cursor` (readline alt+f). */
-function wordBoundaryRight(text: string, cursor: number): number {
-  const length = text.length
-  let index = cursor
-  while (index < length && !/\s/.test(text[index]!)) index++
-  while (index < length && /\s/.test(text[index]!)) index++
-  return index
 }
 
 // --- vim normal-mode helpers -----------------------------------------------
@@ -3078,7 +3062,7 @@ export function PromptInput({
       }
       return
     }
-    if (isMod(key) && key.leftArrow) {
+    if ((isMod(key) || key.meta) && key.leftArrow) {
       // Jump to the previous word boundary (readline alt+b). Must precede the
       // bare-arrow arms: Ctrl+Left arrives as leftArrow + ctrl. An active
       // selection collapses to its START edge first (editor semantics).
@@ -3086,7 +3070,7 @@ export function PromptInput({
       setInput(value, sel ? sel.start : wordBoundaryLeft(value, cursor))
       return
     }
-    if (isMod(key) && key.rightArrow) {
+    if ((isMod(key) || key.meta) && key.rightArrow) {
       // Jump to the next word boundary (readline alt+f).
       const sel = selectionRef.current
       setInput(value, sel ? sel.end : wordBoundaryRight(value, cursor))
@@ -3113,7 +3097,7 @@ export function PromptInput({
       setInput(value, sel ? sel.end : nextGraphemeBoundary(bounds, cursor))
       return
     }
-    if (key.backspace) {
+    if (key.backspace && !key.meta) {
       if (cursor === 0) return
       const start = previousGraphemeBoundary(bounds, cursor)
       deleteInputRange(start, cursor)
@@ -3168,17 +3152,12 @@ export function PromptInput({
       undoDraft()
       return
     }
-    if (isMod(key) && input === 'w') {
+    if ((isMod(key) && input === 'w') || (key.meta && key.backspace)) {
       // Delete the word before the cursor: readline's whitespace-delimited
       // rule (skip trailing whitespace, then the word). The ICU/CJK
       // alternative is a separate editor-UX change, not part of draft undo.
       // The deletion start never crosses into the block.
-      const before = value.slice(0, cursor)
-      let end = before.length
-      while (end > 0 && /\s/.test(before[end - 1]!)) end--
-      let start = end
-      while (start > 0 && !/\s/.test(before[start - 1]!)) start--
-      deleteInputRange(clampRowStart(start), cursor)
+      deleteInputRange(clampRowStart(wordBoundaryLeft(value, cursor)), cursor)
       return
     }
     // ── vim mode (`/vim`) ──────────────────────────────────────────────

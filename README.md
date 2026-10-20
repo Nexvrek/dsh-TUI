@@ -366,6 +366,8 @@ team lives in one process, and a task owner is never released automatically.
 
 `Enter` send · `Tab` complete · `Ctrl+Enter` interrupt and send · `Alt+Up` recall the last message · `Esc` dismiss, double-`Esc` rewinds · `Ctrl+B` side panel · `Ctrl+O` details · `Ctrl+R` history (`↑`/`↓` and `Ctrl+R` are scoped to the current project) · `Ctrl+V` paste · `Ctrl+Shift+E` fullscreen draft editor · `?` shortcuts · `←` open the session manager (DSH backgrounds the current session first).
 
+In both the launchpad and chat, `Alt/Option+←/→` moves by whitespace-delimited words and `Alt/Option+Backspace` deletes the previous word, like `Ctrl+W`. On macOS, configure your terminal to send Option as Meta.
+
 Text, cursor position and staged image attachments on the launchpad or in chat while the backend starts are preserved when the session becomes ready. Press `Enter` after it is ready to send; an earlier `Enter` preserves the draft without queuing it. Opening a new session while startup is pending clears the previous draft and its images.
 
 The goal bar stays on one summary line: hovering truncated goal text in fullscreen or split shows the whole objective, and a bare `/goal` prints the full status — objective, phase, rounds or budget, available commands — as a transcript block in the `/plugins` shape. Inline mode sees no pointer events, so that block is how its users read a long objective.

@@ -117,6 +117,8 @@ check('other actions keep their defaults reserved', reserved.has('ctrl+o') && re
 check('fixed: ctrl+u kill-line reserved', isFixedReserved('ctrl+u'))
 check('fixed: ctrl+return reserved', isFixedReserved('ctrl+return'))
 check('fixed: ctrl+w reserved', isFixedReserved('ctrl+w'))
+check('fixed: Option word-editing keys reserved',
+  ['alt+backspace', 'alt+left', 'alt+right'].every(isFixedReserved))
 check('fixed: ctrl+j newline fallback reserved', isFixedReserved('ctrl+j'))
 check('free combo not reserved', !isFixedReserved('ctrl+n'))
 
@@ -131,6 +133,7 @@ check('draft: junk refused', parseComboDraft('press the b key') === undefined)
 check('draft: escape combo refused', parseComboDraft('alt+escape') === undefined)
 check('conflict: history → ctrl+v refused (owned by paste)', draftComboConflicts('history', ['ctrl+v']))
 check('conflict: paste → ctrl+u refused (fixed kill-line)', draftComboConflicts('paste', ['ctrl+u']))
+check('conflict: paste → alt+backspace refused (fixed word deletion)', draftComboConflicts('paste', ['alt+backspace']))
 check('no conflict: history restating ctrl+r', !draftComboConflicts('history', ['ctrl+r']))
 check('no conflict: fresh combo ctrl+n', !draftComboConflicts('history', ['ctrl+n']))
 // Restating an action's OWN default (even one that is also fixed-reserved

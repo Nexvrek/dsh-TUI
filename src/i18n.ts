@@ -1172,7 +1172,7 @@ const dict = {
   'help-clear-input': { zh: 'esc 清空输入', en: 'esc to clear input' },
   'help-history-nav': { zh: '↑/↓ 历史', en: '↑/↓ for history' },
   'help-move-cursor': { zh: '←/→ 移动光标', en: '←/→ to move cursor' },
-  'help-word-jumps': { zh: '{{mod}}←/→ 按词跳转', en: '{{mod}}←/→ for word jumps' },
+  'help-word-jumps': { zh: '{{mod}}←/→ 或 Alt/Option+←/→ 按词跳转', en: '{{mod}}←/→ or Alt/Option+←/→ for word jumps' },
   'help-complete-command': { zh: 'tab 补全命令', en: 'tab to complete command' },
   'help-cycle-mode': { zh: 'shift+tab 切换模式', en: 'shift+tab to cycle mode' },
   'help-open-editor': { zh: '{{key}} 打开编辑器', en: '{{key}} to open editor' },
