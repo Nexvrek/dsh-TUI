@@ -203,6 +203,8 @@ const GROUPS = {
 // （实测 ~73 LF/s）。静置窗口内 stdout 不得出现 LF、回滚缓冲不得增长，同时
 // 鲸鱼闲置动画必须仍在重绘（不许靠冻结界面取巧）。
     ["verify-idle-repaint", ['node', '--import', 'tsx/esm', 'scripts/verify-idle-repaint.tsx']],
+// Long histories stay untouched by title, mini-wake and session-row animation frames (#1207).
+    ['verify-animation-ownership', ['node', '--import', 'tsx/esm', 'scripts/verify-animation-ownership.tsx']],
 // 开屏头部契约：大字 5 行高且等宽（8×7 = 7×8）、bigTextWidth 与实际画出的列数
 // 一致；窄终端按「鲸鱼+大字 → 纯大字 → 纯鲸鱼 → 纯文字」逐档降级，档位无空档。
     ["verify-splash-layout", ['node', '--import', 'tsx/esm', 'scripts/verify-splash-layout.ts']],

@@ -57,7 +57,7 @@ import { ExtensionDialog } from '../components/ExtensionDialog.js'
 import { consumeBoundaryRecoveryRemount } from '../ink/update-overflow-guard.js'
 import type { DOMElement } from '../ink/dom.js'
 import { useSearchHighlight } from '../ink/hooks/use-search-highlight.js'
-import { useTerminalTitle } from '../ink/hooks/use-terminal-title.js'
+import { ChatTitle } from '../components/ChatTitle.js'
 import { useTerminalFocus } from '../ink/hooks/use-terminal-focus.js'
 import { useProgramStatus, type ProgramBlockedPrompt } from '../ink/hooks/use-program-status.js'
 import { supportsProgramStatus } from '../ink/termio/osc7501.js'
@@ -163,7 +163,6 @@ import { statSync } from 'node:fs'
 import { setClipboard } from '../ink/termio/osc.js'
 import { TerminalWriteContext } from '../ink/useTerminalNotification.js'
 import instances from '../ink/instances.js'
-import { useAnimationFrame } from '../ink/hooks/use-animation-frame.js'
 import { useExternalVersion } from '../hooks/useExternalVersion.js'
 import { TrajectoryScene } from './TrajectoryScene.js'
 import { markHomeSeen } from '../homePrefs.js'
@@ -345,9 +344,6 @@ function contextOccupancyLine(channel: Channel): string | undefined {
     window: formatTokens(occupancy.contextWindow),
   })
 }
-
-/** Terminal-title spinner frames. */
-const TITLE_SPINNER_FRAMES = ['⠂', '⠐']
 
 /** Searchable transcript text for one row (`/` incsearch):
  *  user text, assistant text, thinking, tool args/results, local output). */
@@ -2366,11 +2362,6 @@ export function Chat({
   loadingStartTimeRef.current = channel.turnStart
   const thinkingStatus = useThinkingStatus(channel.spinnerMode === 'thinking')
 
-  // Terminal tab title: the session
-  // title when set, else "dsh-TUI"; a `⠂/⠐` spinner prefix while a turn is
-  // working (960ms cadence, only while the terminal is focused), a static
-  // `✦` otherwise. dsh-TUI brands the idle prefix with the DeepSeek whale.
-  const [titleFrame, setTitleFrame] = React.useState(0)
   const terminalFocused = useTerminalFocus()
   // Gate the stream this app renders to; embedders may replace process.stdout.
   const { stdout: appStdout } = useApp()
@@ -2431,19 +2422,6 @@ export function Chat({
     hasSelection: hasMouseSelection,
     getState: getMouseSelectionState,
   } = useSelection()
-  React.useEffect(() => {
-    if (!channel.working || !terminalFocused) return
-    const interval = setInterval(() => {
-      setTitleFrame(f => (f + 1) % TITLE_SPINNER_FRAMES.length)
-    }, 960)
-    return () =>{  clearInterval(interval) }
-  }, [channel.working, terminalFocused])
-  const titlePrefix = channel.working
-    ? (TITLE_SPINNER_FRAMES[titleFrame] ?? '✦')
-    : '✦'
-  useTerminalTitle(
-    `${titlePrefix} 🐋 ${channel.sessionTitle}`,
-  )
 
   // OSC 7501 program status: tell the terminal (and any agentic inbox) whether
   // this session is working, parked on the user, or finished. Precedence
@@ -4568,7 +4546,6 @@ export function Chat({
     // oxlint-disable-next-line react-hooks/exhaustive-deps
     [trajectory.nodes, trajectory.counts.rows, wakeWidth],
   )
-  const [wakeTickRef, wakeTime] = useAnimationFrame(channel.working ? 120 : null)
   /**
    * The key hint beside the strip retires itself once the trajectory has been
    * opened — teaching belongs in the first minute, not on every frame forever.
@@ -6363,7 +6340,14 @@ export function Chat({
           {overlay.kind === 'search' && <TranscriptSearch query={searchQuery} cursorOffset={searchCursor} count={searchCount} current={searchCurrent} />}
     </>
   )
-    const screenOpen = channel.pluginScene !== undefined || supervisorOpen || settingsOpen
+  // Every scene retains the title, while its frame state stays in a null leaf.
+  const withTitle = (content: React.ReactNode): React.ReactNode => (
+    <>
+      <ChatTitle title={channel.sessionTitle} working={channel.working} focused={terminalFocused} />
+      {content}
+    </>
+  )
+  const screenOpen = channel.pluginScene !== undefined || supervisorOpen || settingsOpen
     || subagentDetailId !== null || subagentDashboardOpen || sceneOpen
     || agentView !== null
     || launchpadShown || onboardingOpen
@@ -6373,7 +6357,7 @@ export function Chat({
         {interruptPanel}
       </Box>
     )
-    return fullscreen ? node : <AlternateScreen>{node}</AlternateScreen>
+    return withTitle(fullscreen ? node : <AlternateScreen>{node}</AlternateScreen>)
   }
 
   // A plugin scene (dsh-tui-scenes) takes the whole terminal the same way
@@ -6402,7 +6386,7 @@ export function Chat({
         {renderScene ? renderScene(pluginScene.id, channel) : <Text>Scene unavailable: {pluginScene.id}</Text>}
       </PluginSceneBoundary>
     )
-    return fullscreen ? node : <AlternateScreen>{node}</AlternateScreen>
+    return withTitle(fullscreen ? node : <AlternateScreen>{node}</AlternateScreen>)
   }
 
   /**
@@ -6433,7 +6417,7 @@ export function Chat({
         }}
       />
     )
-    return fullscreen ? node : <AlternateScreen>{node}</AlternateScreen>
+    return withTitle(fullscreen ? node : <AlternateScreen>{node}</AlternateScreen>)
   }
 
 
@@ -6523,7 +6507,7 @@ export function Chat({
     )
     // Inline hosts enter the alternate screen for the duration; full-screen
     // hosts are already in it and must not nest a second one.
-    return fullscreen ? supervisorScene : <AlternateScreen>{supervisorScene}</AlternateScreen>
+    return withTitle(fullscreen ? supervisorScene : <AlternateScreen>{supervisorScene}</AlternateScreen>)
   }
 
   // The session tree follows the browser's rule exactly: it REPLACES the
@@ -6545,7 +6529,7 @@ export function Chat({
         }}
       />
     )
-    return fullscreen ? tree : <AlternateScreen>{tree}</AlternateScreen>
+    return withTitle(fullscreen ? tree : <AlternateScreen>{tree}</AlternateScreen>)
   }
 
   // The settings screen follows the browser's rule exactly: it REPLACES the
@@ -6553,7 +6537,7 @@ export function Chat({
   // is no transcript underneath to be repainted or bled through.
   if (settingsOpen && launchpadGate()) {
     const screen = <Settings channel={channel} onClose={() => setSettingsOpen(false)} statusFields={statusFields} />
-    return fullscreen ? screen : <AlternateScreen>{screen}</AlternateScreen>
+    return withTitle(fullscreen ? screen : <AlternateScreen>{screen}</AlternateScreen>)
   }
 
   // Main-screen read-only Agent View: a scene over the mounted Chat, with no
@@ -6587,7 +6571,7 @@ export function Chat({
         onSwitchAgent={switchViewedAgent}
       />
     )
-    return fullscreen ? viewScene : <AlternateScreen>{viewScene}</AlternateScreen>
+    return withTitle(fullscreen ? viewScene : <AlternateScreen>{viewScene}</AlternateScreen>)
   }
 
   // Subagent detail scene: displays detailed view of a specific subagent.
@@ -6617,7 +6601,7 @@ export function Chat({
         }}
       />
     )
-    return fullscreen ? scene : <AlternateScreen>{scene}</AlternateScreen>
+    return withTitle(fullscreen ? scene : <AlternateScreen>{scene}</AlternateScreen>)
   }
 
   // Jobs panel: background jobs (running/killed) with kill/inspect actions.
@@ -6638,7 +6622,7 @@ export function Chat({
         }}
       />
     )
-    return fullscreen ? panel : <AlternateScreen>{panel}</AlternateScreen>
+    return withTitle(fullscreen ? panel : <AlternateScreen>{panel}</AlternateScreen>)
   }
 
   // ⤢ btw thread scene (openPanelFullscreen 'btw'): the whole-terminal form
@@ -6654,7 +6638,7 @@ export function Chat({
         onFocusChat={sidePanel.focusChat}
       />
     )
-    return fullscreen ? scene : <AlternateScreen>{scene}</AlternateScreen>
+    return withTitle(fullscreen ? scene : <AlternateScreen>{scene}</AlternateScreen>)
   }
 
   // Subagent dashboard: displays all active and completed subagents.
@@ -6676,7 +6660,7 @@ export function Chat({
         onClose={() => setSubagentDashboardOpen(false)}
       />
     )
-    return fullscreen ? dashboard : <AlternateScreen>{dashboard}</AlternateScreen>
+    return withTitle(fullscreen ? dashboard : <AlternateScreen>{dashboard}</AlternateScreen>)
   }
 
   /** Prompt input is inert while a modal dialog owns the keyboard. The
@@ -6708,7 +6692,7 @@ export function Chat({
   // whole app back to the main screen.
   if (sceneOpen && launchpadGate()) {
     const scene = <TrajectoryScene channel={channel} build={trajectory} onClose={closeScene} />
-    return fullscreen ? scene : <AlternateScreen>{scene}</AlternateScreen>
+    return withTitle(fullscreen ? scene : <AlternateScreen>{scene}</AlternateScreen>)
   }
 
   /**
@@ -6892,7 +6876,7 @@ export function Chat({
         <TooltipLayer invalidationKey={overlay.kind} />
       </>
     )
-    return fullscreen ? node : <AlternateScreen>{node}</AlternateScreen>
+    return withTitle(fullscreen ? node : <AlternateScreen>{node}</AlternateScreen>)
   }
 
   // 浮层整体挂载条件：与内部各面板的可见条件同值（数据门在
@@ -6950,8 +6934,8 @@ export function Chat({
     )
     : null
 
-  return (
-    <Box ref={wakeTickRef} flexDirection="column" flexGrow={1} width="100%">
+  return withTitle(
+    <Box flexDirection="column" flexGrow={1} width="100%">
       {/* 分栏布局：geometry 为 null（收起 / 窄屏 / inline / 编辑器展开）
           时 SidePanelLayout 原样渲染 children，与现状逐字节一致；分栏时
           左栏拿到 chatColumns 的 TerminalSizeContext 覆盖与出血边界。 */}
@@ -7362,7 +7346,6 @@ export function Chat({
               : {
                   band: wakeBand,
                   hint: trajectorySeen ? undefined : primaryComboString('trajectory'),
-                  tick: Math.floor(wakeTime / 120),
                   onOpen: openScene,
                   hoverHint: primaryComboString('trajectory'),
                 }
