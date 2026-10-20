@@ -294,6 +294,11 @@ keep the key in the store, no per-shell export needed. When nothing can
 supply it, the session still starts and the reason is reported once as a
 start notice: Codex itself rejects every turn of that provider.
 
+For Claude and Codex, `/channel` tokens (`CHANNEL_*` refs) belong to the
+active `DSH_HOME` only. Disconnecting a channel cannot revive a token from
+the default home; reconnect it in the active home if needed. Provider
+`env_key` credentials retain the fallback described above.
+
 TPS includes hidden reasoning time and excludes tool execution time. Live
 text estimates are corrected when Codex reports output token usage.
 

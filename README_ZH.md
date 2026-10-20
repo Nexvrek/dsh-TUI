@@ -242,6 +242,10 @@ ChatGPT OAuth、设备码或 API key（后者写入 Codex 自己的凭据存储�
 `~/.dsh` 的库，key 存进凭据库即可，无需每次导出。两边都拿不到时**不拦启动**：拒绝
 发生在 Codex 自己的每个回合，dsh-TUI 只在启动时把原因报一次。
 
+Claude 与 Codex 的 `/channel` 令牌（`CHANNEL_*` ref）只属于活动 `DSH_HOME`。
+断开渠道不会重新读到默认 home 的旧令牌；需要时请在活动 home 重新连接。
+provider 的 `env_key` 密钥仍保留上述回退读取。
+
 TPS 计入隐藏推理的生成时间，剔除工具执行时间；实时文本估算在 Codex 报告实际
 输出 token 用量后校正。
 
