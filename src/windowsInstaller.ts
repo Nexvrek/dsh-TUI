@@ -53,28 +53,36 @@ function readResult(directory: string): NativeResult | undefined {
 export function runWindowsInstaller(command: string, args: readonly string[], options: InstallerOptions, timeoutMs: number): Promise<number> {
   return new Promise(resolve => {
     let directory = ''
-    let descriptor: ReturnType<typeof commandLine>
+    let child: ReturnType<typeof spawn>
     try {
-      descriptor = commandLine(command, args, options)
+      const descriptor = commandLine(command, args, options)
       directory = mkdtempSync(join(tmpdir(), 'dsh-installer-'))
       writeFileSync(join(directory, 'config.json'), JSON.stringify({
         ...descriptor, parentPid: process.pid, parentNotAfterMs: Date.now(),
       }), { encoding: 'utf8', mode: 0o600 })
+      // Source-mode tools and installed npm packages use different asset paths.
+      const sourceAsset = new URL('../assets/windows-installer.ps1', import.meta.url)
+      const script = fileURLToPath(existsSync(sourceAsset) ? sourceAsset : new URL('../../assets/windows-installer.ps1', import.meta.url))
+      const env = options.env ?? process.env
+      const powershell = join(environmentValue(env, 'SystemRoot') || 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe')
+      // A restrictive outer Windows job can make spawn throw synchronously.
+      // Establish no listeners or timers until a supervisor has been returned.
+      child = spawn(powershell, ['-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', script, directory], {
+        env: options.env,
+        stdio: ['inherit', 'pipe', 'pipe'],
+        windowsHide: true,
+      })
     } catch (error) {
-      if (directory) {
-        try { rmSync(directory, { recursive: true, force: true }) } catch { /* Setup never launched a process. */ }
-      }
       options.onEvent?.({ category: options.category, stage: 'error', code: 127, message: String(error) })
+      if (directory) {
+        try { rmSync(directory, { recursive: true, force: true }) } catch (cleanupError) {
+          options.onEvent?.({ category: options.category, stage: 'cleanup-error', code: 127, message: `Temporary installer control files could not be removed: ${String(cleanupError)}` })
+        }
+      }
       options.onEvent?.({ category: options.category, stage: 'close', code: 127 })
       resolve(127)
       return
     }
-    // The source path supports source-mode tools; the compiled path is present
-    // in installed npm packages because assets/ is included in package.files.
-    const sourceAsset = new URL('../assets/windows-installer.ps1', import.meta.url)
-    const script = fileURLToPath(existsSync(sourceAsset) ? sourceAsset : new URL('../../assets/windows-installer.ps1', import.meta.url))
-    const env = options.env ?? process.env
-    const powershell = join(environmentValue(env, 'SystemRoot') || 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe')
     let settled = false
     let stopCode: number | undefined
     let rootPid: number | undefined
@@ -84,11 +92,6 @@ export function runWindowsInstaller(command: string, args: readonly string[], op
     let reapDeadline: ReturnType<typeof setTimeout> | undefined
     let statusPoll: ReturnType<typeof setInterval> | undefined
     let emergency = false
-    const child = spawn(powershell, ['-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', script, directory], {
-      env: options.env,
-      stdio: ['inherit', 'pipe', 'pipe'],
-      windowsHide: true,
-    })
     const emit = (stage: InstallerEvent['stage'], code?: number, message?: string): void => {
       options.onEvent?.({ category: options.category, pid: rootPid, lastOutputAt, stage, code, message })
     }

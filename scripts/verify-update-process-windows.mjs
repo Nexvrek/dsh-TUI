@@ -147,8 +147,10 @@ async function worker(root, mode) {
   }
   if (mode === 'restricted') {
     const result = await run('restricted-job-supervisor-launch-denied', [fixture, 'must-not-run', fixtureDirectory])
-    assert.notEqual(result.result, 0)
+    assert.equal(result.result, 127)
     assert.ok(result.events.some(event => event.stage === 'error' || event.stage === 'cleanup-error'))
+    assert.equal(result.events.some(event => event.stage === 'start'), false, 'denied supervisor launch never reports installer start')
+    assert.ok(result.events.every(event => event.pid === undefined), 'denied supervisor launch never invents an installer PID')
     assert.equal(existsSync(join(fixtureDirectory, 'payload-ran')), false, 'denied launch never executes installer')
     report('restricted-job', { status: 'PASS', scope: 'Native outer job process limit denies supervisor launch; this is not an AssignProcessToJobObject failure test' })
     return

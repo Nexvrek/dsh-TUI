@@ -436,6 +436,7 @@ const GROUPS = {
 // 触发任何恢复且不破坏 profile，重启尾部向替代进程传递 env 契约。
     ["verify-update-notice", ['node', 'scripts/verify-update-notice.mjs']],
     ["verify-update-process", ['node', 'scripts/verify-update-process.mjs']],
+    ["verify-update-process-spawn-failure", ['node', 'scripts/verify-update-process-spawn-failure.mjs']],
     ["verify-update-cleanup", ['node', 'scripts/verify-update-cleanup.mjs']],
     ["verify-update-timeout", ['node', 'scripts/verify-update-timeout.mjs']],
     ["verify-update-recovery", ['node', 'scripts/verify-update-recovery.mjs']],
