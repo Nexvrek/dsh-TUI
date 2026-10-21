@@ -671,3 +671,34 @@ Community, related projects, and companion tools built by friends:
 ## License
 
 [MIT](LICENSE)
+
+### Bounded update installation
+
+`/update` and `dsh-tui update` give each profile installer invocation a **30-minute
+wall-clock limit**. Set `DSH_TUI_UPDATE_TIMEOUT_MS` to a positive integer in
+milliseconds to change it (invalid values use the default). Output activity does
+not reset this deadline; a quiet but healthy installation can use the full limit.
+Only the final process exit code establishes success: a printed `Done` does not.
+Ctrl+C cancels the owned installer. On POSIX, cancellation terminates its own
+process group, then force-kills remaining descendants after two seconds. Windows
+uses a dedicated PowerShell/native supervisor with a private Job Object. The
+installer joins that job atomically while suspended; verified membership is required
+before it runs. The supervisor retains the job handle after the root exits, so
+cancellation and timeout also terminate orphaned descendants holding output pipes.
+It does not enable job breakaway or kill processes by name or an exited root PID.
+
+Windows requires Windows 10 / Server 2016 or later and Windows PowerShell with
+`Add-Type`/native interop available. Startup or job-membership failures stop the
+installation before running an unowned installer. A cleanup failure is reported as
+unconfirmed, never as proof that all writes stopped. Timeout, cancellation, or
+unconfirmed cleanup returns nonzero and prevents retries, stale-file removal,
+repair, and TUI replacement. A partial installation may remain: check/repair that
+profile before using the recovery command printed at update start and on failure.
+`~/.dsh-tui/restart.log` records installer category, PID, termination reason and last
+output timestamp before any restart.
+
+The focused **Windows installer process ownership** workflow runs the real native
+regression on `windows-latest`, with Node 24 and no dependency installation. To run
+it locally on Windows: `node scripts/verify-update-process-windows.mjs`. It checks
+orphan descendants, timeout/cancellation, nested jobs, failure diagnostics, streams,
+arguments and an unrelated process; a Linux run explicitly skips native acceptance.

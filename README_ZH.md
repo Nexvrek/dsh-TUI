@@ -574,3 +574,27 @@ pnpm smoke
 ## License
 
 [MIT](LICENSE)
+
+### 更新安装的有界等待
+
+`/update` 与 `dsh-tui update` 的每次 profile 安装调用默认有 **30 分钟实际时间上限**。
+可用正整数毫秒数 `DSH_TUI_UPDATE_TIMEOUT_MS` 调整；无效值使用默认值。
+输出不会重置上限，正常静默安装可使用全部时限；只有进程最终退出码表示成功，
+打印 `Done` 不代表成功。Ctrl+C 取消本次拥有的安装进程。
+POSIX 先终止本次独立进程组，2 秒后强制终止剩余后代。Windows 使用专用
+PowerShell/原生 supervisor 与自有 Job Object。安装进程在挂起创建时原子加入 job，
+验证归属后才开始执行。根进程退出后 supervisor 仍持有 job 句柄，取消和超时因此
+也会终止继续持有输出管道的孤立后代；不开放 job breakaway，不按进程名或已退出
+根进程的 PID 杀进程。
+
+Windows 需要 Windows 10 / Server 2016 或更新版本，以及允许 `Add-Type`/原生互操作
+的 Windows PowerShell。启动或 job 归属失败时，不会执行无归属的安装进程。
+无法确认清理结果时会明确报错，不宣称所有写入已停止。超时、取消或清理不确定均
+以非零码结束，并阻止重试、删除旧安装、修复及 TUI 进程替换。安装可能不完整，
+请检查/修复当前 profile 后，再使用开始和失败时打印的恢复命令。
+`~/.dsh-tui/restart.log` 在重启前记录安装类别、PID、结束原因及最后输出时间。
+
+专用 **Windows installer process ownership** workflow 在 `windows-latest` 上运行
+真实原生回归，使用 Node 24，无需安装项目依赖。Windows 本机命令为
+`node scripts/verify-update-process-windows.mjs`，覆盖孤立后代、超时/取消、嵌套 job、
+失败诊断、输入输出、参数及无关进程存活；Linux 运行会明确跳过原生验收。

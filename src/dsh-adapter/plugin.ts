@@ -3647,24 +3647,43 @@ function runUpdate(
   hint: (sessionId: string) => string = id => resumeCommand(profile, id),
   exitSeam?: ProcessExitSeam,
 ): void {
+  const recovery = preservedSessionTail(sessionId, hint)
   disposeRootAndThen(ctx, () => {
+    logRestartEvent('update: starting', { profile, targetVersion })
+    writeHandoffNotice(`\ndsh-tui: installation starts. Check/repair an interrupted installation before resuming.${recovery}`)
     if (profile === undefined) {
-      process.stderr.write(`\n${t('update-aborted-no-profile')}\n`)
+      writeHandoffNotice(`\n${t('update-aborted-no-profile')}${recovery}`)
       process.exit(1)
     }
-    void updateTuiAndRestart(sessionId, profile, targetVersion, kernel, superviseReplacement(exitSeam, {})).then(
+    const cancellation = new AbortController()
+    const supervision: TuiRestartOptions = superviseReplacement(exitSeam, {})
+    const replacementRequest = exitSeam?.request
+    if (exitSeam !== undefined) exitSeam.request = () => {
+      cancellation.abort()
+      // Installer owns its cancellation deadline. Entry fallback disposal
+      // must not kill this process before the owned installer tree settles.
+      return 'supervising'
+    }
+    const onSpawn = supervision.onSpawn
+    supervision.onSpawn = child => {
+      if (exitSeam !== undefined) exitSeam.request = replacementRequest
+      onSpawn?.(child)
+    }
+    void updateTuiAndRestart(sessionId, profile, targetVersion, kernel, supervision, cancellation.signal).then(
       ({ updateCode, restartCode }) => {
+        logRestartEvent('update: finished', { updateCode, restartCode })
         if (updateCode !== 0) {
-          process.stderr.write(
-            `\ndsh-tui update failed (exit ${updateCode}).${preservedSessionTail(sessionId, hint)}`,
+          writeHandoffNotice(
+            `\ndsh-tui update failed (exit ${updateCode}). Check/repair the installation before resuming.${preservedSessionTail(sessionId, hint)}`,
           )
         }
         process.exit(restartCode)
       },
       updateError => {
+        logRestartEvent('update: rejected')
         const message = updateError instanceof Error ? updateError.message : String(updateError)
-        process.stderr.write(
-          `\ndsh-tui update failed: ${message}.${preservedSessionTail(sessionId, hint)}`,
+        writeHandoffNotice(
+          `\ndsh-tui update failed: ${message}. Check/repair the installation before resuming.${preservedSessionTail(sessionId, hint)}`,
         )
         process.exit(1)
       },

@@ -18,6 +18,7 @@ import { HANDOFF_ACK_FD_ENV, HANDOFF_ATTEMPT_ENV, HANDOFF_SCREEN_ENV, parseHando
 import { DISABLE_KITTY_KEYBOARD, DISABLE_MODIFY_OTHER_KEYS, DISABLE_WIN32_INPUT_MODE } from './ink/termio/csi.js'
 import { DBP, DFE, DISABLE_MOUSE_TRACKING, EXIT_ALT_SCREEN, SHOW_CURSOR } from './ink/termio/dec.js'
 import { detachHandoffStdin } from './ink/stdin-handoff.js'
+import { runInstallerProcess } from './updateProcess.js'
 
 // Re-exported for scripts/verify-update.mjs and the bin launcher, which reads
 // the compiled copy at lib/types/utils/shellQuote.js.
@@ -1023,7 +1024,9 @@ export async function checkForTuiUpdate(): Promise<TuiUpdateInfo | undefined> {
     : undefined
 }
 
-interface ProcessOptions {  env?: NodeJS.ProcessEnv
+interface ProcessOptions {
+  env?: NodeJS.ProcessEnv
+  signal?: AbortSignal
   /** Needed only for .cmd launchers on Windows (they cannot spawn directly). */
   shell?: boolean
   /**
@@ -1031,6 +1034,8 @@ interface ProcessOptions {  env?: NodeJS.ProcessEnv
    * the caller can classify failures (issue #225's transient-race retry).
    */
   onStderr?: (chunk: string) => void
+  /** Cleanup uncertainty forbids another installer or a replacement process. */
+  onCleanupError?: () => void
 }
 
 /**
@@ -1045,40 +1050,22 @@ function runProcess(
   args: readonly string[],
   options: ProcessOptions = {},
 ): Promise<number> {
-  return new Promise(resolve => {
-    let settled = false
-    const useShell = options.shell === true && process.platform === 'win32'
-    // DEP0190 (issue #148): Node ≥22 warns on `shell: true` with a non-empty
-    // args array even when every arg is escaped — the check is syntactic.
-    // Fold the shell-quoted args into the command string instead (an empty
-    // args array does not trigger the warning); future Node majors may turn
-    // the deprecation into a hard error.
-    const [runCommand, runArgs]: [string, readonly string[]] = useShell
-      ? [`${command} ${shellQuote(args).join(' ')}`, []]
-      : [command, args]
-    const child = spawn(runCommand, runArgs as string[], {
-      env: options.env,
-      stdio: options.onStderr === undefined ? 'inherit' : ['inherit', 'inherit', 'pipe'],
-      shell: useShell,
-    })
-    if (options.onStderr !== undefined && child.stderr !== null) {
-      const onStderr = options.onStderr
-      child.stderr.on('data', (chunk: Buffer) => {
-        const text = chunk.toString('utf8')
-        process.stderr.write(text)
-        onStderr(text)
-      })
-    }
-    const finish = (code: number): void => {
-      if (settled) return
-      settled = true
-      resolve(code)
-    }
-    child.once('error', error => {
-      process.stderr.write(`dsh-tui: failed to run ${command}: ${error.message}\n`)
-      finish(127)
-    })
-    child.once('close', code => finish(code ?? 1))
+  return runInstallerProcess(command, args, {
+    ...options,
+    category: 'profile-install',
+    onStdout: text => { process.stdout.write(text) },
+    onStderr: text => {
+      process.stderr.write(text)
+      options.onStderr?.(text)
+    },
+    onEvent: event => {
+      if (event.stage === 'cleanup-error') options.onCleanupError?.()
+      logRestartEvent('update installer', { ...event })
+      if (event.stage === 'timeout' || event.stage === 'cancel' || event.stage === 'cleanup-error' || event.stage === 'error') {
+        writeHandoffNotice(`dsh-tui: installer ${event.stage}; category=${event.category} pid=${event.pid ?? 'unavailable'} last-output=${event.lastOutputAt === undefined ? 'none' : new Date(event.lastOutputAt).toISOString()}${event.message === undefined ? '' : `: ${event.message}`}\n`)
+        writeHandoffNotice('Installation may be partial. Check/repair the profile before resuming; no automatic restart.\n')
+      }
+    },
   })
 }
 
@@ -1809,6 +1796,7 @@ export interface TuiUpdateOutcome {
 export async function updateTui(
   profile: string,
   targetVersion?: string,
+  signal?: AbortSignal,
 ): Promise<TuiUpdateOutcome> {
   // Stamp the pre-update version BEFORE pnpm runs: it reads this package's
   // manifest from disk, which the update replaces on the fly — a
@@ -1891,14 +1879,22 @@ export async function updateTui(
   }
   let updateStderr = ''
   const capture = (chunk: string): void => { updateStderr += chunk }
-  let updateCode = await runProcess(dsh, updateArgs, { shell: true, onStderr: capture })
+  let cleanupUnconfirmed = false
+  const onCleanupError = (): void => { cleanupUnconfirmed = true }
+  const installerOptions = { shell: true, onStderr: capture, signal, onCleanupError }
+  let updateCode = await runProcess(dsh, updateArgs, installerOptions)
+  // Exit codes alone cannot prove ownership cleanup: a supervisor failure can
+  // use the same code/stderr as a retryable installer failure. Never overlap
+  // a surviving installer with a retry, stale-file removal, repair or restart.
+  if (cleanupUnconfirmed) return { code: updateCode || 1, updatedFrom }
   // Transient Windows tmp-rename race (issue #225): retry the identical
   // command once — it succeeds on a clean second run, and only the
   // `_tmp_<pid>` race signature qualifies, never a real resolution error.
-  if (updateCode !== 0 && isTransientUpdateFailure(updateStderr)) {
+  if (![0, 124, 129, 130, 143].includes(updateCode) && isTransientUpdateFailure(updateStderr)) {
     process.stderr.write('dsh-tui: transient pnpm failure (Windows tmp-rename race) — retrying once…\n')
     updateStderr = ''
-    updateCode = await runProcess(dsh, updateArgs, { shell: true, onStderr: capture })
+    updateCode = await runProcess(dsh, updateArgs, installerOptions)
+    if (cleanupUnconfirmed) return { code: updateCode || 1, updatedFrom }
   }
   // Deterministic Linux tmp-rename race (issue #479): EEXIST never clears on
   // a plain retry (the staging-dir collision reproduces every run), and a
@@ -1906,7 +1902,7 @@ export async function updateTui(
   // recover by removing the stale install + staging dirs, then rerunning —
   // the field-verified workaround that takes pnpm down its fresh-install
   // path instead of renaming over the collision.
-  if (updateCode !== 0 && (isEexistTmpRenameFailure(updateStderr) || isTransientUpdateFailure(updateStderr))) {
+  if (![0, 124, 129, 130, 143].includes(updateCode) && (isEexistTmpRenameFailure(updateStderr) || isTransientUpdateFailure(updateStderr))) {
     const flavor = isEexistTmpRenameFailure(updateStderr) ? 'EEXIST, issue #479' : 'retry failed, issue #225'
     const removal = removeStalePackageInstall(profile)
     const stagingNote = removal.tmpDirs.length > 0 ? ` + ${removal.tmpDirs.length} staging dir(s)` : ''
@@ -1915,7 +1911,8 @@ export async function updateTui(
         `(package dir: ${removal.packageDir}${stagingNote}) and rerunning the update…\n`,
     )
     updateStderr = ''
-    updateCode = await runProcess(dsh, updateArgs, { shell: true, onStderr: capture })
+    updateCode = await runProcess(dsh, updateArgs, installerOptions)
+    if (cleanupUnconfirmed) return { code: updateCode || 1, updatedFrom }
   }
   if (updateCode !== 0) return { code: updateCode, updatedFrom }
 
@@ -1944,7 +1941,9 @@ export async function updateTui(
   if (targetVersion !== undefined) {
     let installed = installedTuiVersion()
     if (installed !== targetVersion) {
-      await runProcess(dsh, ['plugin', '--profile', profile, 'install'], { shell: true })
+      const repairCode = await runProcess(dsh, ['plugin', '--profile', profile, 'install'], { shell: true, signal, onCleanupError })
+      if (cleanupUnconfirmed) return { code: repairCode || 1, updatedFrom }
+      if (repairCode !== 0) return { code: repairCode, updatedFrom }
       installed = installedTuiVersion()
     }
     if (installed !== targetVersion) {
@@ -1994,8 +1993,9 @@ export async function updateTuiAndRestart(
   kernel?: KernelBackendId,
   /** The standalone entry's supervision hooks (TuiRestartOptions.onSpawn / onTerminationSignal). */
   supervision: Pick<TuiRestartOptions, 'onSpawn' | 'onTerminationSignal'> = {},
+  signal?: AbortSignal,
 ): Promise<TuiUpdateResult> {
-  const outcome = await updateTui(profile, targetVersion)
+  const outcome = await updateTui(profile, targetVersion, signal)
   const { updatedFrom } = outcome
   if (outcome.code !== 0) return { updateCode: outcome.code, restartCode: outcome.code }
 

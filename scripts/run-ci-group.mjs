@@ -434,6 +434,10 @@ const GROUPS = {
 // （Linux EEXIST 必现竞态、Windows 瞬时 ENOENT、真实 404），真实子进程
 // 走编译产物——验证陈旧安装清理后重跑成功、瞬时重试升级、真实失败不
 // 触发任何恢复且不破坏 profile，重启尾部向替代进程传递 env 契约。
+    ["verify-update-notice", ['node', 'scripts/verify-update-notice.mjs']],
+    ["verify-update-process", ['node', 'scripts/verify-update-process.mjs']],
+    ["verify-update-cleanup", ['node', 'scripts/verify-update-cleanup.mjs']],
+    ["verify-update-timeout", ['node', 'scripts/verify-update-timeout.mjs']],
     ["verify-update-recovery", ['node', 'scripts/verify-update-recovery.mjs']],
 // /reload 与 /restart 纯函数回归：planReload 五类偏好的应用/跳过/
 // 无变化分支、env 与 cordis.yml 显式配置的优先级守卫、模型路由原子
