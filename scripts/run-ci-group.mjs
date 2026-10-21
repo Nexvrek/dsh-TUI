@@ -1249,6 +1249,7 @@ const GROUPS = {
     ["verify-side-panel-scroll-paint", ['node', '--import', 'tsx/esm', 'scripts/verify-side-panel-scroll-paint.tsx']],
 // 侧栏选择围栏（方向感知）：面板内起拖可选可复制面板文字（逐行列钳制不跨
 // 聊天列）；聊天起拖维持 §4.6 不捕面板字符。真 SGR press/motion/release 驱动。
+    ["verify-pane-selection", ['node', '--import', 'tsx/esm', 'scripts/verify-pane-selection.tsx']],
     ["verify-side-panel-selection", ['node', '--import', 'tsx/esm', 'scripts/verify-side-panel-selection.tsx']],
 // 连续任务卡成组（JobGroupRow/JobGroupHeader）：组头汇总、组内取消空行与
 // 链式连接线、落定整组折叠、点击/悬停/Ctrl+O 展开、失败数留在折叠行、

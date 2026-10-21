@@ -353,6 +353,8 @@ export type FollowScroll = {
   delta: number
   viewportTop: number
   viewportBottom: number
+  viewportLeft?: number
+  viewportRight?: number
   /** Current viewport rows map to PREVIOUS screen rows by this offset. */
   screenRowOffset?: number
 }
@@ -1388,6 +1390,9 @@ function renderNodeToOutput(
       // upstream indentation (tool prefix, tree lines) is covered too
       // — a multi-row drag over a diff gutter shouldn't pick up the
       // `  ⎿  ` prefix on row 0 or the blank cells under it on row 1+.
+      if (node.style.selectionPane !== undefined) {
+        output.selectionPane({ x: Math.floor(x), y: Math.floor(y), width: Math.floor(width), height: Math.floor(height) }, node.style.selectionPane, node.style.selectionPaneViewport)
+      }
       if (node.style.noSelect) {
         const boxX = Math.floor(x)
         const fromEdge = node.style.noSelect === 'from-left-edge'
@@ -1537,6 +1542,8 @@ function renderNodeToOutput(
           viewportResizes.push({
             delta: 0,
             viewportTop: prevViewportTop,
+            viewportLeft: Math.floor(x),
+            viewportRight: Math.floor(x + width) - 1,
             viewportBottom: prevViewportBottom,
             kind,
             rowDelta: kind === 'translate' ? node.scrollViewportTop - prevViewportTop : 0,
@@ -1636,6 +1643,8 @@ function renderNodeToOutput(
           followScrolls.push({
             delta: followDelta,
             viewportTop: vpTop,
+            viewportLeft: Math.floor(x),
+            viewportRight: Math.floor(x + width) - 1,
             viewportBottom: vpTop + innerHeight - 1,
             screenRowOffset,
           })
@@ -1761,6 +1770,8 @@ function renderNodeToOutput(
           followScrolls.push({
             delta: wheelDelta,
             viewportTop: wheelVpTop,
+            viewportLeft: Math.floor(x),
+            viewportRight: Math.floor(x + width) - 1,
             viewportBottom: wheelVpTop + innerHeight - 1,
             screenRowOffset,
           })
@@ -2238,7 +2249,7 @@ function renderNodeToOutput(
       if (node.style.softWrapContinuation !== undefined) {
         const continuation = node.style.softWrapContinuation
         const contentEnd = Math.floor(x) + Math.abs(continuation)
-        output.softWrapRow(Math.floor(y), continuation < 0 ? -contentEnd : contentEnd)
+        output.softWrapRow(Math.floor(y), continuation < 0 ? -contentEnd : contentEnd, Math.floor(x))
       }
     } else if (node.nodeName === 'ink-root') {
       renderChildren(
