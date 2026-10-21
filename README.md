@@ -530,6 +530,8 @@ completed files, not peak usage or uncertain crash leftovers.
 
 CI uses Node 24 and pnpm 11. The package supports Node `^22.19 || >=24`.
 
+The launcher checks the manifest’s Node range before loading the application. Known unsupported versions (including Node 23 and prereleases) stop with Node upgrade instructions. Missing or unrecognized ranges allow startup for compatibility with migrated launchers; `doctor` reports that compatibility cannot be determined. `help` and `version` remain available.
+
 TUI entry points use production React even when the workspace sets
 `NODE_ENV=development`. For renderer debugging, explicitly set
 `DSH_TUI_REACT_DEV=1` (for example, `DSH_TUI_REACT_DEV=1 pnpm dev` or
