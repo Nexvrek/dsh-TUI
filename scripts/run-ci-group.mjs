@@ -54,6 +54,7 @@ const GROUPS = {
   'render-scroll': [
     ['verify-image-inspection', ['node', '--import', 'tsx/esm', 'scripts/verify-image-inspection.tsx']],
     ['verify-terminal-images-sixel', ['node', '--import', 'tsx/esm', 'scripts/verify-terminal-images-sixel.tsx']],
+    ['verify-sixel-cursor-heal', ['node', '--import', 'tsx/esm', 'scripts/verify-sixel-cursor-heal.tsx']],
     ['verify-sixel-transcript', ['node', '--import', 'tsx/esm', 'scripts/verify-sixel-transcript.tsx']],
 // 启动落地页回归：头部（块体大字/鲸鱼/模型/目录）与快捷入口的版面、
 // 高度阶梯（full → no-chips → no-hint → input-only）、受控输入的闭环、
