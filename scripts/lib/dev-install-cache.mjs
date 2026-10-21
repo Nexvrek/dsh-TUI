@@ -1,0 +1,99 @@
+import { createHash } from 'node:crypto'
+import { lstatSync, readFileSync, readdirSync, readlinkSync, realpathSync } from 'node:fs'
+import { dirname, join, relative, resolve, sep } from 'node:path'
+
+// Root links are intentional (pnpm package roots). Nested links are hashed by
+// their target text, never followed. Reuse requires that target to be another
+// ordinary entry hashed in this tree: external, excluded, dangling and cyclic
+// links disable caching rather than silently omitting their contents.
+export function treeHash(path, skip = () => false) {
+  try {
+    const root = realpathSync(path)
+    const hash = createHash('sha256')
+    const entries = new Set()
+    const links = []
+    const walk = (absolute, name) => {
+      if (skip(absolute, name)) return
+      const stat = lstatSync(absolute)
+      hash.update(`${name}\0`)
+      if (stat.isSymbolicLink()) {
+        const target = readlinkSync(absolute)
+        hash.update('link\0').update(target).update('\0')
+        links.push([absolute, resolve(dirname(absolute), target)])
+      } else if (stat.isDirectory()) {
+        entries.add(absolute)
+        hash.update('directory\0')
+        for (const child of readdirSync(absolute).sort()) walk(join(absolute, child), name ? `${name}/${child}` : child)
+      } else if (stat.isFile()) {
+        entries.add(absolute)
+        hash.update(`file:${stat.mode & 0o111}\0`).update(readFileSync(absolute)).update('\0')
+      } else throw new Error(`unsupported file type: ${absolute}`)
+    }
+    walk(root, '')
+    for (const [link, target] of links) {
+      if (!entries.has(target)) throw new Error(`symlink target is outside the hashed entries: ${link}`)
+    }
+    return hash.digest('hex')
+  } catch (error) {
+    console.warn(`dev-test: cache unavailable: ${error instanceof Error ? error.message : String(error)}`)
+    return undefined
+  }
+}
+
+const vendorOutputs = [
+  ...['core', 'manifest', 'connection', 'presentation', 'command', 'storage', 'messages'].map(name => `vendor/dsh-std/packages/${name}/lib`),
+  'vendor/mathjax-tex-svg/lib',
+]
+
+export function devOutputHash(repoRoot) {
+  const outputs = ['lib', ...vendorOutputs].map(path => treeHash(join(repoRoot, path)))
+  return outputs.every(value => value !== undefined)
+    ? createHash('sha256').update(outputs.join('\0')).digest('hex') : undefined
+}
+
+export function devInputHash(repoRoot, devRoot, toolVersions = []) {
+  if (toolVersions.some(version => version === undefined)) {
+    console.warn('dev-test: cache unavailable: a tool version is unrecognized')
+    return undefined
+  }
+  const root = resolve(repoRoot)
+  const generated = new Set(['lib', 'dist', 'dist-windows', 'ci-render-logs'].map(name => join(root, name)))
+  for (const path of vendorOutputs) generated.add(join(root, path))
+  const source = treeHash(root, (path, name) => {
+    const leaf = name.split('/').at(-1)
+    return leaf === '.git' || leaf === 'node_modules' || generated.has(path) || path === resolve(devRoot)
+  })
+  if (!source) return undefined
+  const hash = createHash('sha256').update(`${source}\0${process.version}\0${process.platform}\0${process.arch}\0${toolVersions.join('\0')}`)
+  // Include installed resolution/tool metadata, not merely source lockfiles.
+  for (const file of ['.modules.yaml', '.pnpm/lock.yaml']) {
+    try { hash.update(file).update(readFileSync(join(root, 'node_modules', file))) }
+    catch {
+      console.warn(`dev-test: cache unavailable: missing dependency metadata ${file}`)
+      return undefined
+    }
+  }
+  for (const tool of ['typescript', 'tsx', 'esbuild']) {
+    const digest = treeHash(join(root, 'node_modules', tool))
+    if (!digest) return undefined
+    hash.update(`${tool}\0${digest}\0`)
+  }
+  return hash.digest('hex')
+}
+
+export function installedHash(installed) {
+  const metadata = treeHash(resolve(installed, '../../..'), (_path, name) => name.split('/').at(-1) === 'node_modules')
+  const contents = treeHash(installed)
+  return metadata && contents ? createHash('sha256').update(`${metadata}\0${contents}`).digest('hex') : undefined
+}
+
+export function reusableInstall(stamp, { repoRoot, packageRoot, installed, inputs }) {
+  if (!stamp || !inputs || stamp.repoRoot !== repoRoot || stamp.inputs !== inputs || typeof stamp.tarball !== 'string') return false
+  const artifactPath = relative(packageRoot, stamp.tarball).split(sep)
+  if (artifactPath.length !== 2 || !/^\d{8}T\d{9}Z-\d+$/u.test(artifactPath[0]) || !artifactPath[1].endsWith('.tgz')) return false
+  // Verify profile metadata and this installed package, resolving its root
+  // pnpm link while validating nested links against hashed package entries.
+  return typeof stamp.outputs === 'string' && devOutputHash(repoRoot) === stamp.outputs
+    && typeof stamp.profile === 'string' && installedHash(installed) === stamp.profile
+    && typeof stamp.artifact === 'string' && treeHash(stamp.tarball) === stamp.artifact
+}
