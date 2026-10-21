@@ -107,6 +107,7 @@ import { normalizeSplashFont } from '../components/splashFonts.js'
 import { normalizeBrandSetting, resolveBrand, setActiveBrand } from '../branding.js'
 import { SETTING_GROUPS, SHORTCUT_FIELD_META, settingField } from '../settings/definitions.js'
 import instances from '../ink/instances.js'
+import { getShutdownInput, type ShutdownInput } from '../ink/shutdown-input.js'
 import { cursorMove, DISABLE_KITTY_KEYBOARD, DISABLE_MODIFY_OTHER_KEYS, DISABLE_WIN32_INPUT_MODE } from '../ink/termio/csi.js'
 import { DBP, DFE, DISABLE_MOUSE_TRACKING, ESU, EXIT_ALT_SCREEN, SHOW_CURSOR } from '../ink/termio/dec.js'
 import { CLEAR_ITERM2_PROGRESS, CLEAR_TAB_STATUS, supportsTabStatus, wrapForMultiplexer } from '../ink/termio/osc.js'
@@ -3404,8 +3405,13 @@ export async function finishExit(
   notice: string | undefined,
   stderrNotice: string | undefined,
   done: () => void,
-  options: { keepAltScreen?: boolean } = {},
+  options: {
+    keepAltScreen?: boolean
+    /** Explicit renderer lease for legacy wrappers that replace unmount(). */
+    shutdownInput?: ShutdownInput
+  } = {},
 ): Promise<void> {
+  const input = options.shutdownInput ?? getShutdownInput(instance)
   try {
     // Resolve the Ink runtime twice: the instances map is keyed by stdout
     // identity, so a replaced/overridden stdout misses it; the render()
@@ -3413,7 +3419,10 @@ export async function finishExit(
     // a missed lookup skipped detachForShutdown, leaving the stdin pump,
     // TTY handlers and querier alive so the self-heal probe re-wrote
     // ENABLE_MOUSE_TRACKING after DISABLE_MOUSE_TRACKING had been sent).
-    const fromMap = readInkShutdownState(instances.get(process.stdout))
+    const mapped = instances.get(input?.stdout ?? process.stdout)
+    const fromMap = input === undefined || mapped?.shutdownInput === input
+      ? readInkShutdownState(mapped)
+      : undefined
     const fromHandle = instance === undefined ? undefined : readInkShutdownState(instance)
     // A handle that exposes neither detach hook is not an Ink runtime we can
     // latch (e.g. the fake render handles in shutdown regressions) — treat it
@@ -3423,6 +3432,7 @@ export async function finishExit(
         ? undefined
         : fromHandle
     )
+    let fullyUnmounted = false
     if (runtime === undefined) {
       ctx.logger.debug('dsh-tui: Ink runtime unavailable during shutdown; using generic terminal cleanup')
       if (instance !== undefined) {
@@ -3434,6 +3444,7 @@ export async function finishExit(
         // must never hand a broken terminal back to the shell.
         try {
           instance.unmount()
+          fullyUnmounted = input !== undefined
         } catch {
           ctx.logger.debug('dsh-tui: Ink shutdown unmount fallback failed; continuing with generic terminal cleanup')
         }
@@ -3458,7 +3469,7 @@ export async function finishExit(
     //    the spawn; it clears it and writes the switch notice there.
     //  - ownsAltScreenExit() false: this is a replacement exiting before its
     //    first frame, and the old process will close the alternate screen.
-    const exitAlt = fullscreen && !(options.keepAltScreen === true) && ownsAltScreenExit() ? EXIT_ALT_SCREEN : ''
+    const exitAlt = !fullyUnmounted && fullscreen && !(options.keepAltScreen === true) && ownsAltScreenExit() ? EXIT_ALT_SCREEN : ''
     const cleanup = [
       ESU,
       exitAlt,
@@ -3475,7 +3486,11 @@ export async function finishExit(
     ].join('')
     const suffix = notice === undefined ? '' : `${notice}\n`
     const restoreFrame = options.keepAltScreen === true ? '\x1b[2J\x1b[H' : ''
-    await writeStream(process.stdout, `${restoreFrame}${cleanup}\r\n${suffix}`)
+    // A replacement may already own the terminal. Its modes and frame must
+    // survive old-root disposal; a stale exit notice also belongs to that root.
+    if (input?.ownsInput() !== false) {
+      await writeStream(input?.stdout ?? process.stdout, `${restoreFrame}${cleanup}\r\n${suffix}`)
+    }
     // Re-drain AFTER the cleanup sequences have landed (#507): terminal
     // replies and mouse packets already in flight when the exit started
     // keep arriving while cleanup is being written — the detach-time drain
@@ -3485,8 +3500,9 @@ export async function finishExit(
     // environment; 50ms proved too tight there) while staying well inside
     // the exit window the user already waits through.
     await new Promise<void>(resolve => setTimeout(resolve, 150))
-    runtime?.drainStdin?.()
-    if (stderrNotice !== undefined) {
+    if (input !== undefined) input.drain()
+    else runtime?.drainStdin?.()
+    if (stderrNotice !== undefined && input?.ownsInput() !== false) {
       await writeStream(process.stderr, `\n${stderrNotice}\n`)
     }
   } catch {
@@ -3494,6 +3510,7 @@ export async function finishExit(
       ctx.logger.debug('dsh-tui: terminal cleanup failed; continuing with process shutdown')
     } catch { /* a failed diagnostic must not swallow the exit action */ }
   }
+  input?.release()
   // Filesystem-only: the exported clipboard images live in a per-process
   // temp directory that nothing else removes.
   removeClipboardImageDir()

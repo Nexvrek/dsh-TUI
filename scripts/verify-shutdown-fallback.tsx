@@ -7,12 +7,16 @@
  * notice is written and control returns to the shell.
  */
 import { readFileSync } from 'node:fs'
-import { Writable } from 'node:stream'
+import { PassThrough, Writable } from 'node:stream'
+import React from 'react'
+import { createRoot, AlternateScreen, Text, useInput } from '../src/ui.js'
+import { claimShutdownInput, getShutdownInput } from '../src/ink/shutdown-input.js'
+import { cursorMove } from '../src/ink/termio/csi.js'
 import { Context } from '@deepseek-ai/cordis'
 import { createExitFunnel, finishExit, runCrashExit, writeCrashResumeMarkers } from '../src/dsh-adapter/plugin.js'
 import { UNSERIALIZABLE } from '../src/utils/crashDetail.js'
 import instances from '../src/ink/instances.js'
-import { ESU } from '../src/ink/termio/dec.js'
+import { ESU, EXIT_ALT_SCREEN, DISABLE_MOUSE_TRACKING } from '../src/ink/termio/dec.js'
 
 let failures = 0
 const results: string[] = []
@@ -26,8 +30,10 @@ class CapturingStream extends Writable {
   columns = 80
   rows = 24
   chunks: string[] = []
+  onWrite?: (data: string) => void
   _write(chunk: unknown, _enc: BufferEncoding, cb: () => void): void {
     this.chunks.push(String(chunk))
+    this.onWrite?.(String(chunk))
     cb()
   }
 }
@@ -54,13 +60,14 @@ instances.delete(captured)
 await finishExit(
   ctx,
   fakeInstance(() => { unmountsA += 1 }),
-  false,
+  true,
   'hint-one',
   undefined,
   () => { doneA = true },
 )
 swapStdout(originalStdout)
 check('runtime-miss shutdown falls back to instance.unmount', unmountsA === 1 && doneA)
+check('unknown legacy unmount retains generic alt-screen cleanup', captured.chunks.join('').includes(EXIT_ALT_SCREEN))
 check('runtime-miss shutdown still prints the notice', captured.chunks.join('').includes('hint-one'))
 check('runtime-miss cleanup ends synchronized output without a frame', captured.chunks.join('').includes(ESU))
 
@@ -71,6 +78,8 @@ let handoffs = 0
 instances.set(captured, {
   detachForShutdown() { detaches += 1 },
   detachStdinForHandoff() { handoffs += 1 },
+  frontFrame: { cursor: { x: 12, y: 8 } },
+  displayCursor: { x: 3, y: 2 },
 } as never)
 let unmountsB = 0
 let doneB = false
@@ -86,8 +95,98 @@ await finishExit(
 swapStdout(originalStdout)
 instances.delete(captured)
 check('runtime-present shutdown detaches without unmount', detaches === 1 && handoffs === 1 && unmountsB === 0 && doneB)
+check('normal inline cleanup preserves the cursor offset', captured.chunks.join('').includes(cursorMove(9, 6)))
 check('runtime-present shutdown prints the notice', captured.chunks.join('').includes('hint-two'))
 check('runtime-present cleanup explicitly ends synchronized output', captured.chunks.join('').includes(ESU))
+
+// Actual renderer lease survives a legacy handle with no runtime hooks.
+class OwnedInput extends PassThrough {
+  isTTY = true
+  isRaw = false
+  rawCalls = 0
+  setRawMode(value: boolean): this { this.rawCalls++; this.isRaw = value; return this }
+  ref(): this { return this }
+  unref(): this { return this }
+}
+for (const mode of ['owned', 'revoked', 'replacement', 'revoked-before', 'replacement-before', 'replacement-root-before', 'non-tty'] as const) {
+  const input = new OwnedInput()
+  input.isTTY = mode !== 'non-tty'
+  const output = new CapturingStream()
+  // Non-TTY output keeps the fallback's synchronous final write in the capture.
+  output.isTTY = false
+  let deviceDrains = 0
+  const handle = await createRoot({
+    stdin: input as unknown as NodeJS.ReadStream,
+    stdout: output as unknown as NodeJS.WriteStream,
+    patchConsole: false,
+    drainStdin: () => { deviceDrains++ },
+  })
+  const originalTree = React.createElement(Text, null, 'owned input')
+  handle.render(mode === 'replacement-root-before' ? React.createElement(AlternateScreen, null, originalTree) : originalTree)
+  const renderer = instances.get(output as unknown as NodeJS.WriteStream)!
+  const lease = getShutdownInput(handle)!
+  check(`${mode}: unmount-only legacy handle retains the actual renderer lease`, getShutdownInput({ unmount: handle.unmount }) === lease)
+  instances.delete(output as unknown as NodeJS.WriteStream)
+  if (mode === 'revoked-before') lease.release()
+  if (mode === 'replacement-before') claimShutdownInput(input as unknown as NodeJS.ReadStream, output as unknown as NodeJS.WriteStream, () => {})
+  let replacement: Awaited<ReturnType<typeof createRoot>> | undefined
+  let received = ''
+  if (mode === 'replacement-root-before') {
+    output.isTTY = true
+    function Reader() {
+      useInput(text => { received += text })
+      return React.createElement(Text, null, 'replacement')
+    }
+    replacement = await createRoot({ stdin: input as unknown as NodeJS.ReadStream, stdout: output as unknown as NodeJS.WriteStream, patchConsole: false })
+    replacement.render(React.createElement(AlternateScreen, null, React.createElement(Reader)))
+  }
+  const outputBeforeExit = output.chunks.length
+  if (mode.endsWith('-before')) input.push('before-transfer-key')
+  const rawBeforeExit = input.rawCalls
+  const newReader = () => {}
+  if (mode === 'replacement-before') input.on('readable', newReader)
+  let unmounts = 0
+  if (mode === 'owned') {
+    const unmount = renderer.unmount.bind(renderer)
+    renderer.unmount = () => { unmounts++; unmount() }
+  }
+  let rawAfterCleanup = input.rawCalls
+  let drainsAfterCleanup = deviceDrains
+  output.onWrite = data => {
+    if (!data.includes('owned-notice')) return
+    rawAfterCleanup = input.rawCalls
+    drainsAfterCleanup = deviceDrains
+    // Fixed shutdown settle window: replies genuinely arrive after cleanup.
+    setTimeout(() => {
+      if (mode === 'revoked') lease.release()
+      if (mode === 'replacement') claimShutdownInput(input as unknown as NodeJS.ReadStream, output as unknown as NodeJS.WriteStream, () => {})
+      input.push('\x1b[<0;5;7M\x1b[?8;12;1R')
+    }, 20)
+  }
+  const legacy = mode === 'owned' ? handle : { unmount() { unmounts++; handle.unmount() } }
+  await finishExit(ctx, legacy as never,
+    false, 'owned-notice', undefined, () => {}, mode === 'owned' ? {} : { shutdownInput: lease })
+  check(`${mode}: legacy lookup miss fully unmounts exactly once`, unmounts === 1)
+  check(`${mode}: notice written exactly once to actual custom output`, output.chunks.join('').split('owned-notice').length === (mode.endsWith('-before') ? 1 : 2))
+  check(`${mode}: late mouse and CPR consumed only by current terminal owner`,
+    (input.readableLength === 0) === (mode === 'owned' || mode === 'replacement-root-before'))
+  check(`${mode}: late drain never changes custom raw mode`, input.rawCalls === rawAfterCleanup)
+  check(`${mode}: device drain is owner-guarded`, deviceDrains - drainsAfterCleanup === (mode === 'owned' ? 1 : 0))
+  check(`${mode}: finish revokes its lease`, !lease.ownsInput())
+  if (mode.endsWith('-before')) check(`${mode}: already-transferred raw mode remains unchanged`, input.rawCalls === rawBeforeExit)
+  if (mode === 'replacement-before') check('replacement listener remains attached', input.listeners('readable').includes(newReader))
+  if (replacement !== undefined) {
+    check('actual replacement retains its registry entry and input lease', instances.get(output as unknown as NodeJS.WriteStream)?.shutdownInput === replacement.shutdownInput && replacement.shutdownInput.ownsInput())
+    input.write('replacement-key')
+    await new Promise<void>(resolve => setImmediate(resolve))
+    check('actual replacement receives subsequent input', received.includes('replacement-key'))
+    const tail = output.chunks.slice(outputBeforeExit).join('')
+    check('old root does not exit replacement alternate screen or disable its mouse', !tail.includes(EXIT_ALT_SCREEN) && !tail.includes(DISABLE_MOUSE_TRACKING))
+    await instances.get(output as unknown as NodeJS.WriteStream)!.detachForShutdown()
+    replacement.unmount()
+  }
+  input.destroy()
+}
 
 // Terminal and diagnostic failures must still reach the original exit action.
 const broken = new CapturingStream() as unknown as NodeJS.WriteStream
