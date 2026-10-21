@@ -33,6 +33,9 @@ Image files referenced with `@path` use the same admission and resize/conversion
 
 
 ## Highlights
+
+The default reasoning-effort setting offers the current backend/model’s declared tiers, including custom IDs. Saved values absent from that catalog stay visible and stored; while loading or unavailable, only Auto is selectable. Auto follows the saved `/effort` choice, then the configured effort, then the model default. Explicit settings changes affect the next request; unsupported preferences fall back with a notice and are never forced onto a route.
+
 Resuming a DSH session preserves its recorded reasoning effort (or its live selection when reattaching). The saved default seeds new sessions; explicit `/effort` and effort-default settings changes still apply to the current session’s next request.
 
 
