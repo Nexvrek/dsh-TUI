@@ -946,6 +946,7 @@ const GROUPS = {
 // 浮层（键盘留在输入框）、裸 `/goal`（DSH 注册表行）打印成 /plugins 式转录块——
 // inline 无指针事件，块是那里读全文的唯一路径，旧的单行 toast 会折叠并截断它。
     ['verify-goal-display', ['node', '--import', 'tsx/esm', 'scripts/verify-goal-display.mjs']],
+    ['verify-plugin-command-output', ['node', '--import', 'tsx/esm', 'scripts/verify-plugin-command-output.mjs']],
     ["verify-channel-goal-todo", ['node', '--import', 'tsx/esm', 'scripts/verify-channel-goal-todo.mjs']],
 // 目标预算与后端中立的 /goal（goals 能力）：语法（--budget 50k、控制词、无效预算）、
 // 「已用 12.3k / 50k tokens · 4m」中英文读数、能力快照（有能力才提供 /goal，无能力即
