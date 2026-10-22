@@ -468,6 +468,8 @@ monorepo 开发宿主（`pnpm tui`、`scripts/run.ts`）仅在显式设置
 
 CI 使用 Node 24 与 pnpm 11，本包支持 Node `^22.19 || >=24`。
 
+启动器在加载应用前检查清单声明的 Node 范围。已确认不支持的版本（包括 Node 23 与预发布版）会停止并提示升级 Node。为兼容迁移后的启动器，缺失或无法识别的范围允许启动；`doctor` 会明确报告无法判断兼容性。`help` 与 `version` 始终可读。
+
 TUI 启动入口默认使用 production React，即使工作区设置了 `NODE_ENV=development`。
 调试渲染器时请显式设置 `DSH_TUI_REACT_DEV=1`，例如
 `DSH_TUI_REACT_DEV=1 pnpm dev` 或 `DSH_TUI_REACT_DEV=1 pnpm tui`；它会在 React
