@@ -679,6 +679,21 @@ Community, related projects, and companion tools built by friends:
 
 [MIT](LICENSE)
 
+### Storage migration and read budgets
+
+The SQLite migration script uses the official `node:sqlite.backup()` API on
+supported Node 22.19+ and Node 24+ builds. It probes that capability before
+opening the source read-only and includes committed WAL data in a consistent
+snapshot; it never copies a live database/WAL pair by hand. A build missing the
+API reports a migration-specific prerequisite. Session-tree reads validate packed
+rows and check their entire member count against the remaining scan budget before
+expanding events. Oversized rows report truncation; malformed rows report failure.
+The logical budget does not eliminate physical JSON/frame parsing or validation.
+Development `@deepseek-ai/*` release-age exceptions list only exact package versions in the current
+lockfile (including the legacy SQLite island); all other versions retain the
+24-hour delay. Regenerate with `node scripts/verify-release-age-cohort.mjs --write`
+after an intentional lockfile update, then review the cohort diff.
+
 ### Bounded update installation
 
 `/update` and `dsh-tui update` give each profile installer invocation a **30-minute

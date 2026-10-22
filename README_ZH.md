@@ -582,6 +582,17 @@ pnpm smoke
 
 [MIT](LICENSE)
 
+### 存储迁移与读取预算
+
+SQLite 迁移脚本在受支持的 Node 22.19+ 与 Node 24+ 构建上使用官方
+`node:sqlite.backup()`，先检测能力，再以只读方式打开源库；一致快照包含已提交
+WAL，不手工复制活动数据库与 WAL。缺少此 API 的构建会明确报告迁移专属前置要求。
+会话树读取先完整校验 packed 行，再按剩余扫描预算检查成员数量，最后才展开事件。
+超大行报告截断，损坏行报告失败；逻辑事件预算不消除物理 JSON/帧解析与校验成本。
+开发环境的 `@deepseek-ai/*` release-age 豁免仅列出当前锁文件的精确包版本（包含旧 SQLite 岛），
+其他版本仍保留 24 小时延迟。有意更新锁文件后运行
+`node scripts/verify-release-age-cohort.mjs --write` 重新生成并审查差异。
+
 ### 更新安装的有界等待
 
 `/update` 与 `dsh-tui update` 的每次 profile 安装调用默认有 **30 分钟实际时间上限**。

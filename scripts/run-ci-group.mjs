@@ -1286,6 +1286,9 @@ const GROUPS = {
     ["verify-model-lifecycle-fences", ['node', '--import', 'tsx/esm', 'scripts/verify-model-lifecycle-fences.ts']],
     ['verify-model-completion-invalidate', ['node', 'scripts/verify-model-completion-invalidate.mjs']],
     ["verify-session-v3", ['node', '--import', 'tsx/esm', 'scripts/verify-session-v3.ts']],
+    ["verify-packed-row-budget", ['node', 'scripts/verify-packed-row-budget.mjs']],
+    ["verify-release-age-cohort", ['node', 'scripts/verify-release-age-cohort.mjs']],
+    ["verify-sqlite-snapshot", ['node', 'scripts/verify-sqlite-snapshot.mjs']],
     ["verify-session-tree-generations", ['node', '--import', 'tsx/esm', 'scripts/verify-session-tree-generations.ts']],
 // 裸 ● 空行回归：纯思考/纯工具步骤（无文本块）的 assistant/message
 // 不得创建空 assistant 行，否则思考块折叠后转录里多出一个只有
