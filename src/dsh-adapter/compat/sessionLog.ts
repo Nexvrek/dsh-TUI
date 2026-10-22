@@ -820,7 +820,10 @@ function readEvents(
       }
       // JSON/frame parsing and validation are physical-row work. Bound the
       // additional logical event allocation BEFORE either decoder expands it.
-      if (storageRecordMemberCount(record) > maxScanned - scanned) return result(false)
+      if (storageRecordMemberCount(record) > maxScanned - scanned) {
+        scanned = maxScanned
+        return result(false)
+      }
       for (const event of decodeStorageRecord(record)) {
         // The SCAN budget bounds the real cost drivers — I/O, decompression,
         // JSON.parse — which are paid for EVERY envelope, collected or not.

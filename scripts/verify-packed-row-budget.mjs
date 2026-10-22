@@ -27,7 +27,7 @@ try {
     const limited = reader.readSessionEventsFromFile(path, 10000, 10)
     assert.equal(limited.complete, false)
     assert.equal(limited.failed, undefined)
-    assert.equal(limited.scanned, 1)
+    assert.equal(limited.scanned, 10, 'a rejected packed row consumes the remaining shared scan budget')
     assert.equal(limited.events.length, 0)
     assert.equal(reader.decoderCalls - calls, 1, `${type}: only header decoded`)
     const full = reader.readSessionEventsFromFile(path, 10000, 10001)

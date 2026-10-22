@@ -1282,7 +1282,6 @@ const GROUPS = {
     ["verify-session-v3", ['node', '--import', 'tsx/esm', 'scripts/verify-session-v3.ts']],
     ["verify-packed-row-budget", ['node', 'scripts/verify-packed-row-budget.mjs']],
     ["verify-release-age-cohort", ['node', 'scripts/verify-release-age-cohort.mjs']],
-    ["verify-migrate-sessions", ['node', '--import', 'tsx/esm', 'scripts/verify-migrate-sessions.ts']],
     ["verify-sqlite-snapshot", ['node', 'scripts/verify-sqlite-snapshot.mjs']],
     ["verify-session-tree-generations", ['node', '--import', 'tsx/esm', 'scripts/verify-session-tree-generations.ts']],
 // 裸 ● 空行回归：纯思考/纯工具步骤（无文本块）的 assistant/message

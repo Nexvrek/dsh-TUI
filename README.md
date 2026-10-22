@@ -687,7 +687,7 @@ API reports a migration-specific prerequisite. Session-tree reads validate packe
 rows and check their entire member count against the remaining scan budget before
 expanding events. Oversized rows report truncation; malformed rows report failure.
 The logical budget does not eliminate physical JSON/frame parsing or validation.
-Development release-age exceptions list only exact package versions in the current
+Development `@deepseek-ai/*` release-age exceptions list only exact package versions in the current
 lockfile (including the legacy SQLite island); all other versions retain the
 24-hour delay. Regenerate with `node scripts/verify-release-age-cohort.mjs --write`
 after an intentional lockfile update, then review the cohort diff.
