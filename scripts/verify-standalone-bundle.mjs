@@ -101,6 +101,16 @@ try {
   assert.doesNotMatch(warmTrace, /"stage":"extract-start"/)
   console.log('PASS: real entry extracts and imports a compatible runtime without launching a profile')
 
+  // Exercise Windows' synchronous extractor through the same copied launcher
+  // on every host. The normal-launch check below must use that path too.
+  const entryPath = join(fixture, 'standalone/entry.mjs')
+  const entryText = readFileSync(entryPath, 'utf8')
+  const synchronousEntry = entryText.replace("sync: process.platform === 'win32'", 'sync: true')
+  assert.notEqual(synchronousEntry, entryText, 'The launcher must select its Windows extractor')
+  write(entryPath, synchronousEntry)
+  ok(probe(), 'synchronous cold and warm compatible runtime')
+  console.log('PASS: synchronous extraction loads the runtime and reuses its complete cache on a warm start')
+
   const launchHome = join(fixture, 'normal launch home')
   const launchEnv = Object.fromEntries(Object.entries(process.env)
     .filter(([key]) => /^(systemroot|systemdrive|windir|comspec|pathext)$/i.test(key)))
@@ -117,6 +127,17 @@ try {
   assert.equal(invocations.length, 1, 'The imported DSH public entry must be invoked exactly once')
   assert.deepEqual(JSON.parse(invocations[0].slice('DSH_TUI_BOOT_CALLED '.length)), ['--profile', 'dsh-tui', '--resume', 'example-session'])
   console.log('PASS: ordinary launch calls the imported DSH entry once with its profile and user arguments')
+
+  write(join(fixture, 'standalone/runtime.tar.gz'), 'not a tar archive\n')
+  const corruptArchive = probe()
+  assert.notEqual(corruptArchive.status, 0)
+  assert.match(corruptArchive.stderr, /TAR_BAD_ARCHIVE/)
+  const corruptReport = readJson(join(corruptArchive.evidence, 'cold.result.json'))
+  assert.equal(corruptReport.cache.completeMarkerPresent, false)
+  assert.deepEqual(corruptReport.cache.entries, [], 'Failed extraction must remove its temporary archive and tree')
+  assert.doesNotMatch(readFileSync(join(corruptArchive.evidence, 'cold.stderr.log'), 'utf8'), /"stage":"runtime-ready"/)
+  console.log('PASS: synchronous extraction errors leave no complete marker or temporary cache tree')
+  write(entryPath, entryText)
 
   json(join(dsh, 'package.json'), { name: '@deepseek-ai/dsh', version: '0.1.1-rc.2', type: 'module' })
   await archive()

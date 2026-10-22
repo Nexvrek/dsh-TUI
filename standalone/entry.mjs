@@ -89,17 +89,24 @@ async function ensureRuntimeReady() {
     runtimeRoot,
     bundleId: BUNDLE_ID,
     archivePath,
-    extract: selfTest ? async options => {
+    extract: async options => {
       // cacheGuard has finished copying the embedded archive before calling
       // this extractor. Progress counts entries, never user paths or content.
-      traceStage('extract-start')
+      traceStage('extract-start', { synchronous: process.platform === 'win32' })
       let entries = 0
-      await extractTar({ ...options, onReadEntry() {
-        entries++
-        if (entries % 2000 === 0) traceStage('extract-progress', { entries })
-      } })
+      await extractTar({
+        ...options,
+        // node-tar serializes asynchronous filesystem operations on Windows.
+        // Its synchronous extractor keeps the same path checks while avoiding
+        // a thread-pool round trip for each operation in the bundled tree.
+        sync: process.platform === 'win32',
+        ...(selfTest ? { onReadEntry() {
+          entries++
+          if (entries % 2000 === 0) traceStage('extract-progress', { entries })
+        } } : {}),
+      })
       traceStage('extract-done', { entries })
-    } : extractTar,
+    },
     requiredPaths: [
       'node_modules/@deepseek-ai/dsh/lib/bin.js',
       'node_modules/@deepseek-harness-tui/dsh-tui/cordis.patch.yml',
