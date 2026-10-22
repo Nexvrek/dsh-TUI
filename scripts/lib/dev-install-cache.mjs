@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto'
 import { lstatSync, readFileSync, readdirSync, readlinkSync, realpathSync } from 'node:fs'
+import { createRequire } from 'node:module'
 import { dirname, join, relative, resolve, sep } from 'node:path'
 
 // Root links are intentional (pnpm package roots). Nested links are hashed by
@@ -80,7 +81,18 @@ export function devInputHash(repoRoot, devRoot, toolVersions = []) {
     }
   }
   for (const tool of ['typescript', 'tsx', 'esbuild']) {
-    const digest = treeHash(join(root, 'node_modules', tool))
+    let path = join(root, 'node_modules', tool)
+    if (tool === 'esbuild') {
+      try {
+        // pnpm keeps tsx's compiler in its own dependency scope, not the root.
+        const fromTsx = createRequire(createRequire(join(root, 'package.json')).resolve('tsx'))
+        path = dirname(fromTsx.resolve('esbuild/package.json'))
+      } catch (error) {
+        console.warn(`dev-test: cache unavailable: ${error instanceof Error ? error.message : String(error)}`)
+        return undefined
+      }
+    }
+    const digest = treeHash(path)
     if (!digest) return undefined
     hash.update(`${tool}\0${digest}\0`)
   }

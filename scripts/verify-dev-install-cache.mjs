@@ -38,7 +38,20 @@ try {
   put(join(repo, 'package.json'), JSON.stringify({ name: '@deepseek-harness-tui/dsh-tui', version: '1.0.0', type: 'module' }))
   for (const file of ['AGENTS.md', 'src/app.ts', 'scripts/compiler.mjs', 'pnpm-lock.yaml', 'cordis.patch.yml', 'presets/base.yml', 'assets/icon.txt', 'bin/dsh-tui.js']) put(join(repo, file))
   symlinkSync('AGENTS.md', join(repo, 'CLAUDE.md'))
-  for (const file of ['.modules.yaml', '.pnpm/lock.yaml', 'typescript/lib/tsc.js', 'tsx/dist/loader.mjs', 'esbuild/bin/esbuild']) put(join(repo, 'node_modules', file))
+  for (const file of ['.modules.yaml', '.pnpm/lock.yaml']) put(join(repo, 'node_modules', file))
+  const toolRoots = Object.fromEntries(['typescript@6.0.3', 'tsx@4.23.15', 'esbuild@0.28.2'].map(spec => {
+    const name = spec.split('@')[0]
+    return [name, join(repo, 'node_modules/.pnpm', spec, 'node_modules', name)]
+  }))
+  put(join(toolRoots.typescript, 'lib/tsc.js'))
+  put(join(toolRoots.tsx, 'package.json'), JSON.stringify({ name: 'tsx', exports: './dist/loader.mjs' }))
+  put(join(toolRoots.tsx, 'dist/loader.mjs'))
+  put(join(toolRoots.esbuild, 'package.json'), JSON.stringify({ name: 'esbuild', main: 'lib/main.js' }))
+  put(join(toolRoots.esbuild, 'lib/main.js'))
+  put(join(toolRoots.esbuild, 'bin/esbuild'))
+  for (const name of ['typescript', 'tsx']) symlinkSync(toolRoots[name], join(repo, 'node_modules', name))
+  symlinkSync('../../esbuild@0.28.2/node_modules/esbuild', join(dirname(toolRoots.tsx), 'esbuild'))
+  assert.equal(existsSync(join(repo, 'node_modules/esbuild')), false, 'pnpm does not expose transitive esbuild at the repository root')
   for (const name of ['core', 'manifest', 'connection', 'presentation', 'command', 'storage', 'messages']) put(join(repo, `vendor/dsh-std/packages/${name}/lib/index.js`))
   put(join(repo, 'vendor/mathjax-tex-svg/lib/index.js'))
   const stub = `#!${process.execPath}
@@ -128,7 +141,7 @@ if (tool === 'dsh' && args[0] === 'plugin') {
     run(`successful installer with stale ${payload}`, { stale: payload })
     run(`recover ${payload}`)
   }
-  for (const file of ['src/app.ts', 'pnpm-lock.yaml', 'cordis.patch.yml', 'presets/base.yml', 'assets/icon.txt', 'scripts/compiler.mjs', 'package.json', 'node_modules/typescript/lib/tsc.js', 'node_modules/tsx/dist/loader.mjs', 'node_modules/esbuild/bin/esbuild', 'lib/types/extra.js', 'vendor/dsh-std/packages/core/lib/index.js']) {
+  for (const file of ['src/app.ts', 'pnpm-lock.yaml', 'cordis.patch.yml', 'presets/base.yml', 'assets/icon.txt', 'scripts/compiler.mjs', 'package.json', 'node_modules/typescript/lib/tsc.js', 'node_modules/tsx/dist/loader.mjs', 'node_modules/.pnpm/esbuild@0.28.2/node_modules/esbuild/lib/main.js', 'node_modules/.pnpm/esbuild@0.28.2/node_modules/esbuild/bin/esbuild', 'lib/types/extra.js', 'vendor/dsh-std/packages/core/lib/index.js']) {
     const path = join(repo, file)
     if (file === 'package.json') {
       const manifest = JSON.parse(readFileSync(path, 'utf8'))
@@ -158,6 +171,13 @@ if (tool === 'dsh' && args[0] === 'plugin') {
     run(`recover ${stage}`)
     run(`recovered warm ${stage}`, { hit: true })
   }
+  const loader = join(toolRoots.tsx, 'dist/loader.mjs')
+  const loaderContents = readFileSync(loader)
+  rmSync(loader)
+  run('unresolvable tsx compiler', { cacheable: false })
+  put(loader, loaderContents)
+  run('recover tsx compiler')
+  run('recovered compiler warm', { hit: true })
   run('default retains build and pack lifecycle', { fast: false })
   assert.equal(existsSync(stamp), false)
   // The filesystem follows the directory link before resolving "..". Its
