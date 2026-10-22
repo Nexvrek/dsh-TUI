@@ -427,6 +427,8 @@ Fragmented SGR mouse reports no longer land in the prompt as text: an incomplete
 A completed text-only assistant reply containing only a leading `⏵` status line remains visible in the conversation and can be selected for copying. Live status lines and status lines followed by a real answer stay out of the transcript body.
 
 
+Plugin slash-command results, including errors, remain as local transcript blocks for scrolling and copying during the current session. Indentation and line breaks are preserved. Each report retains at most 200 lines, 65,536 UTF-16 code units and 4,000 terminal cells per line, plus a visible truncation marker. The local display rows are not sent as model input or replayed as conversation history. The backend may separately persist command audit events and their results. Older local report blocks are evicted within the shared 600-row budget. Explicit built-in report layouts (such as `/goal`) keep their existing formatting.
+
 Mouse (fullscreen): drag to select and copy, double/triple click to select a word or line, click tool cards, timeline ticks and `[Image #N]` previews.
 
 Automatic copies keep the text selected; press `Esc` to clear it or start a new selection to replace it. Selection highlighting skips trailing padding and blank rows while preserving spaces within text and code indentation. Inline mode uses the terminal's native selection.
