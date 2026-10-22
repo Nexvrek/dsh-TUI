@@ -150,7 +150,7 @@ commands 错误码对齐、效果台账与 `/plugin` 诊断面已全部落地。
 
 授权存储（`~/.dsh-tui/extension-grants.json`）统一回答全部 9 个注册
 权限：默认值由 vendored 权限注册表驱动（7 个默认拒绝；
-`commands.invoke` 与 `composer.context.attach` 默认允许——插件无法仅凭它们被动
+`commands.invoke` 与 `context-chips.attach` 默认允许——插件无法仅凭它们被动
 读取数据：前者只在用户发起调用时生效，后者只能暂存一枚用户看得见、可撤下的
 输入框 chip）。`grants`
 段显式授予默认拒绝的权限；可选 `denies` 段撤销默认允许的权限；未注册
@@ -245,7 +245,7 @@ TUI 里的宿主调用入口（C-041 的撤销语义）。插件直调
 `ctx.get('commands').register/execute` 不经归属与检查点（C-070 同进程
 信任边界，已声明为平台行为；归属只会收紧、绝不放宽检查）。
 
-`composer.context.attach`：`ctx.tuiComposer.attachContext` 每次调用现查，
+`context-chips.attach`：`ctx.tuiContextChips.attachContext` 每次调用现查，
 检查点与 commands 同形——先查 `root`（scope `root`，撤销即关掉所有插件的
 输入框 chip），再对已验证 Component 查它自己的 id（scope = Component id，
 撤销只关它自己）；没有 `dsh-plugin.json` 的匿名 activation 只受 `root`
