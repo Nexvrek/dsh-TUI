@@ -13,6 +13,7 @@ import type { ScrollBoxHandle } from '../src/ink/components/ScrollBox.js'
 import { stringWidth } from '../src/ink/stringWidth.js'
 import { SidePanelLayout } from '../src/components/sidePanel/SidePanelLayout.js'
 import { SplitDiffView } from '../src/components/SplitDiffView.js'
+import { OverlayAbove } from '../src/components/OverlayAbove.js'
 import instances from '../src/ink/instances.js'
 import { getSelectedText, clearSelection } from '../src/ink/selection.js'
 import { settled, sleep } from './lib/term-test.mjs'
@@ -31,7 +32,16 @@ class Out extends Writable {
 class In extends PassThrough { isTTY = true; setRawMode() { return this }; ref() { return this }; unref() { return this } }
 const stdout = new Out()
 const stdin = new In()
-let mode: 'split' | 'diff' | 'scroll' | 'nested' = 'split'
+let mode: 'split' | 'diff' | 'scroll' | 'nested' | 'overlay' | 'overlay-side' | 'gaps' | 'mixed' = 'split'
+let overlayVisible = true
+let overlayLeft = 0
+let overlayWidth = COLS
+let overlayText = 'VISIBLE OVERLAY ' + 'z'.repeat(60)
+let mixedWidth = COLS
+let mixedLong = false
+let gapDeletion = false
+const gapSparse = 'GAP A\n\nGAP B'
+const gapAdded = 'GAP A\nINSERTED\n\nGAP B'
 let chat = 64
 let bump: (() => void) | undefined
 const leftScroll = React.createRef<ScrollBoxHandle>()
@@ -44,6 +54,26 @@ function Harness() {
   const [, tick] = React.useState(0)
   bump = () => tick(n => n + 1)
   useInput(() => bump?.())
+  if (mode === 'overlay' || mode === 'overlay-side') {
+    const content = <Box width={mode === 'overlay-side' ? chat : COLS} height={20} flexDirection="column">
+      <SplitDiffView diffs={[{ path: '/tmp/pane.txt', oldText, newText }]} width={mode === 'overlay-side' ? chat : COLS} maxRows={100} verbose />
+      <Box marginLeft={overlayLeft} width={overlayWidth}>
+        {overlayVisible && <OverlayAbove maxHeight={12}><Text>{Array(12).fill(overlayText).join('\n')}</Text></OverlayAbove>}
+        <Text>ANCHOR</Text>
+      </Box>
+    </Box>
+    return mode === 'overlay' ? content : <Box width={COLS} height={ROWS}>
+      <SidePanelLayout geometry={{ chat, panel: COLS - chat - 1 }} focus="chat" side={<Text>{Array(20).fill('SIBLING').join('\n')}</Text>}>{content}</SidePanelLayout>
+    </Box>
+  }
+  if (mode === 'gaps') return <SplitDiffView diffs={[{ path: '/tmp/gaps.txt', oldText: gapDeletion ? gapAdded : gapSparse, newText: gapDeletion ? gapSparse : gapAdded }]} width={COLS} maxRows={100} verbose />
+  if (mode === 'mixed') return <ScrollBox ref={leftScroll} width={mixedWidth} height={12} flexDirection="column">
+    <SplitDiffView diffs={[
+      { path: '/tmp/top.txt', newText: 'TOP0\nTOP1' },
+      { path: '/tmp/middle.txt', oldText: 'LEFT0\nLEFT1', newText: mixedLong ? ['RIGHT0 ', 'RIGHT1 '].map(line => line + 'r'.repeat(40)).join('\n') : 'RIGHT0\nRIGHT1' },
+      { path: '/tmp/bottom.txt', newText: Array.from({ length: 14 }, (_, i) => 'BOTTOM' + i).join('\n') },
+    ]} width={mixedWidth} maxRows={100} verbose />
+  </ScrollBox>
   if (mode === 'nested') return <ScrollBox ref={leftScroll} height={12} flexDirection="column">
     <Text>{'head0\nhead1\nhead2'}</Text>
     <SplitDiffView diffs={[{ path: '/tmp/pane.txt', oldText, newText }]} width={COLS} maxRows={100} verbose />
@@ -158,6 +188,42 @@ try {
   }
   if (process.env.DSH_TUI_PANE_SNAPSHOT) writeFileSync(process.env.DSH_TUI_PANE_SNAPSHOT, lines().join('\n'))
 
+  mode = 'overlay'; clearSelection(ink.selection); await paint()
+  for (const partial of [false, true]) {
+    overlayLeft = partial ? 12 : 0
+    overlayWidth = partial ? 48 : COLS
+    overlayText = 'VISIBLE OVERLAY ' + 'z'.repeat(partial ? 28 : 60)
+    await paint()
+    assert.ok(await settled(() => lines().some(line => line.includes(overlayText))))
+    const row = lines().findIndex(line => line.includes(overlayText))
+    await drag([overlayLeft, row], [overlayLeft + overlayText.length - 1, row])
+    check(`${partial ? 'partial' : 'full'} opaque overlay copies visible text without hidden diff pane or gutters`, copied(), overlayText)
+    await paint()
+    check('cached opaque overlay keeps the same visible copy', copied(), overlayText)
+    if (partial) {
+      await drag([0, row], [COLS - 1, row])
+      check('uncovered diff retains its original column fence', ink.selection.fence?.colEnd, 58)
+      check('uncovered diff excludes overlay and opposite pane', copied().includes('VISIBLE') || copied().includes('NEW'), false)
+    }
+  }
+  overlayVisible = false; clearSelection(ink.selection); await paint()
+  const restoredStart = locate('OLD')
+  const restoredTail = locate('old tail')
+  await drag(restoredStart, [restoredTail[0] + stringWidth(oldText.split('\n').at(-1)!) - 1, restoredTail[1]])
+  check('closing overlay restores diff pane copy and gutters', copied(), oldText)
+
+  mode = 'overlay-side'; overlayVisible = true; overlayLeft = 0; overlayWidth = chat
+  overlayText = 'VISIBLE OVERLAY ' + 'z'.repeat(28)
+  clearSelection(ink.selection); await paint()
+  const overlayRow = lines().findIndex(line => line.includes(overlayText))
+  assert.ok(overlayRow >= 0)
+  await drag([0, overlayRow], [COLS - 1, overlayRow])
+  check('overlay retains its ancestor chat fence', ink.selection.fence?.colEnd, chat - 1)
+  check('overlay inside chat copies visible text without sibling pane', copied(), overlayText)
+  await paint()
+  check('cached overlay retains ancestor chat fence', ink.selection.fence?.colEnd, chat - 1)
+  check('cached overlay inside chat keeps exact copy', copied(), overlayText)
+
   mode = 'scroll'; clearSelection(ink.selection); await paint()
   leftScroll.current?.scrollTo(0); rightScroll.current?.scrollTo(0); await paint()
   assert.ok(await settled(() => lines()[0]?.includes('L00') && lines()[0]?.includes('R00')))
@@ -191,6 +257,70 @@ try {
   const afterRows = [...ink.frontFrame.screen.selectionPanes!.get(nestedId)!.keys()].sort((a, b) => a - b)
   check('nested diff pane membership shifts with cached content', afterRows, beforeRows.map(row => row - 1))
   check('nested diff scrolling preserves exact copy', copied(), 'OLD')
+
+  mode = 'gaps'; clearSelection(ink.selection); await paint()
+  for (const deletion of [false, true]) {
+    gapDeletion = deletion; await paint()
+    const point = (needle: string): [number, number] => {
+      const row = lines().findIndex(line => line.includes(needle))
+      assert.ok(row >= 0)
+      return [deletion ? lines()[row]!.lastIndexOf(needle) : lines()[row]!.indexOf(needle), row]
+    }
+    const end = point('GAP B')
+    await drag(point('GAP A'), [end[0] + 4, end[1]])
+    check(`${deletion ? 'deletion' : 'insertion'} alignment gap is omitted but source blank line survives`, copied(), gapSparse)
+  }
+
+  mode = 'scroll'; clearSelection(ink.selection); await paint()
+  leftScroll.current?.scrollTo(0); rightScroll.current?.scrollTo(0); await paint()
+  await drag([chat + 1, 0], [chat + 1 + stringWidth('R06 row 中🙂') - 1, 6])
+  const forwardCopy = Array.from({ length: 7 }, (_, i) => `R${String(i).padStart(2, '0')} row 中🙂`).join('\n')
+  for (let step = 1; step <= 2; step++) {
+    rightScroll.current?.scrollBy(1); await paint()
+    check(`right pane captured selection survives scroll ${step}`, copied(), forwardCopy)
+    check(`right pane captured selection stays live ${step}`, ink.selection.stale, false)
+  }
+  chat += 5; await paint()
+  rightScroll.current?.scrollBy(1); await paint()
+  check('captured pane retains ownership after a horizontal resize', copied(), forwardCopy)
+  check('resized captured pane remains live', ink.selection.stale, false)
+  clearSelection(ink.selection); leftScroll.current?.scrollTo(10); await paint()
+  await drag([stringWidth('L17 row 中🙂') - 1, 7], [0, 1])
+  const reverseCopy = Array.from({ length: 7 }, (_, i) => `L${String(i + 11).padStart(2, '0')} row 中🙂`).join('\n')
+  for (let step = 1; step <= 2; step++) {
+    leftScroll.current?.scrollBy(-1); await paint()
+    check(`left pane captured selection survives reverse scroll ${step}`, copied(), reverseCopy)
+    check(`left pane captured selection stays live ${step}`, ink.selection.stale, false)
+  }
+
+  let reportedSelection = ink.hasTextSelection()
+  check('listener starts with a live pane selection', reportedSelection, true)
+  const unsubscribe = ink.subscribeToSelectionChange(() => { reportedSelection = ink.hasTextSelection() })
+  mode = 'diff'; await paint()
+  check('removing the owning pane clears selection', ink.hasTextSelection(), false)
+  check('removing the owning pane notifies selection consumers', reportedSelection, false)
+  unsubscribe()
+
+  mode = 'mixed'; clearSelection(ink.selection); await paint()
+  leftScroll.current?.scrollTo(0); await paint()
+  const mixedEnd = locate('BOTTOM2')
+  await drag(locate('TOP0'), [mixedEnd[0] + 6, mixedEnd[1]])
+  const mixedCopy = 'TOP0\nTOP1\nRIGHT0\nRIGHT1\nBOTTOM0\nBOTTOM1\nBOTTOM2'
+  check('mixed-width diff copies only its new-side rows before capture', copied(), mixedCopy)
+  leftScroll.current?.scrollBy(6); await paint()
+  check('captured mixed-width diff rows exclude the opposite pane', copied(), mixedCopy)
+  check('captured mixed-width diff remains live', ink.selection.stale, false)
+  mixedLong = true; clearSelection(ink.selection); await paint()
+  leftScroll.current?.scrollTo(0); await paint()
+  const longEnd = locate('BOTTOM2')
+  await drag(locate('TOP0'), [longEnd[0] + 6, longEnd[1]])
+  const beforeNarrow = copied()
+  leftScroll.current?.scrollBy(2); await paint()
+  check('captured diff before narrowing retains exact source', copied(), beforeNarrow)
+  mixedWidth = 80; await paint()
+  check('narrowing that changes captured diff selection still marks stale', ink.selection.stale, true)
+  check('changed captured diff copy is refused after narrowing', ink.copySelectionNoClear(), '')
+
 
 } finally {
   await app.unmount()

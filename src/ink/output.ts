@@ -217,6 +217,7 @@ export type Operation =
   | CopyRegionOperation
   | SoftWrapRowOperation
   | { type: 'selectionPane'; region: Rectangle; id: string; viewport: boolean }
+  | { type: 'selectionOcclusion'; region: Rectangle; keep: ReadonlySet<string>; source?: Screen; below?: Set<string> }
   | ShiftOperation
 
 /**
@@ -817,6 +818,16 @@ export default class Output {
     if (right > x && bottom > y) this.operations.push({ type: 'selectionPane', id, viewport, region: { x, y, width: right - x, height: bottom - y } })
   }
 
+  /** A later opaque surface hides both pane ownership and earlier gutters. */
+  selectionOcclusion(region: Rectangle, keep: ReadonlySet<string>, source?: Screen): void {
+    const clip = this.imageClips.at(-1)
+    const x = Math.ceil(Math.max(0, region.x, clip?.x1 ?? 0))
+    const y = Math.ceil(Math.max(0, region.y, clip?.y1 ?? 0))
+    const right = Math.floor(Math.min(this.width, region.x + region.width, clip?.x2 ?? this.width))
+    const bottom = Math.floor(Math.min(this.height, region.y + region.height, clip?.y2 ?? this.height))
+    if (right > x && bottom > y) this.operations.push({ type: 'selectionOcclusion', keep, source, region: { x, y, width: right - x, height: bottom - y } })
+  }
+
   noSelect(region: Rectangle): void {
     // Masks are applied after all paint operations, when the clip stack
     // has unwound. Capture the visible part now so a long decorated run
@@ -1226,6 +1237,10 @@ export default class Output {
           continue
         }
 
+        case 'selectionOcclusion':
+          operation.below = new Set(screen.selectionPanes?.keys())
+          continue
+
         case 'selectionPane': {
           // Ownership follows paint order, just like noSelect/copyRegion.
           // A cached child contributes its spans through its own blit.
@@ -1373,6 +1388,28 @@ export default class Output {
       if (operation.type === 'noSelect') {
         const { x, y, width, height } = operation.region
         markNoSelectRegion(screen, x, y, width, height)
+      } else if (operation.type === 'selectionOcclusion') {
+        const { x, y, width, height } = operation.region
+        for (let row = y; row < y + height; row++) {
+          const offset = row * screen.width + x
+          screen.noSelect.fill(0, offset, offset + width)
+          if (operation.source) screen.noSelect.set(operation.source.noSelect.subarray(offset, offset + width), offset)
+          for (const id of operation.below ?? []) {
+            if (operation.keep.has(id)) continue
+            const rows = screen.selectionPanes?.get(id)
+            const span = rows?.get(row)
+            if (span && x < span.end && x + width > span.start) {
+              const excluded = [...(span.excluded ?? []), { start: Math.max(x, span.start), end: Math.min(x + width, span.end) }].sort((a, b) => a.start - b.start)
+              const merged: { start: number; end: number }[] = []
+              for (const range of excluded) {
+                const last = merged.at(-1)
+                if (last && last.end >= range.start) last.end = Math.max(last.end, range.end)
+                else merged.push({ ...range })
+              }
+              rows!.set(row, { ...span, excluded: merged })
+            }
+          }
+        }
       }
     }
 

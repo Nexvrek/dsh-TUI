@@ -1126,6 +1126,9 @@ function renderNodeToOutput(
       const fw = Math.floor(width)
       const fh = Math.floor(height)
       if (output.reuseImages(node)) {
+        if (node.style.position === 'absolute' && paintsOwnRect(node)) {
+          output.selectionOcclusion({ x: fx, y: fy, width: fw, height: fh }, paneIdsForSurface(node), prevScreen)
+        }
         output.blit(prevScreen, fx, fy, fw, fh)
         if (node.style.position === 'absolute') {
           absoluteRectsCur.push(cached)
@@ -1390,6 +1393,9 @@ function renderNodeToOutput(
       // upstream indentation (tool prefix, tree lines) is covered too
       // — a multi-row drag over a diff gutter shouldn't pick up the
       // `  ⎿  ` prefix on row 0 or the blank cells under it on row 1+.
+      if (node.style.position === 'absolute' && paintsOwnRect(node)) {
+        output.selectionOcclusion({ x: Math.floor(x), y: Math.floor(y), width: Math.floor(width), height: Math.floor(height) }, paneIdsForSurface(node))
+      }
       if (node.style.selectionPane !== undefined) {
         output.selectionPane({ x: Math.floor(x), y: Math.floor(y), width: Math.floor(width), height: Math.floor(height) }, node.style.selectionPane, node.style.selectionPaneViewport)
       }
@@ -2391,6 +2397,20 @@ function siblingSharesY(node: DOMElement, yogaNode: LayoutNode): boolean {
 // Example: CommandSuggestions' slash menu uses position='absolute' bottom='100%'
 // to float above the prompt; a spinner tick in the ScrollBox above re-renders
 // and overwrites those cells. Without this, the menu vanishes on the next frame.
+function paneIdsForSurface(node: DOMElement): ReadonlySet<string> {
+  const ids = new Set<string>()
+  // An overlay remains in its ancestor column; only unrelated panes below it are hidden.
+  for (let parent = node.parentNode; parent; parent = parent.parentNode) {
+    if (parent.style.selectionPane !== undefined) ids.add(parent.style.selectionPane)
+  }
+  const visit = (element: DOMElement): void => {
+    if (element.style.selectionPane !== undefined) ids.add(element.style.selectionPane)
+    for (const child of element.childNodes) if (child.nodeName !== '#text') visit(child)
+  }
+  visit(node)
+  return ids
+}
+
 function blitEscapingAbsoluteDescendants(
   node: DOMElement,
   output: Output,
@@ -2416,6 +2436,9 @@ function blitEscapingAbsoluteDescendants(
         const ch = Math.floor(cached.height)
         // Only blit rects that extend outside the parent's layout bounds —
         // cells within the parent rect are already covered by the parent blit.
+        if (paintsOwnRect(elem)) {
+          output.selectionOcclusion({ x: cx, y: cy, width: cw, height: ch }, paneIdsForSurface(elem), prevScreen)
+        }
         if (cx < px || cy < py || cx + cw > pr || cy + ch > pb) {
           output.blit(prevScreen, cx, cy, cw, ch)
         }

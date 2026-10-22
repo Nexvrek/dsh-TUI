@@ -790,7 +790,7 @@ export default class Ink {
     // were replaced in place (streaming transcript overwrite), and the
     // selection is marked stale so commit-time copy refuses (see
     // refreshSelectionFingerprint below the overlay block).
-    let selectionCoordinated = refreshSelectionPane(this.selection, frame.screen, this.frontFrame.screen);
+    let selectionCoordinated = false;
     this.maybeProbeKittyGraphics(frame.images ?? []);
 
     // Viewport-shrink translation (companion to the follow block below):
@@ -946,6 +946,14 @@ export default class Ink {
         // frame. (#185 self-heal guard: same as selection.notify.)
         if (cleared) for (const cb of this.selectionListeners) callWithUpdateOverflowGuard('selection.notify', cb);
       }
+    }
+
+    // Resolve pane geometry after scroll/viewport translations: the old row
+    // number can otherwise denote a different-width diff row in this frame.
+    const hadPaneSelection = hasSelection(this.selection);
+    selectionCoordinated = refreshSelectionPane(this.selection, frame.screen, this.frontFrame.screen) || selectionCoordinated;
+    if (hadPaneSelection && !hasSelection(this.selection)) {
+      for (const cb of this.selectionListeners) callWithUpdateOverflowGuard('selection.notify', cb);
     }
 
     // Selection overlay: invert cell styles in the screen buffer itself,

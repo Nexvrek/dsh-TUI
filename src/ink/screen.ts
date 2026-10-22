@@ -646,7 +646,7 @@ export type Screen = Size & {
    */
   softWrap: Int32Array
   /** Bounded pane row spans share the existing cell/copy-region planes. */
-  selectionPanes?: Map<string, Map<number, { start: number; end: number; wrap: number; viewport?: boolean }>>
+  selectionPanes?: Map<string, Map<number, { start: number; end: number; wrap: number; viewport?: boolean; excluded?: readonly { start: number; end: number }[] }>>
 }
 
 function isEmptyCellByIndex(screen: Screen, index: number): boolean {
@@ -1355,7 +1355,15 @@ export function blitRegion(
         if (!target) dst.selectionPanes.set(id, target = new Map())
         const existing = target.get(row)
         target.set(row, { start: Math.min(existing?.start ?? Infinity, Math.max(regionX, span.start)),
-          end: Math.max(existing?.end ?? 0, Math.min(maxX, span.end)), wrap: span.wrap, viewport: span.viewport })
+          end: Math.max(existing?.end ?? 0, Math.min(maxX, span.end)), wrap: span.wrap, viewport: span.viewport,
+          excluded: [
+            ...(existing?.excluded ?? []).flatMap(range => [
+              { start: range.start, end: Math.min(range.end, regionX) },
+              { start: Math.max(range.start, maxX), end: range.end },
+            ]),
+            ...(span.excluded ?? []).map(range => ({ start: Math.max(regionX, range.start), end: Math.min(maxX, range.end) })),
+          ].filter(range => range.end > range.start),
+        })
       }
     }
   }
