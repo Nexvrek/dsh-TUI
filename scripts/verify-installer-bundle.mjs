@@ -14,7 +14,7 @@
  * 运行：node scripts/verify-installer-bundle.mjs（有 FAIL 即以非 0 退出）
  */
 import { execFileSync, spawnSync } from 'node:child_process'
-import { copyFileSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -200,7 +200,7 @@ try {
 
     copyFileSync(stage('启动 dsh-tui.bat'), join(smokeDir, 'launch.bat'))
     for (const code of [0, 17]) {
-      writeFileSync(join(smokeDir, 'dsh-tui.cmd'), `@echo off\r\necho DSH_LAUNCH_STUB_OK\r\nexit /b ${code}\r\n`)
+      writeFileSync(join(smokeDir, 'install.ps1'), `param([switch]$LaunchOnly)\nif (-not $LaunchOnly) { exit 19 }\nWrite-Output 'DSH_LAUNCH_STUB_OK'\nexit ${code}\n`)
       const launch = spawnSync(comSpec, ['/d', '/c', 'launch.bat'], {
         cwd: smokeDir, encoding: 'utf8', timeout: 20_000, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true,
       })
@@ -212,8 +212,9 @@ try {
   }
   checkCmdSmoke()
 
-  // Run the generated installer, with package commands and user persistence
-  // isolated in the child PowerShell process. No downloads or registry writes.
+  // Run the unchanged generated installer against real, isolated command files.
+  // Package operations only copy fixture shims; user persistence stays mocked
+  // inside the child PowerShell. No downloads or registry writes occur.
   const checkInstallerFlow = () => {
     const powershell = process.env.DSH_TUI_TEST_POWERSHELL ?? (isWin ? 'powershell' : undefined)
     if (!powershell) return skip('生成 install.ps1 安装与首次启动流程', '需要 PowerShell；Windows CI 使用 PS 5.1')
@@ -230,22 +231,93 @@ try {
       { name: 'launch error is returned', launchCode: 9, code: 1 },
       { name: 'N leaves without launching', launchAnswer: ' N ', launches: 0 },
       { name: 'redirected input does not prompt or launch', redirected: true, prompts: 0, launches: 0 },
+      { name: 'repair bypasses old machine pnpm and dsh shims', windowsOnly: true, missingPnpm: true, oldPnpm: '10.20.0', pnpmInstalls: 1, shadow: true, processKey: true, keyPresent: true },
+      { name: 'compatible tools use the installed prefix despite stale PATH', windowsOnly: true, oldPnpm: '11.21.0', shadow: true, processKey: true, keyPresent: true },
     ]
+    const driver = join(tmp, 'flow-command.mjs')
+    writeFileSync(driver, String.raw`
+import assert from 'node:assert/strict'
+import { spawnSync } from 'node:child_process'
+import { appendFileSync, copyFileSync, readFileSync, writeFileSync } from 'node:fs'
+import { join } from 'node:path'
+const [tool, configPath, ...args] = process.argv.slice(2)
+const config = JSON.parse(readFileSync(configPath, 'utf8'))
+const event = name => appendFileSync(config.eventsPath, name + '\n')
+if (tool.startsWith('old-')) {
+  event(tool)
+  console.log(tool === 'old-pnpm' ? config.oldPnpm : '0.0.1')
+  process.exit(0)
+}
+if (tool === 'npm') {
+  if (args[0] === 'config') { console.log(config.prefix); process.exit(0) }
+  if (args.some(arg => arg.startsWith('pnpm@'))) {
+    event('pnpm-install')
+    copyFileSync(join(config.templates, 'pnpm.cmd'), join(config.prefix, 'pnpm.cmd'))
+    writeFileSync(config.pnpmState, config.keepOldPnpm ? config.pnpm : '11.21.0')
+  } else {
+    event('install')
+    for (const name of ['dsh.cmd', 'dsh-tui.cmd']) copyFileSync(join(config.templates, name), join(config.prefix, name))
+  }
+} else if (tool === 'pnpm') {
+  event('new-pnpm')
+  console.log(readFileSync(config.pnpmState, 'utf8'))
+} else if (tool === 'dsh') {
+  event('new-dsh')
+  console.log('0.2.1-rc.2')
+} else if (tool === 'dsh-tui') {
+  if (args.includes('--version')) { event('version'); console.log('0.16.1'); process.exit(config.versionCode) }
+  event('launch')
+  if (config.processKey) assert.equal(process.env.DEEPSEEK_API_KEY, 'fixture-process-secret', 'Existing key changed')
+  else if (config.newKey) assert.equal(process.env.DEEPSEEK_API_KEY, 'fixture-new-secret', 'New key not inherited')
+  else if (config.savedKey) assert.equal(process.env.DEEPSEEK_API_KEY, 'fixture-saved-secret', 'Saved key not inherited')
+  if (config.shadow) {
+    for (const [name, version] of [['pnpm', '11.21.0'], ['dsh', '0.2.1-rc.2']]) {
+      const child = spawnSync(process.env.ComSpec, ['/d', '/c', name + '.cmd --version'], { encoding: 'utf8', timeout: 5000, windowsHide: true })
+      assert.equal(child.status, 0, name + ' child failed')
+      assert.equal(child.stdout.trim(), version, name + ' child used a stale PATH command')
+    }
+  }
+  process.exit(config.launchCode)
+} else throw new Error('Unexpected fixture command')
+`, 'utf8')
     for (const [index, fixture] of fixtures.entries()) {
+      if (fixture.windowsOnly && !isWin) {
+        skip(`install.ps1: ${fixture.name}`, '真实 .cmd PATH 与后续双击需 Windows')
+        continue
+      }
+      const flowDir = mkdtempSync(join(tmp, `flow-${index}-`))
+      const oldBin = join(flowDir, 'old machine bin')
+      const prefix = join(flowDir, '新 npm [1] prefix')
+      const templates = join(flowDir, 'templates')
+      for (const dir of [oldBin, prefix, templates]) mkdirSync(dir)
       const config = {
         node: '24.0.0', pnpm: '11.21.0', versionCode: 0, launchCode: 0,
-        launchAnswer: '', ...fixture,
+        oldPnpm: '10.20.0', launchAnswer: '', ...fixture,
+        prefix, templates, pnpmState: join(flowDir, 'pnpm-version.txt'), eventsPath: join(flowDir, 'command-events.txt'),
       }
       const configPath = join(tmp, `flow-${index}.json`)
       const resultPath = join(tmp, `flow-${index}-result.json`)
       const wrapper = join(tmp, `flow-${index}.ps1`)
+      const installer = join(flowDir, 'install.ps1')
+      copyFileSync(stage('install.ps1'), installer)
+      copyFileSync(stage('启动 dsh-tui.bat'), join(flowDir, 'launch.bat'))
+      const command = (file, tool) => writeFileSync(file, isWin
+        ? `@echo off\r\n"%DSH_FIXTURE_NODE%" "%DSH_FIXTURE_DRIVER%" ${tool} "%DSH_FIXTURE_CONFIG%" %*\r\nexit /b %ERRORLEVEL%\r\n`
+        : `#!/bin/sh\nexec "$DSH_FIXTURE_NODE" "$DSH_FIXTURE_DRIVER" ${tool} "$DSH_FIXTURE_CONFIG" "$@"\n`, { mode: 0o755 })
+      command(join(oldBin, 'npm.cmd'), 'npm')
+      for (const name of ['pnpm', 'dsh', 'dsh-tui']) {
+        command(join(oldBin, `${name}.cmd`), `old-${name}`)
+        command(join(templates, `${name}.cmd`), name)
+      }
+      if (!config.missingPnpm) copyFileSync(join(templates, 'pnpm.cmd'), join(prefix, 'pnpm.cmd'))
+      writeFileSync(config.pnpmState, config.pnpm)
+      writeFileSync(config.eventsPath, '')
       writeFileSync(configPath, JSON.stringify(config))
       writeFileSync(wrapper, `\uFEFF
 $ErrorActionPreference = 'Stop'
-[System.Console]::OutputEncoding = [Text.UTF8Encoding]::new($false)
-$global:config = Get-Content -Raw -LiteralPath ${psQuote(configPath)} | ConvertFrom-Json
+$global:config = Get-Content -Raw -Encoding UTF8 -LiteralPath ${psQuote(configPath)} | ConvertFrom-Json
+[System.Console]::OutputEncoding = if ($config.shadow) { [Text.Encoding]::GetEncoding(437) } else { [Text.UTF8Encoding]::new($false) }
 $global:events = [Collections.Generic.List[string]]::new()
-$global:pnpmVersion = $config.pnpm
 $global:LASTEXITCODE = 0
 class Environment {
   static [string]$SavedKey = ''
@@ -268,23 +340,6 @@ function node { $global:LASTEXITCODE = 0; "v$($config.node)" }
 function npm { throw 'Bare npm may select an unsigned PowerShell shim' }
 function pnpm { throw 'Bare pnpm may select an unsigned PowerShell shim' }
 function dsh-tui { throw 'Bare dsh-tui may select an unsigned PowerShell shim' }
-function npm.cmd {
-  $global:LASTEXITCODE = 0
-  if ($args[0] -eq 'config') { return 'C:\\fixture\\npm' }
-  if ($args -match '^pnpm@') {
-    $events.Add('pnpm-install')
-    if (-not $config.keepOldPnpm) { $global:pnpmVersion = '11.21.0' }
-  } else { $events.Add('install') }
-}
-function pnpm.cmd { $global:LASTEXITCODE = 0; $global:pnpmVersion }
-function dsh-tui.cmd {
-  if ($args -contains '--version') { $global:LASTEXITCODE = $config.versionCode; return '0.16.1' }
-  $events.Add('launch')
-  if ($config.processKey -and $env:DEEPSEEK_API_KEY -ne 'fixture-process-secret') { throw 'Existing key changed' }
-  if ($config.newKey -and $env:DEEPSEEK_API_KEY -ne 'fixture-new-secret') { throw 'New key not inherited' }
-  if (-not $config.processKey -and $config.savedKey -and $env:DEEPSEEK_API_KEY -ne 'fixture-saved-secret') { throw 'Saved key not inherited' }
-  $global:LASTEXITCODE = $config.launchCode
-}
 function Read-Host {
   param([string]$Prompt, [switch]$AsSecureString)
   $events.Add('prompt')
@@ -295,18 +350,23 @@ function Read-Host {
   }
   return $config.launchAnswer
 }
-& ${psQuote(stage('install.ps1'))}
+& ${psQuote(installer)}
 $code = $LASTEXITCODE
 $result = @{ events = @($events.ToArray()); saved = [Environment]::Written; keyPresent = [bool]$env:DEEPSEEK_API_KEY }
 [IO.File]::WriteAllText(${psQuote(resultPath)}, ($result | ConvertTo-Json -Compress), [Text.UTF8Encoding]::new($false))
 exit $code
 `, 'utf8')
+      const env = { ...process.env, DSH_FIXTURE_NODE: process.execPath, DSH_FIXTURE_DRIVER: driver,
+        DSH_FIXTURE_CONFIG: configPath, DEEPSEEK_API_KEY: config.processKey ? 'fixture-process-secret' : '' }
+      const pathKey = Object.keys(env).find(name => name.toLowerCase() === 'path') ?? 'PATH'
+      env[pathKey] = oldBin + (isWin ? ';' : ':') + (env[pathKey] ?? '')
       const run = spawnSync(powershell, ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', wrapper], {
-        encoding: 'utf8', timeout: 20_000, windowsHide: true,
+        env, encoding: 'utf8', timeout: 20_000, windowsHide: true,
       })
       const output = (run.stdout ?? '') + (run.stderr ?? '')
       let result
       try { result = JSON.parse(readFileSync(resultPath, 'utf8')) } catch {}
+      if (result) result.events.push(...readFileSync(config.eventsPath, 'utf8').trim().split('\n').filter(Boolean))
       const count = name => result?.events.filter(event => event === name).length
       const expectedCode = config.code ?? 0
       const problems = [
@@ -320,10 +380,38 @@ exit $code
         result?.saved !== (config.saved ?? false) && 'incorrect credential persistence',
         config.keyPresent !== undefined && result?.keyPresent !== config.keyPresent && 'incorrect child credential state',
         config.complete === false && output.includes('安装完成！启动方式') && 'false success message',
+        result?.events.some(event => event.startsWith('old-')) && 'stale PATH command was invoked',
         /fixture-(process|saved|new)-secret/.test(output) && 'credential leaked to output',
       ].filter(Boolean)
       if (problems.length) fail(`install.ps1: ${config.name}`, `${problems.join('; ')} (${clip(output, 400)})`, 'N/A')
       else pass(`install.ps1: ${config.name}${isWin ? ' (PS 5.1)' : ' (pwsh; 非 Windows)'}`)
+      if (config.shadow && !problems.length) {
+        const prefixFile = join(flowDir, 'installed-prefix.txt')
+        const savedPrefix = readFileSync(prefixFile, 'utf8')
+        const before = readFileSync(config.eventsPath, 'utf8')
+        const runLauncher = () => spawnSync(process.env.ComSpec, ['/d', '/c', 'launch.bat'], {
+          cwd: flowDir, env, encoding: 'utf8', timeout: 20_000, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true,
+        })
+        const launch = runLauncher()
+        const extra = readFileSync(config.eventsPath, 'utf8').slice(before.length).trim().split('\n')
+        if (savedPrefix !== prefix || launch.error || launch.status !== 0 || extra.join(',') !== 'launch,new-pnpm,new-dsh') {
+          fail(`launch.bat: ${config.name}`, `绑定目录/子进程 PATH 未保留（exit ${launch.status}; ${clip((launch.stdout ?? '') + (launch.stderr ?? ''), 400)}）`, 'N/A')
+        } else pass(`launch.bat: ${config.name}, saved Unicode prefix and child commands preserved`)
+        if (config.missingPnpm) {
+          config.launchCode = 17
+          writeFileSync(configPath, JSON.stringify(config))
+          const launchError = runLauncher()
+          if (launchError.error || launchError.status !== 17 || !launchError.stdout?.includes('Read the error above')) {
+            fail('launch.bat: bound command failure', '真实绑定命令的退出码或恢复提示丢失', 'N/A')
+          } else pass('launch.bat: bound command exit 17 remains visible')
+          writeFileSync(prefixFile, '')
+          const previousEvents = readFileSync(config.eventsPath, 'utf8')
+          const emptyPrefix = runLauncher()
+          if (emptyPrefix.error || emptyPrefix.status !== 1 || previousEvents !== readFileSync(config.eventsPath, 'utf8')) {
+            fail('launch.bat: empty saved prefix', '空目录记录未停止，或回退到旧 PATH 命令', 'N/A')
+          } else pass('launch.bat: empty saved prefix fails without a PATH fallback')
+        }
+      }
     }
   }
   checkInstallerFlow()

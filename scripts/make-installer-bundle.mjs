@@ -50,16 +50,11 @@ endlocal
 const LAUNCH_BAT = `@echo off
 rem dsh-TUI launcher (Windows): double-click to start the TUI.
 setlocal
-where dsh-tui.cmd >nul 2>&1
-if errorlevel 1 (
-  echo dsh-tui was not found. Please run install.bat first.
-  pause
-  exit /b 1
-)
-call dsh-tui.cmd
+set "DIR=%~dp0"
+powershell -NoProfile -ExecutionPolicy Bypass -File "%DIR%install.ps1" -LaunchOnly
 set "EXIT_CODE=%ERRORLEVEL%"
 if not "%EXIT_CODE%"=="0" (
-  echo dsh-tui could not start. Read the error above or run dsh-tui.cmd doctor.
+  echo dsh-tui could not start. Read the error above or rerun install.bat.
   pause
 )
 exit /b %EXIT_CODE%
@@ -67,6 +62,7 @@ exit /b %EXIT_CODE%
 
 const INSTALL_PS1 = `# dsh-TUI 一键安装脚本（Windows / PowerShell）
 # 由整合包生成脚本自动产出，安装时自动获取 npm 最新版。
+param([switch]$LaunchOnly)
 $ErrorActionPreference = 'Stop'
 
 function Step($m)  { Write-Host "\`n==> $m" -ForegroundColor Cyan }
@@ -83,6 +79,28 @@ function Get-NodeVersion {
   $raw = & node --version 2>$null
   if ($LASTEXITCODE -ne 0 -or -not $raw) { return $null }
   try { return [version](($raw.TrimStart('v') -split '-')[0]) } catch { return $null }
+}
+
+$installedPrefixFile = Join-Path $PSScriptRoot 'installed-prefix.txt'
+if ($LaunchOnly) {
+  if (-not (Test-Path -LiteralPath $installedPrefixFile -PathType Leaf)) {
+    Fail '请先运行本目录内的 install.bat 完成安装'
+  }
+  $prefix = [string](Get-Content -Raw -Encoding UTF8 -LiteralPath $installedPrefixFile)
+  $prefix = $prefix.Trim()
+  if (-not $prefix) { Fail '启动目录记录为空，请重新运行本目录内的 install.bat' }
+  $dshTuiCmd = Join-Path $prefix 'dsh-tui.cmd'
+  if (-not (Test-Path -LiteralPath $dshTuiCmd -PathType Leaf) -or
+      -not (Test-Path -LiteralPath (Join-Path $prefix 'dsh.cmd') -PathType Leaf) -or
+      -not (Test-Path -LiteralPath (Join-Path $prefix 'pnpm.cmd') -PathType Leaf)) {
+    Fail '已安装的命令不存在，请重新运行本目录内的 install.bat'
+  }
+  $env:Path = $prefix + ';' + $env:Path
+  if (-not $env:DEEPSEEK_API_KEY) {
+    $env:DEEPSEEK_API_KEY = [Environment]::GetEnvironmentVariable('DEEPSEEK_API_KEY', 'User')
+  }
+  & $dshTuiCmd
+  exit $LASTEXITCODE
 }
 
 Write-Host ''
@@ -117,41 +135,54 @@ OK "Node.js $($nv.ToString())"
 
 # 2. pnpm（dsh profile 初始化需要 11+）
 # npm's .cmd launchers work even when PowerShell blocks unsigned .ps1 shims.
-if (-not (Get-Command npm.cmd -ErrorAction SilentlyContinue)) {
+$npmCmd = Get-Command npm.cmd -CommandType Application -ErrorAction SilentlyContinue
+if (-not $npmCmd) {
   Fail '未找到 npm.cmd，请重新安装包含 npm 的 Node.js 后重跑'
 }
-function Get-PnpmVersion {
-  if (-not (Get-Command pnpm.cmd -ErrorAction SilentlyContinue)) { return $null }
+# npm writes UTF-8 even when PowerShell 5.1's console uses another code page.
+$previousEncoding = [System.Console]::OutputEncoding
+try {
+  [System.Console]::OutputEncoding = [Text.UTF8Encoding]::new($false)
+  $prefix = & $npmCmd config get prefix 2>$null
+  $prefixCode = $LASTEXITCODE
+} finally { [System.Console]::OutputEncoding = $previousEncoding }
+if ($prefixCode -ne 0 -or -not $prefix) { Fail '无法读取 npm 全局安装目录，请检查 npm 配置后重跑' }
+$prefix = $prefix.Trim()
+if (-not $prefix) { Fail 'npm 全局安装目录为空，请检查 npm 配置后重跑' }
+$pnpmPath = Join-Path $prefix 'pnpm.cmd'
+function Get-PnpmVersion($command) {
+  if (-not (Test-Path -LiteralPath $command -PathType Leaf)) { return $null }
   try {
-    $raw = & pnpm.cmd --version 2>$null
+    $raw = & $command --version 2>$null
     if ($LASTEXITCODE -ne 0 -or -not $raw) { return $null }
     return [version](($raw.Trim() -split '-')[0])
   } catch { return $null }
 }
 Step '检查 pnpm（需要 11+）'
-$pv = Get-PnpmVersion
+$pv = Get-PnpmVersion $pnpmPath
 if (-not $pv -or $pv.Major -lt 11) {
   Warn 'pnpm 不可用或版本过旧，正在安装兼容版本…'
-  & npm.cmd install -g pnpm@${pnpmVersion}
+  & $npmCmd install -g pnpm@${pnpmVersion}
   if ($LASTEXITCODE -ne 0) { Fail 'pnpm 安装失败，请手动执行：npm.cmd install -g pnpm@${pnpmVersion}' }
-  Refresh-Path
-  $pv = Get-PnpmVersion
+  $pv = Get-PnpmVersion $pnpmPath
 }
-if (-not $pv -or $pv.Major -lt 11) { Fail 'pnpm 11+ 仍不可用，请检查 PATH 后重跑 install.bat' }
+if (-not $pv -or $pv.Major -lt 11) { Fail 'pnpm 11+ 仍不可用，请检查 npm 全局安装目录后重跑 install.bat' }
 OK "pnpm $($pv.ToString())"
+# Keep the installed pnpm and DSH first for profile initialization in children.
+# This only changes this launch's environment, not Machine/User PATH settings.
+$env:Path = $prefix + ';' + $env:Path
 
 # 3. 全局安装 dsh CLI + dsh-TUI
 Step '安装 @deepseek-ai/dsh 与 @deepseek-harness-tui/dsh-tui（首次较慢，请稍候）'
-$prefix = (& npm.cmd config get prefix 2>$null).Trim()
 if ($prefix -match 'Program Files') {
   Warn "npm 全局目录在受保护路径（$prefix），若下面安装报权限错误，请右键 install.bat 以管理员身份运行，或执行：npm config set prefix \"\$env:APPDATA\\npm\""
 }
 $npmArgs = @('install', '-g', '@deepseek-ai/dsh', '@deepseek-harness-tui/dsh-tui',
   '--fetch-timeout=60000', '--fetch-retries=1')
-& npm.cmd @npmArgs
+& $npmCmd @npmArgs
 if ($LASTEXITCODE -ne 0) {
   Warn 'npm 官方源安装失败（国内网络常见），切换 npmmirror 镜像重试…'
-  & npm.cmd @npmArgs --registry=https://registry.npmmirror.com
+  & $npmCmd @npmArgs --registry=https://registry.npmmirror.com
   if ($LASTEXITCODE -ne 0) {
     Fail "安装失败。可手动执行：npm install -g @deepseek-ai/dsh @deepseek-harness-tui/dsh-tui --registry=https://registry.npmmirror.com"
   }
@@ -160,13 +191,15 @@ OK 'dsh CLI 与 dsh-TUI 安装完成'
 
 # 4. 校验
 Step '校验安装'
-Refresh-Path
-if (-not (Get-Command dsh-tui.cmd -ErrorAction SilentlyContinue)) {
-  Fail '未找到 dsh-tui 命令。请关闭本窗口、重新打开终端后再次运行 install.bat'
+$dshTuiCmd = Join-Path $prefix 'dsh-tui.cmd'
+if (-not (Test-Path -LiteralPath $dshTuiCmd -PathType Leaf) -or
+    -not (Test-Path -LiteralPath (Join-Path $prefix 'dsh.cmd') -PathType Leaf)) {
+  Fail '本次安装目录中未找到 dsh 或 dsh-tui 命令，请保留上方安装输出并重新运行 install.bat'
 }
-& dsh-tui.cmd --version
-if ($LASTEXITCODE -ne 0) { Fail 'dsh-tui 启动校验失败。请保留上方错误，并运行 dsh-tui.cmd doctor 检查环境' }
+& $dshTuiCmd --version
+if ($LASTEXITCODE -ne 0) { Fail "dsh-tui 启动校验失败。请保留上方错误，并在 PowerShell 运行：& '$dshTuiCmd' doctor" }
 OK 'dsh-tui 命令可用'
+[IO.File]::WriteAllText($installedPrefixFile, $prefix, [Text.UTF8Encoding]::new($false))
 
 # 5. DEEPSEEK_API_KEY
 Step '检查 DEEPSEEK_API_KEY'
@@ -202,18 +235,18 @@ if (-not $env:DEEPSEEK_API_KEY -and [Console]::IsInputRedirected) {
 Write-Host ''
 Write-Host '============================================' -ForegroundColor Green
 Write-Host '  安装完成！启动方式：' -ForegroundColor Green
-Write-Host '    1. 打开终端，运行：dsh-tui.cmd 或 dst.cmd' -ForegroundColor Green
-Write-Host '    2. 或双击本目录下的：启动 dsh-tui.bat' -ForegroundColor Green
+Write-Host '    双击本目录下的：启动 dsh-tui.bat（使用本次安装的版本）' -ForegroundColor Green
+Write-Host '  请保留整个解压文件夹，供下次双击启动。' -ForegroundColor Green
 Write-Host '  首次启动会自动初始化 profile，稍等片刻即可进入界面。' -ForegroundColor Green
-Write-Host '  更新：dsh-tui.cmd update ｜ 文档：https://dshtui.com' -ForegroundColor Green
+Write-Host '  更新：重新运行本目录的 install.bat ｜ 文档：https://dshtui.com' -ForegroundColor Green
 Write-Host '============================================' -ForegroundColor Green
 Write-Host ''
 Write-Host '  按回车键立即启动；输入 N 后回车退出。' -ForegroundColor Green
 if ([Console]::IsInputRedirected) { exit 0 }
 $launch = Read-Host '现在启动'
 if ($launch.Trim() -notmatch '^(n|no)$') {
-  & dsh-tui.cmd
-  if ($LASTEXITCODE -ne 0) { Fail '首次启动失败。请保留上方错误，并运行 dsh-tui.cmd doctor 检查环境' }
+  & $dshTuiCmd
+  if ($LASTEXITCODE -ne 0) { Fail "首次启动失败。请保留上方错误，并在 PowerShell 运行：& '$dshTuiCmd' doctor" }
 }
 `
 
@@ -310,8 +343,8 @@ const README_TXT = `dsh-TUI 一键安装整合包（dsh-tui-setup）
 
 这是什么？
   dsh-TUI 是 DeepSeek Harness 的交互式终端界面应用，支持全屏会话。
-  本整合包把"装 Node、装 pnpm、装 dsh CLI 和 dsh-TUI、配 API Key"全部自动化，
-  解压后一条命令即可完成安装，无需手动敲多行命令。
+  本整合包检查 Node、准备 pnpm、安装 dsh CLI 和 dsh-TUI，并引导配置 API Key。
+  Windows 缺少 Node 时会尝试 winget 安装；无法自动安装或版本过旧时会提示手动处理。
 
 系统要求
   - Windows 10/11（推荐 Windows Terminal）或 macOS / Linux
@@ -329,7 +362,7 @@ const README_TXT = `dsh-TUI 一键安装整合包（dsh-tui-setup）
       npm install -g @deepseek-ai/dsh @deepseek-harness-tui/dsh-tui
 
 安装过程中会做什么
-  1. 检查 Node.js（^22.19 或 >=24），没有则自动安装（Windows 用 winget）；
+  1. 检查 Node.js（^22.19 或 >=24）；Windows 缺少时尝试 winget，过旧时提示升级；
   2. 安装 pnpm（Windows 会检查 11+，缺失或过旧时安装兼容版本）；
   3. 全局安装 @deepseek-ai/dsh 与 @deepseek-harness-tui/dsh-tui；
   4. 校验 dsh-tui 命令可用；
@@ -337,7 +370,8 @@ const README_TXT = `dsh-TUI 一键安装整合包（dsh-tui-setup）
   6. Windows 安装完成后按回车即可立即启动。
 
 启动
-  Windows：双击"启动 dsh-tui.bat"；或打开终端运行：dsh-tui.cmd 或 dst.cmd
+  Windows：双击"启动 dsh-tui.bat"；请保留整个解压文件夹。
+    启动器绑定本次安装的目录，并让 DSH 与 pnpm 子进程使用该目录中的命令。
   macOS / Linux：运行：dsh-tui 或 dst
   首次启动会自动初始化 profile（dsh --profile dsh-tui 等价），稍等片刻进入界面。
 
@@ -346,7 +380,7 @@ API Key 从哪来？
   也可以配置兼容端点：DEEPSEEK_BASE_URL + DEEPSEEK_API_KEY。
 
 日常使用
-  更新：dsh-tui update（或 /update）
+  更新：Windows 重新运行 install.bat；macOS / Linux 运行 dsh-tui update；也可在界面使用 /update
   文档：https://dshtui.com ｜ GitHub：https://github.com/ccch1mneyyy/dsh-TUI
   卸载：npm uninstall -g @deepseek-harness-tui/dsh-tui @deepseek-ai/dsh
         并删除 %USERPROFILE%\\.dsh-tui 与 ~/.dsh/profiles/dsh-tui 目录
@@ -355,11 +389,14 @@ API Key 从哪来？
 English summary:
   One-command installer bundle for the dsh-TUI plugin (DeepSeek Harness TUI).
   Windows: double-click install.bat. macOS/Linux: sh install.sh.
-  It installs Node (if missing), pnpm, @deepseek-ai/dsh + @deepseek-harness-tui/dsh-tui,
+  It checks Node, prepares pnpm, installs @deepseek-ai/dsh + @deepseek-harness-tui/dsh-tui,
   verifies the dsh-tui command, and guides DEEPSEEK_API_KEY setup.
+  On Windows, missing Node is installed through winget when available; an unsupported
+  Node version must be upgraded before rerunning the installer.
   On Windows, key input is hidden and takes effect immediately; press Enter to launch.
   You can skip the key and configure an account inside the TUI.
-  Windows: dsh-tui.cmd (or dst.cmd). macOS/Linux: dsh-tui (or dst).
+  Windows: keep the extracted folder and double-click 启动 dsh-tui.bat to use this install.
+  macOS/Linux: dsh-tui (or dst).
 `
 
 // ─── 组装 ───────────────────────────────────────────────────────────────────
