@@ -118,6 +118,10 @@ daily** (TypeScript).
 
 Download `dsh-tui-setup-win-x64.exe` from [Releases](https://github.com/ccch1mneyyy/dsh-TUI/releases) and run it. Per-user, no administrator, fully offline, and no preinstalled Node or DSH.
 
+### Windows portable package (x64)
+
+Download `dsh-tui-standalone-win-x64.zip` from the same release, extract all files, and run `dsh-tui.exe`. The TUI includes Node and its matching DSH runtime; first launch extracts that runtime, with no separate Node or pnpm needed to open the interface. In PowerShell, `.\dsh-tui.exe --self-test` checks the bundled versions and loads the runtime modules (no sign-in, model request or user-profile creation); success exits with code 0. Then run `.\dsh-tui.exe` and configure an account or API key. Independent automation CLI subcommands still require external Node; see the [CLI guide](docs/cli.en.md).
+
 ### Command-line installation
 
 Prerequisites: [Node.js](https://nodejs.org/en) and

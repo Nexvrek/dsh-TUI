@@ -111,6 +111,10 @@
 
 从 [Releases](https://github.com/ccch1mneyyy/dsh-TUI/releases) 下载 `dsh-tui-setup-win-x64.exe` 双击运行。免管理员、全离线，也无需预先装 Node 或 DSH。
 
+### Windows 便携包（x64）
+
+下载同一 Release 的 `dsh-tui-standalone-win-x64.zip`，全部解压后运行 `dsh-tui.exe`。TUI 自带 Node 与配套 DSH，首次运行会释放运行时；不需要另装 Node 或 pnpm 才能打开界面。解压后可在 PowerShell 运行 `.\dsh-tui.exe --self-test` 检查包版本与运行时模块是否能完整加载（不登录、不发模型请求、不创建用户 profile）；正常退出码为 0。自检通过后运行 `.\dsh-tui.exe`，再配置账号或 API Key。独立自动化 CLI 子命令仍需要外部 Node，详见 [CLI 手册](docs/cli.md)。
+
 ### 命令行安装
 
 前置条件：安装 [Node.js](https://nodejs.org/zh-cn) 与 [deepseek-harness](https://github.com/deepseek-ai/deepseek-harness)。`deepseek-official` API key 路由需要 `DEEPSEEK_API_KEY`；DSH 0.2.0-rc.1+ 的标准 profile 也可用 `/auth login deepseek-account` 登录，再通过 `/model` 选择独立的账号路由。其他支持的账号可在启动后通过 `/provider` 或 `/auth` 登录。

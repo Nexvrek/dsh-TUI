@@ -58,6 +58,8 @@ const {
 // scripts/verify-standalone-cache-guard.mjs).
 const { ensureRuntime } = require('./cacheGuard.cjs')
 
+// Build seeds: make-standalone-bundle synchronizes both from package.json and
+// the adapter's primary contract before resolving or archiving the runtime.
 const TUI_VERSION = '0.15.0'
 const DSH_VERSION = '0.2.0-rc.2'
 const BUNDLE_ID = `tui-${TUI_VERSION}-dsh-${DSH_VERSION}`
@@ -142,8 +144,9 @@ function ensureProfile() {
   replaceNodeModulesLink(profileDir)
 }
 
-// Clean up Windows .old backup file from a previous update
-if (process.platform === 'win32') {
+// Only a packaged executable owns this backup; a source-mode diagnostic must
+// never remove a file next to the user's Node installation.
+if (process.pkg && process.platform === 'win32') {
   try {
     const oldBinary = `${process.execPath}.old`
     if (existsSync(oldBinary)) rmSync(oldBinary, { force: true })
@@ -153,6 +156,32 @@ if (process.platform === 'win32') {
 }
 
 await ensureRuntimeReady()
+if (process.argv[2] === '--self-test') {
+  // Import the lazy runtime too: --version and the public plugin factory alone
+  // do not reach missing exports such as ToolCallId (#1660). No profile is
+  // initialized and no model request is made by this diagnostic.
+  for (const [name, directory, expected] of [
+    ['@deepseek-ai/dsh', dirname(dirname(dshBin)), DSH_VERSION],
+    ['@deepseek-harness-tui/dsh-tui', tuiRoot, TUI_VERSION],
+  ]) {
+    const installed = JSON.parse(readFileSync(join(directory, 'package.json'), 'utf8'))
+    if (installed.name !== name || installed.version !== expected) {
+      throw new Error(`Standalone runtime mismatch: expected ${name}@${expected}, found ${installed.name}@${installed.version}`)
+    }
+  }
+  const hostRequire = createRequire(join(dirname(dirname(dshBin)), 'package.json'))
+  const tuiRequire = createRequire(join(tuiRoot, 'package.json'))
+  for (const name of ['@deepseek-ai/cordis', '@deepseek-ai/schemastery']) {
+    if (hostRequire.resolve(name) !== tuiRequire.resolve(name)) {
+      throw new Error(`Standalone runtime has separate host/TUI instances of ${name}`)
+    }
+  }
+  await import(pathToFileURL(join(tuiRoot, 'lib/types/index.js')).href)
+  const runtime = await import(pathToFileURL(join(tuiRoot, 'lib/types/dsh-adapter/plugin.js')).href)
+  if (typeof runtime.apply !== 'function') throw new Error('Standalone TUI runtime is missing its apply export')
+  console.log(`DSH_TUI_STANDALONE_OK ${JSON.stringify({ tui: TUI_VERSION, dsh: DSH_VERSION })}`)
+  process.exit(0)
+}
 const cliEntry = join(tuiRoot, 'cli', 'entry.mjs')
 const cliCommand = process.argv.slice(2)[0]
 if (['cli', 'run', '-p', '--print', 'session', 'models', 'skills', 'mcp', 'auth', 'capabilities', 'dsh'].includes(cliCommand)) {
@@ -174,5 +203,8 @@ process.env.DSH_TUI_STANDALONE = '1'
 process.env.DSH_TUI_STANDALONE_BINARY = process.execPath
 process.env.DSH_TUI_LAUNCHER_VERSION = TUI_VERSION
 process.argv = [process.execPath, dshBin, '--profile', PROFILE, ...process.argv.slice(2)]
-await import(pathToFileURL(dshBin).href)
+// DSH's public bin only auto-runs when import.meta.main is true. Importing it
+// from this packaged launcher requires one explicit call to its public entry.
+const { runCli } = await import(pathToFileURL(dshBin).href)
+await runCli()
 
