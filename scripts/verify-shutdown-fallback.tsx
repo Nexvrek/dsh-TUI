@@ -8,6 +8,7 @@
  */
 import { readFileSync } from 'node:fs'
 import { PassThrough, Writable } from 'node:stream'
+import { settled } from './lib/term-test.mjs'
 import React from 'react'
 import { createRoot, render, AlternateScreen, Text, useInput } from '../src/ui.js'
 import { claimShutdownInput, getShutdownInput } from '../src/ink/shutdown-input.js'
@@ -253,6 +254,62 @@ for (const mode of ['destroyed', 'detached-legacy', 'throwing-drain', 'revoked',
   const next = await render(React.createElement(Text, null, 'next'), options)
   check('same-instance render retains its original live lease', first.shutdownInput === next.shutdownInput && next.shutdownInput.ownsInput())
   await next.detachForShutdown()
+  input.destroy()
+}
+
+// Independent non-interactive roots may share the default/piped input, while
+// an interactive input still transfers ownership even across different outputs.
+for (const tty of [false, true]) {
+  const input = new OwnedInput()
+  input.isTTY = tty
+  const firstOutput = new CapturingStream(), nextOutput = new CapturingStream()
+  firstOutput.isTTY = nextOutput.isTTY = tty
+  const options = { stdin: input as unknown as NodeJS.ReadStream, patchConsole: false, terminalImages: false }
+  let received = '', disposed = false, outcome = 'pending'
+  function First() {
+    useInput(() => {}, { isActive: tty })
+    React.useEffect(() => () => { disposed = true }, [])
+    return React.createElement(Text, null, 'first-root')
+  }
+  function Next() {
+    useInput(text => { received += text }, { isActive: tty })
+    return React.createElement(Text, null, 'next-root')
+  }
+  const first = await createRoot({ ...options, stdout: firstOutput as unknown as NodeJS.WriteStream })
+  first.render(React.createElement(First))
+  await new Promise<void>(resolve => setImmediate(resolve))
+  const firstReaders = input.listeners('readable')
+  void first.waitUntilExit().then(() => { outcome = 'resolved' })
+  const next = await createRoot({ ...options, stdout: nextOutput as unknown as NodeJS.WriteStream })
+  next.render(React.createElement(Next))
+  await new Promise<void>(resolve => setImmediate(resolve))
+  if (tty) {
+    check('shared TTY across outputs revokes the old root and settles its exit', !first.shutdownInput.ownsInput() && disposed && outcome === 'resolved')
+    check('shared TTY removes every old readable listener', firstReaders.length > 0 && firstReaders.every(reader => !input.listeners('readable').includes(reader)))
+  } else {
+    check('non-TTY shared input retains both independent roots', first.shutdownInput.ownsInput() && next.shutdownInput.ownsInput() && !disposed && outcome === 'pending')
+    firstOutput.chunks.length = 0
+    nextOutput.chunks.length = 0
+    first.render(React.createElement(Text, null, 'first-rerender'))
+    next.render(React.createElement(Text, null, 'next-rerender'))
+    check('independent headless roots both rerender', await settled(() => firstOutput.chunks.join('').includes('first-rerender') && nextOutput.chunks.join('').includes('next-rerender')))
+  }
+  const rawCalls = input.rawCalls, nextWrites = nextOutput.chunks.length
+  first.unmount()
+  await first.waitUntilExit()
+  check(`${tty ? 'TTY' : 'headless'}: old unmount preserves the other root and device`, next.shutdownInput.ownsInput() && input.rawCalls === rawCalls && nextOutput.chunks.length === nextWrites)
+  if (tty) {
+    input.write('new-owner-key')
+    await new Promise<void>(resolve => setImmediate(resolve))
+    check('shared TTY replacement receives input after old unmount', received.includes('new-owner-key'))
+  } else {
+    nextOutput.chunks.length = 0
+    next.render(React.createElement(Text, null, 'surviving-root'))
+    check('independent headless root rerenders after peer unmount', await settled(() => nextOutput.chunks.join('').includes('surviving-root')))
+  }
+  const nextExited = next.waitUntilExit()
+  next.unmount()
+  await nextExited
   input.destroy()
 }
 

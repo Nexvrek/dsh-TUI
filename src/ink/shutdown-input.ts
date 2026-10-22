@@ -6,27 +6,29 @@ export type ShutdownInput = {
   release: () => void
 }
 
-const owners = new WeakMap<NodeJS.ReadStream, { revoke?: () => void }>()
+const owners = new WeakMap<NodeJS.ReadStream | NodeJS.WriteStream, { revoke?: () => void }>()
 const handles = new WeakMap<() => void, ShutdownInput>()
 
-/** Claim the actual input; a later renderer automatically revokes the old lease. */
+/** Share TTY input exclusively; input-free roots are independent per output. */
 export function claimShutdownInput(
   stdin: NodeJS.ReadStream,
   stdout: NodeJS.WriteStream,
   drain: () => void,
   revoke?: () => void,
 ): ShutdownInput {
-  const previous = owners.get(stdin)
+  // Non-TTY stdin has no raw-mode/readable owner; render() roots use stdout identity.
+  const key = stdin.isTTY ? stdin : stdout
+  const previous = owners.get(key)
   const token = { revoke }
-  owners.set(stdin, token)
+  owners.set(key, token)
   // Revoke before latching the old renderer so its cleanup cannot touch ours.
   previous?.revoke?.()
-  const ownsInput = () => owners.get(stdin) === token
+  const ownsInput = () => owners.get(key) === token
   return {
     stdout,
     ownsInput,
     drain: () => { if (ownsInput() && stdin.isTTY && !stdin.destroyed) drain() },
-    release: () => { if (owners.get(stdin) === token) owners.delete(stdin) },
+    release: () => { if (owners.get(key) === token) owners.delete(key) },
   }
 }
 
