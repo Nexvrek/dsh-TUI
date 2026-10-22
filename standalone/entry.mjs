@@ -65,6 +65,11 @@ const DSH_VERSION = '0.2.0-rc.2'
 const BUNDLE_ID = `tui-${TUI_VERSION}-dsh-${DSH_VERSION}`
 const PROFILE = 'dsh-tui'
 const archivePath = fileURLToPath(new URL('./runtime.tar.gz', import.meta.url))
+const selfTest = process.argv[2] === '--self-test'
+const diagnosticStart = performance.now()
+function traceStage(stage, details = {}) {
+  if (selfTest) process.stderr.write(`DSH_TUI_STANDALONE_STAGE ${JSON.stringify({ stage, elapsedMs: Math.round(performance.now() - diagnosticStart), ...details })}\n`)
+}
 
 const cacheBase = resolve(
   process.env.DSH_TUI_STANDALONE_CACHE ??
@@ -84,14 +89,27 @@ async function ensureRuntimeReady() {
     runtimeRoot,
     bundleId: BUNDLE_ID,
     archivePath,
-    extract: extractTar,
+    extract: selfTest ? async options => {
+      // cacheGuard has finished copying the embedded archive before calling
+      // this extractor. Progress counts entries, never user paths or content.
+      traceStage('extract-start')
+      let entries = 0
+      await extractTar({ ...options, onReadEntry() {
+        entries++
+        if (entries % 2000 === 0) traceStage('extract-progress', { entries })
+      } })
+      traceStage('extract-done', { entries })
+    } : extractTar,
     requiredPaths: [
       'node_modules/@deepseek-ai/dsh/lib/bin.js',
       'node_modules/@deepseek-harness-tui/dsh-tui/cordis.patch.yml',
       'node_modules/@deepseek-harness-tui/dsh-tui/cli/entry.mjs',
       'node_modules/@deepseek-harness-tui/dsh-tui/cli/adapters/dsh/management-plugin.mjs',
     ],
-    log: text => process.stderr.write(text),
+    log: text => {
+      traceStage('archive-copy-start')
+      process.stderr.write(text)
+    },
   })
 }
 
@@ -155,8 +173,10 @@ if (process.pkg && process.platform === 'win32') {
   }
 }
 
+traceStage('runtime-check')
 await ensureRuntimeReady()
-if (process.argv[2] === '--self-test') {
+traceStage('runtime-ready')
+if (selfTest) {
   // Import the lazy runtime too: --version and the public plugin factory alone
   // do not reach missing exports such as ToolCallId (#1660). No profile is
   // initialized and no model request is made by this diagnostic.
@@ -176,9 +196,12 @@ if (process.argv[2] === '--self-test') {
       throw new Error(`Standalone runtime has separate host/TUI instances of ${name}`)
     }
   }
+  traceStage('public-import-start')
   await import(pathToFileURL(join(tuiRoot, 'lib/types/index.js')).href)
+  traceStage('lazy-import-start')
   const runtime = await import(pathToFileURL(join(tuiRoot, 'lib/types/dsh-adapter/plugin.js')).href)
   if (typeof runtime.apply !== 'function') throw new Error('Standalone TUI runtime is missing its apply export')
+  traceStage('imports-done')
   console.log(`DSH_TUI_STANDALONE_OK ${JSON.stringify({ tui: TUI_VERSION, dsh: DSH_VERSION })}`)
   process.exit(0)
 }

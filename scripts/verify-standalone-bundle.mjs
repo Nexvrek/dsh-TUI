@@ -5,7 +5,7 @@
  */
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
-import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -23,7 +23,17 @@ const tuiVersion = readJson(join(source, 'package.json')).version
 const primary = readFileSync(join(source, 'src/dsh-adapter/contract.ts'), 'utf8')
   .match(/^export const UPSTREAM_VALIDATED_VERSION\s*=\s*'([^']+)'/m)[1]
 const sync = () => spawnSync(process.execPath, [join(fixture, 'scripts/make-standalone-bundle.mjs'), '--sync-versions-only'], { encoding: 'utf8' })
-const probe = () => spawnSync(process.execPath, [join(fixture, 'scripts/verify-standalone-runtime.mjs')], { encoding: 'utf8', timeout: 30_000 })
+const retainedScratch = new Set()
+let probeNumber = 0
+const probe = () => {
+  const evidence = join(fixture, `probe-${probeNumber++}`)
+  const result = spawnSync(process.execPath, [join(fixture, 'scripts/verify-standalone-runtime.mjs'), '--out', evidence], { encoding: 'utf8', timeout: 30_000 })
+  for (const mode of ['cold', 'warm']) {
+    const report = join(evidence, `${mode}.result.json`)
+    if (existsSync(report)) retainedScratch.add(readJson(report).scratch)
+  }
+  return { ...result, evidence }
+}
 const ok = (result, label) => assert.equal(result.status, 0, `${label}: ${result.stdout}\n${result.stderr}`)
 
 try {
@@ -81,7 +91,14 @@ try {
   }
   const archive = () => createTar({ file: join(fixture, 'standalone/runtime.tar.gz'), cwd: staging, gzip: true }, ['node_modules'])
   await archive()
-  ok(probe(), 'cold and warm compatible runtime')
+  const compatible = probe()
+  ok(compatible, 'cold and warm compatible runtime')
+  const coldTrace = readFileSync(join(compatible.evidence, 'cold.stderr.log'), 'utf8')
+  const warmTrace = readFileSync(join(compatible.evidence, 'warm.stderr.log'), 'utf8')
+  assert.match(coldTrace, /"stage":"extract-start"/)
+  assert.match(coldTrace, /"stage":"extract-done"/)
+  assert.match(coldTrace, /"stage":"imports-done"/)
+  assert.doesNotMatch(warmTrace, /"stage":"extract-start"/)
   console.log('PASS: real entry extracts and imports a compatible runtime without launching a profile')
 
   const launchHome = join(fixture, 'normal launch home')
@@ -125,6 +142,28 @@ try {
   assert.notEqual(separateFramework.status, 0)
   assert.match(separateFramework.stderr, /separate host\/TUI instances of @deepseek-ai\/cordis/)
   console.log('PASS: a second TUI Cordis instance is rejected before plugin initialization')
+
+  // A deliberately stalled import proves timeout errors retain the output
+  // collected before termination. Shorten only this copied test verifier;
+  // the production acceptance budget remains 120 seconds.
+  rmSync(duplicate, { recursive: true, force: true })
+  write(join(tui, 'lib/types/dsh-adapter/plugin.js'), "console.error('FIXTURE_IMPORT_STALLED'); setInterval(() => {}, 1000); await new Promise(() => {}); export function apply() {}\n")
+  await archive()
+  const verifier = join(fixture, 'scripts/verify-standalone-runtime.mjs')
+  const verifierText = readFileSync(verifier, 'utf8')
+  assert.ok(verifierText.includes('const timeoutMs = 120_000'))
+  write(verifier, verifierText.replace('const timeoutMs = 120_000', 'const timeoutMs = 2_000'))
+  const timedOut = probe()
+  assert.notEqual(timedOut.status, 0)
+  assert.match(timedOut.stderr, /ETIMEDOUT/)
+  assert.match(timedOut.stderr, /FIXTURE_IMPORT_STALLED/)
+  const timedOutReport = readJson(join(timedOut.evidence, 'cold.result.json'))
+  assert.equal(timedOutReport.error.code, 'ETIMEDOUT')
+  assert.equal(timedOutReport.cache.completeMarkerPresent, true)
+  assert.ok(existsSync(timedOutReport.scratch), 'A failed probe must preserve its isolated runtime')
+  assert.match(readFileSync(join(timedOut.evidence, 'cold.stderr.log'), 'utf8'), /"stage":"lazy-import-start"/)
+  console.log('PASS: a timed-out import retains child output, extraction stages, cache state and isolated runtime')
 } finally {
+  for (const scratch of retainedScratch) rmSync(scratch, { recursive: true, force: true })
   rmSync(fixture, { recursive: true, force: true })
 }

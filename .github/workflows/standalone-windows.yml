@@ -87,7 +87,7 @@ jobs:
       - name: Cold and warm runtime loading
         shell: pwsh
         run: |
-          node scripts/verify-standalone-runtime.mjs --binary 'portable 用户 download/dsh-tui.exe' 2>&1 | Tee-Object portable-self-test.log
+          node scripts/verify-standalone-runtime.mjs --binary 'portable 用户 download/dsh-tui.exe' --out portable-runtime-evidence 2>&1 | Tee-Object portable-self-test.log
           exit $LASTEXITCODE
       - name: First screen, local interaction and clean exit in ConPTY
         shell: pwsh
@@ -101,6 +101,7 @@ jobs:
           name: windows-portable-first-launch-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
             portable-self-test.log
+            portable-runtime-evidence/
             portable-evidence/
           if-no-files-found: warn
           retention-days: 14
