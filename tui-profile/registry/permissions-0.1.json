@@ -9,6 +9,6 @@
     {"name":"session.rewind.intercept","default":"deny","revocable":true,"scope":"decision event subscription","rationale":"同 session.input.intercept——可否决会话回退或注入回退模式"},
     {"name":"session.switch.intercept","default":"deny","revocable":true,"scope":"decision event subscription","rationale":"同 session.input.intercept——可否决会话切换"},
     {"name":"session.compact.intercept","default":"deny","revocable":true,"scope":"decision event subscription","rationale":"同 session.input.intercept——可否决手动压缩"},
-    {"name":"composer.context.attach","default":"allow","revocable":true,"scope":"plugin namespace","rationale":"插件只能在输入框上方暂存可见的上下文 chip：用户看得见、按 Esc 即可撤下，只有用户自己提交时才随那条消息送达模型；插件读不到草稿、也无法代为发送，故默认允许；撤销 root 即关闭全部插件的暂存入口，撤销某插件只关闭它自己的"}
+    {"name":"context-chips.attach","default":"allow","revocable":true,"scope":"plugin namespace","rationale":"插件只能在输入框上方暂存可见的上下文 chip：用户看得见、按 Esc 即可撤下，只有用户自己提交时才随那条消息送达模型；插件读不到草稿、也无法代为发送，故默认允许；撤销 root 即关闭全部插件的暂存入口，撤销某插件只关闭它自己的"}
   ]
 }
