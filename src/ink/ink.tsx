@@ -31,6 +31,7 @@ import { suppressInputFor } from './input-suppression.js';
 import { LogUpdate } from './log-update.js';
 import { KittyGraphicsManager } from './kitty-graphics.js';
 import { SixelGraphicsManager } from './sixel-graphics.js';
+import { SixelCursorHeal } from './sixel-cursor-heal.js'
 import { selectTerminalImageProtocol } from './terminal-image-protocol.js';
 import { nodeCache } from './node-cache.js';
 import { optimize } from './optimizer.js';
@@ -106,6 +107,10 @@ export default class Ink {
     dom.markTreeDirty(this.rootNode);
     this.scheduleRender();
   });
+  private readonly sixelCursorHeal = new SixelCursorHeal(
+    () => this.forceRedraw(), message => logForDebugging(message),
+  )
+  private sixelCursorCheckSupported = false
   private sixelGraphicsSupported = false;
   private kittyGraphicsSupported = false;
   private kittyGraphicsProbeStarted = false;
@@ -453,6 +458,7 @@ export default class Ink {
   // blank→paint flicker). useVirtualScroll's height scaling already bounds
   // the per-resize cost; synchronous handling keeps dimensions consistent.
   private handleResize = () => {
+    this.sixelCursorHeal.reset()
     const cols = this.options.stdout.columns || 80;
     const rows = this.options.stdout.rows || 24;
     // Duplicate resize events normally leave both layout and surface intact.
@@ -555,6 +561,7 @@ export default class Ink {
    */
   enterAlternateScreen(): void {
     this.pause();
+    this.sixelCursorHeal.reset()
     this.app?.querier.suspend();
     if (this.terminalQueryResumeTimer !== null) {
       clearTimeout(this.terminalQueryResumeTimer);
@@ -1122,6 +1129,13 @@ export default class Ink {
       if (sixelFrame.erase !== '') optimized.unshift({ type: 'stdout', content: sixelFrame.erase });
       if (graphicsOutput !== '') {
         optimized.push({ type: 'stdout', content: graphicsOutput });
+        const expected = this.sixelGraphicsManager.cursorAfterPaint
+        if (sixelActive && this.sixelCursorCheckSupported && expected !== undefined &&
+            this.measuredImageCellSize !== undefined && this.app !== null &&
+            !this.terminalQueriesSuspended && process.env.DSH_TUI_SIXEL_CURSOR_HEAL !== '0') {
+          const request = this.sixelCursorHeal.prepare(this.app.querier, expected)
+          if (request !== '') optimized.push({ type: 'stdout', content: request })
+        }
       }
       optimized.push(this.altScreenParkPatch);
     }
@@ -1464,6 +1478,7 @@ export default class Ink {
    */
   setAltScreenActive(active: boolean, mouseTracking = false): void {
     if (this.altScreenActive === active) return;
+    if (!active) this.sixelCursorHeal.reset()
     const resetOldPointerContext = (): void => {
       // Fire leave handlers before dropping the set — a bare clear strands
       // old rows with hovered=true. resetPointerState also emits dragend for
@@ -1611,6 +1626,7 @@ export default class Ink {
    */
   detachForShutdown(): void | Promise<void> {
     if (this.isUnmounted) return this.shutdownCleanup;
+    this.sixelCursorHeal.dispose()
     this.isDetachedForShutdown = true;
     this.isUnmounted = true;
     this.resetCursorIdle();
@@ -1975,6 +1991,10 @@ export default class Ink {
           // A permanently set display mode cannot place a preview at CUP.
           if (mode?.status === 3) return;
           this.sixelGraphicsManager.setDisplayMode(mode?.status === 1);
+          // Restrict the expected cursor semantics to Windows Terminal/ConPTY,
+          // with a confirmed controllable sixel display mode and measured cells.
+          this.sixelCursorCheckSupported = (!!process.env.WT_SESSION || /Windows ?Terminal|ConPTY/iu.test(identity?.name ?? '')) &&
+            (mode?.status === 1 || mode?.status === 2)
         }
         // Ghostty 1.3.1 can segfault while inflating a valid RGBA upload.
         // Resolve identity in this batch (also over SSH) before images go live.
@@ -2861,6 +2881,7 @@ export default class Ink {
       const diff = this.log.renderPreviousOutput_DEPRECATED(this.frontFrame);
       lastFrame = serializeDiff(this.terminal, optimize(diff));
     } catch { /* a failed final diff must not skip terminal cleanup */ }
+    this.sixelCursorHeal.dispose()
     const sixelCleanup = this.sixelGraphicsManager.dispose();
 
     // Clean up terminal modes synchronously before process exit.
