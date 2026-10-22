@@ -18,6 +18,7 @@
 import type { AgentSession } from '../../../agent/session.js'
 import { conversationRecapPrompt, parseRecapResponse, sideQuestionPrompt } from '../../../channel/side-prompts.js'
 import { t } from '../../../i18n.js'
+import { nearestLowerEffort } from '../../../effortPrefs.js'
 import { createUnavailableActionDelegates, type ChannelActionDelegates, type createChannelActionReadiness } from '../action-readiness.js'
 import type { ChannelOwner } from '../owner.js'
 import type { ChannelState } from '../types.js'
@@ -91,6 +92,18 @@ export function createCapabilityDelegates(deps: {
       // CLI-standard fallback (the model row declares no tiers of its own), so
       // the slider can say so instead of presenting them as the model's tiers.
       return Promise.resolve({ efforts: levels.map(level => ({ id: level.id, name: level.label })), defaultEffort: effort.current(), ...(effort.levelsFallback === true ? { levelsFallback: true as const } : {}) })
+    },
+    setDefaultEffort: id => {
+      void guarded('effort', undefined, async () => {
+        const effort = caps().effort
+        if (effort === undefined) return
+        const applied = id === undefined ? undefined : nearestLowerEffort(id, effort.levels().map(level => level.id))
+        await effort.set(applied ?? null)
+        if (!deps.owner.current() || id === undefined || applied === id) return
+        notify(applied === undefined
+          ? t('effort-preference-unsupported', { preferred: id })
+          : t('effort-preference-downgraded', { preferred: id, applied }), { color: 'warning' })
+      })
     },
     setEffort: id => guarded('effort', false, async () => {
       const effort = caps().effort

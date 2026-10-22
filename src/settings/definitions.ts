@@ -84,11 +84,11 @@ export const SETTING_DEFINITIONS = {
     label: 'Default reasoning effort',
     descriptions: { zh: '默认推理强度' },
     group: 'conversation',
-    hint: 'Choices come from the current backend and model. A saved value absent from that catalog remains visible and stored until you change it. Auto follows the persisted /effort choice, then cordis.yml effort, then the model default. Explicit changes apply to the next request; unsupported preferences fall back only to a lower offered tier, or the model default, with a notice. While the catalog is loading or unavailable, only Auto is selectable.',
-    hintDescriptions: { zh: '选项来自当前后端和模型目录。目录没有的已存值仍显示并保留，直到你主动修改。自动依次采用持久化的 /effort 选择、cordis.yml effort 配置、模型默认。明确修改会作用于下一请求；不支持的偏好仅向下回落到可用档位，否则回到模型默认，并给出提示。目录加载中或不可用时仅可选自动。' },
+    hint: 'Choices come from the current backend and model. A saved value absent from that catalog remains visible and stored until you change it. On DSH, Auto follows the persisted /effort choice, then cordis.yml effort, then the model default. On Claude/Codex, Auto at startup and resumed sessions preserve backend preferences; explicitly choosing Auto resets the model default. Explicit changes apply to the next request; unsupported preferences fall back only to a lower offered tier, or the model default, with a notice. While the catalog is loading or unavailable, only Auto is selectable.',
+    hintDescriptions: { zh: '选项来自当前后端和模型目录。目录没有的已存值仍显示并保留，直到你主动修改。DSH 自动依次采用持久化的 /effort 选择、cordis.yml effort 配置、模型默认。Claude/Codex 启动采用自动模式或恢复会话时保留后端偏好；在设置中主动选择自动会重置为模型默认。明确修改会作用于下一请求；不支持的偏好仅向下回落到可用档位，否则回到模型默认，并给出提示。目录加载中或不可用时仅可选自动。' },
     kind: 'select',
     options: [
-      { value: 'auto', label: 'Auto (saved fallback chain)', descriptions: { zh: '自动（继承偏好链）' } },
+      { value: 'auto', label: 'Auto', descriptions: { zh: '自动' } },
     ],
   },
   'expandEditor': {

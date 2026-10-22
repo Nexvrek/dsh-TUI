@@ -1681,9 +1681,13 @@ export async function apply(ctx: Context, runtimeConfig: RuntimeConfig<Config>, 
     const applyEffortDefault = (value: SettingsValue): void => {
       const next = value.effortDefault ?? null
       if (next === lastEffortDefault) return
-      lastEffortDefault = next
       const level = next === null || next === 'auto' ? undefined : next
-      channel.setDefaultEffort(level)
+      // Capability backends restore their own effort. Boot is not a live edit:
+      // Auto and resumed sessions keep that selection until the user changes it.
+      const preserve = !settingsEditsLive && backendStart !== undefined && (level === undefined || backendStart.resumedSessionId !== undefined)
+      if (!preserve && backendStart !== undefined && !channel.ready) { lastEffortDefault = undefined; return }
+      lastEffortDefault = next
+      if (!preserve) channel.setDefaultEffort(level)
     }
     const apply = (next: SettingsValue): void => {
       applyLayout(next)
@@ -1725,6 +1729,14 @@ export async function apply(ctx: Context, runtimeConfig: RuntimeConfig<Config>, 
     settingsEditsLive = false
     apply(fullscreenMigration === 'unset' ? migratedSettings : bootSettings)
     settingsEditsLive = true
+    if (backendStart !== undefined && !channel.ready) settingsCtx.effect(() => {
+      const stop = channel.subscribe(() => {
+        if (!channel.ready) return
+        stop()
+        applyEffortDefault(scope.get())
+      })
+      return stop
+    })
     let lastTerminalImages = bootSettings.terminalImages ?? config.terminalImages ?? true
     let lastLaunchpad = bootSettings.launchpad ?? config.launchpad ?? true
     settingsCtx.effect(() => scope.watch(next => {
