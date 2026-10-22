@@ -63,6 +63,8 @@ Keys and commands: [Interaction and commands](docs/interaction.en.md). Everythin
 Plugin side panels stay enabled when unrelated settings change. Editing the enabled panel list still applies your explicit selection.
 
 
+Workspace side-panel counts match the session manager: the current conversation counts; empty logs, subagents, fork ancestors and archived sessions do not. Registered workspaces with no visible conversations remain at zero. Loading and read errors are shown separately; press `r` to refresh.
+
 ## Preview
 
 <div align="center">
