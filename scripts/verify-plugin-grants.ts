@@ -135,7 +135,7 @@ const principal = (componentId: string, activationId?: string) => ({
   ...(activationId === undefined ? {} : { activationId }),
 })
 const scopeFor = (permission: string, componentId: string): string => {
-  if (permission.startsWith('storage.local.') || permission === 'composer.context.attach') return componentId
+  if (permission.startsWith('storage.local.') || permission === 'context-chips.attach') return componentId
   if (permission === 'commands.invoke') return `${componentId}.command`
   if (permission === 'messages.observe.read') return 'session:*'
   return 'session:*'
@@ -172,7 +172,7 @@ check1('decision permission map is immutable',
   check1('old format: storage stays denied', !oldStore.allows(principal('root'), 'storage.local.read', 'root'))
   check1('old format: not corrupt', !oldStore.corrupt)
 
-  // A2. 默认值 registry 驱动：空 store（= 文件缺失）→ 7 deny + invoke/composer allow。
+  // A2. 默认值 registry 驱动：空 store（= 文件缺失）→ 7 deny + invoke/context-chips allow。
   const empty = parseGrantStore('')
   for (const entry of data.permissions.permissions) {
     check1(`registry default: ${entry.name} = ${entry.default}`, empty.defaultOf(entry.name) === entry.default)

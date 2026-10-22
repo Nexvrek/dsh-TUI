@@ -12,7 +12,7 @@
  * - `ctx.tuiShortcuts` — keyboard shortcut registry
  * - `ctx.tuiRenderers` — custom session-entry text renderers
  * - `ctx.tuiToast`     — transient fire-and-forget notifications
- * - `ctx.tuiComposer`  — keyed context chips staged on the chat composer
+ * - `ctx.tuiContextChips`  — keyed context chips staged on the chat composer
  * - `ctx.tuiThemes`    — runtime theme declarations (host-readable)
  *
  * The decision-point events (`tui/input`, `tui/rewind-prompt`, …) need no
@@ -38,7 +38,7 @@ import TuiStatusRuntime from './status.js'
 import TuiShortcutRuntime from './shortcuts.js'
 import TuiRendererRuntime from './renderers.js'
 import TuiToastRuntime from './toast.js'
-import TuiComposerRuntime from './composer.js'
+import TuiContextChipsRuntime from './context-chips.js'
 import TuiThemeRuntime from './themes.js'
 import { installDecisionGuard } from './decision-guard.js'
 import { readGrantStore } from '../adapter/standard/grants.js'
@@ -53,6 +53,6 @@ export function apply(ctx: Context): void {
   ctx.plugin(TuiShortcutRuntime)
   ctx.plugin(TuiRendererRuntime)
   ctx.plugin(TuiToastRuntime)
-  ctx.plugin(TuiComposerRuntime)
+  ctx.plugin(TuiContextChipsRuntime)
   ctx.plugin(TuiThemeRuntime)
 }

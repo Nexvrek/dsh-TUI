@@ -90,7 +90,7 @@ import { createContextOccupancyStore } from './context-occupancy.js'
 import { createTeamRosterStore } from './team-roster.js'
 import { createTeamCommandEntry, filterTeamReplacedTools } from './team-mode.js'
 import { getHostToastStore, type TuiToastRuntime } from './toast.js'
-import { createChannelComposerSink, getHostComposerStore, type TuiComposerRuntime } from './composer.js'
+import { createChannelContextChipsSink, getHostContextChipsStore, type TuiContextChipsRuntime } from './context-chips.js'
 import { getHostShortcuts, type TuiShortcutRuntime } from './shortcuts.js'
 import { getHostThemes, type TuiThemeHost, type TuiThemeRuntime } from './themes.js'
 import type { DshAuthService } from './oauth/service.js'
@@ -1311,17 +1311,17 @@ export async function apply(ctx: Context, runtimeConfig: RuntimeConfig<Config>, 
     })
   }
   bindToastSink()
-  // Plugin composer chips ride the channel's own attached-context registry —
+  // Plugin context chips ride the channel's own attached-context registry —
   // the strip panel "Send to Chat" already uses — so Esc peeling, the
   // consume-once submit and the session reset apply unchanged. Shadow
   // (observational) modes stage nothing, like every other renderer action.
-  const composerSink = createChannelComposerSink(channel, () => !shadow)
-  const bindComposerSink = (): void => {
-    getHostComposerStore(ctx.get('tuiComposer') as TuiComposerRuntime | undefined)?.setSink(composerSink)
+  const contextChipsSink = createChannelContextChipsSink(channel, () => !shadow)
+  const bindContextChipsSink = (): void => {
+    getHostContextChipsStore(ctx.get('tuiContextChips') as TuiContextChipsRuntime | undefined)?.setSink(contextChipsSink)
   }
-  bindComposerSink()
+  bindContextChipsSink()
   ctx.effect(() => () => {
-    getHostComposerStore(ctx.get('tuiComposer') as TuiComposerRuntime | undefined)?.clearSink(composerSink)
+    getHostContextChipsStore(ctx.get('tuiContextChips') as TuiContextChipsRuntime | undefined)?.clearSink(contextChipsSink)
   })
   if (questionSeams?.registration.kind === 'waterfall') {
     // Ownership follows the mutable channel; registration cleanup belongs to
@@ -2906,7 +2906,7 @@ export async function apply(ctx: Context, runtimeConfig: RuntimeConfig<Config>, 
    */
   const refreshHostServices = (): void => {
     bindToastSink()
-    bindComposerSink()
+    bindContextChipsSink()
     if (!exited) instance?.rerender(buildTree())
   }
   if (entrySlot !== undefined) entrySlot.firstFrameFlushed = flushFirstFrame

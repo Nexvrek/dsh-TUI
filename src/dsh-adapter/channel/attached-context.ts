@@ -10,7 +10,7 @@
  * from — a panel hands it over in-process, so there is no disk read and no
  * failure mode to swallow. The only policy left is the shared mention size cap.
  * Host-side plugins without a panel stage through the same registry via
- * `ctx.tuiComposer` (`source: 'plugin'`, see `dsh-adapter/composer.ts`).
+ * `ctx.tuiContextChips` (`source: 'plugin'`, see `dsh-adapter/context-chips.ts`).
  */
 import { escapeSnippetAttr } from './ide-selection.js'
 import { MENTION_MAX_FILE_CHARS } from './mentions.js'

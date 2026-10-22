@@ -484,7 +484,7 @@ export interface ChannelUi {
    * `MENTION_MAX_FILE_CHARS` limit when it is staged (`truncated` records the
    * cut), and a duplicate `sourceId` + `title` REPLACES the existing entry
    * instead of stacking a second chip. A `plugin` context (staged through
-   * `ctx.tuiComposer`) is keyed on `sourceId` alone, so a re-staged chip
+   * `ctx.tuiContextChips`) is keyed on `sourceId` alone, so a re-staged chip
    * whose title changed still replaces in place.
    */
   attachContext(input: { source: 'panel' | 'plugin'; sourceId: string; title: string; content: string }): void

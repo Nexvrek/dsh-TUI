@@ -141,15 +141,15 @@ const overview = () => pluginsInfoLines('', { grants, host })
   check1('legend lists all 9 registered permissions',
     ['storage.local.read', 'storage.local.write', 'commands.invoke', 'messages.observe.read',
       'session.input.intercept', 'session.rewind.intercept', 'session.switch.intercept', 'session.compact.intercept',
-      'composer.context.attach']
+      'context-chips.attach']
       .every(permission => legend.includes(permission)), legend)
   const rowOf = (plugin: string) => lines.find(line => line.trimStart().startsWith(plugin + ' '))
   const marks = (plugin: string) => rowOf(plugin)?.trimStart().slice(plugin.length).trim().split(/\s+/)
-  check1('alpha row: granted storage ✓✓, invoke + composer ✓ (allow default), rest denied',
+  check1('alpha row: granted storage ✓✓, invoke + context-chips ✓ (allow default), rest denied',
     JSON.stringify(marks('alpha')) === JSON.stringify(['✓', '✓', '✓', '·', '·', '·', '·', '·', '✓']), JSON.stringify(marks('alpha')))
-  check1('beta row (ledger footprint only): invoke + composer ✓, everything else denied',
+  check1('beta row (ledger footprint only): invoke + context-chips ✓, everything else denied',
     JSON.stringify(marks('beta')) === JSON.stringify(['·', '·', '✓', '·', '·', '·', '·', '·', '✓']), JSON.stringify(marks('beta')))
-  check1('evil row: denies revoke the allow-default invoke; the composer default is untouched',
+  check1('evil row: denies revoke the allow-default invoke; the context-chips default is untouched',
     JSON.stringify(marks('evil')) === JSON.stringify(['·', '·', '·', '·', '·', '·', '·', '·', '✓']), JSON.stringify(marks('evil')))
   check1('gamma row (storage-dir footprint) present', rowOf('gamma') !== undefined)
   check1("'host' never becomes a matrix row", rowOf('host') === undefined)

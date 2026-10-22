@@ -47,7 +47,7 @@ export interface AttachedContext {
   /** Stable handle minted by the channel (`ctx-N`), used to detach one entry. */
   readonly id: string
   /** Where the context came from: a side-panel row ("Send to Chat") or a
-   *  host-side plugin through `ctx.tuiComposer`. The discriminant is explicit
+   *  host-side plugin through `ctx.tuiContextChips`. The discriminant is explicit
    *  so one source can never be mistaken for the other. */
   readonly source: 'panel' | 'plugin'
   /** Identity of the contributor: the row INSIDE its panel (a job id, a

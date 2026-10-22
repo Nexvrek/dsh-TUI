@@ -10,7 +10,7 @@
  * Same split as the toast/status seams: a cordis-free sink container the
  * host bridges onto the channel's attached-context registry, plus a thin
  * cordis service that validates untrusted input, scopes the chip to the
- * calling activation, rate-limits it and checks the `composer.context.attach`
+ * calling activation, rate-limits it and checks the `context-chips.attach`
  * grant on every call.
  *
  * Identity: the host derives `sourceId = <plugin id>:<key>` (verified
@@ -39,8 +39,8 @@ import {
 import { adapterRuntimeFor } from '../adapter/kernel/runtime-context.js'
 import type { AttachedContext } from '../adapter/ports/channel-view.js'
 
-/** Plugin-facing input for {@link TuiComposerRuntime.attachContext}. */
-export interface TuiComposerContextInput {
+/** Plugin-facing input for {@link TuiContextChipsRuntime.attachContext}. */
+export interface TuiContextChipInput {
   /** Plugin-local chip key: `^[a-z][a-z0-9_-]*$`, at most 64 characters. */
   readonly key: string
   /** Chip label; folded to one line and capped at 80 cells. */
@@ -50,7 +50,7 @@ export interface TuiComposerContextInput {
 }
 
 /** One staged plugin context after validation, ready for the host sink. */
-export interface TuiComposerStaging {
+export interface TuiContextChipStaging {
   /** `<plugin id>:<key>`, derived by the host. */
   readonly sourceId: string
   readonly title: string
@@ -58,10 +58,10 @@ export interface TuiComposerStaging {
 }
 
 /** Host-side consumer; bridged onto the channel's attached-context registry
- *  by the TUI plugin row (see {@link createChannelComposerSink}). */
-export interface TuiComposerSink {
+ *  by the TUI plugin row (see {@link createChannelContextChipsSink}). */
+export interface TuiContextChipsSink {
   /** Stage (or replace) one plugin chip; false when nothing was staged. */
-  attach(staging: TuiComposerStaging): boolean
+  attach(staging: TuiContextChipStaging): boolean
   /** Drop the plugin chip `sourceId`; false when none is staged. */
   detach(sourceId: string): boolean
   /** `sourceId`s of every plugin chip currently staged. */
@@ -69,7 +69,7 @@ export interface TuiComposerSink {
 }
 
 /** Permission checked on every attach (default allow, revocable). */
-export const COMPOSER_CONTEXT_PERMISSION = 'composer.context.attach'
+export const CONTEXT_CHIPS_PERMISSION = 'context-chips.attach'
 
 const KEY_PATTERN = /^[a-z][a-z0-9_-]*$/u
 const KEY_MAX_CHARS = 64
@@ -84,10 +84,10 @@ const RATE_LIMIT = 20
 
 /** Cordis-free sink container. The host registers the only sink; calls
  * before a sink exists (or after the TUI row unmounted) return false. */
-export class TuiComposerStore {
-  private sink: TuiComposerSink | undefined
+export class TuiContextChipsStore {
+  private sink: TuiContextChipsSink | undefined
 
-  setSink(sink: TuiComposerSink | undefined): void {
+  setSink(sink: TuiContextChipsSink | undefined): void {
     this.sink = sink
   }
 
@@ -97,11 +97,11 @@ export class TuiComposerStore {
 
   /** Drop `sink` only if it is still the registered one: a re-mounted TUI
    *  row binds its own sink before the old mount's teardown runs. */
-  clearSink(sink: TuiComposerSink): void {
+  clearSink(sink: TuiContextChipsSink): void {
     if (this.sink === sink) this.sink = undefined
   }
 
-  attach(staging: TuiComposerStaging): boolean {
+  attach(staging: TuiContextChipStaging): boolean {
     if (this.sink === undefined) return false
     try {
       return this.sink.attach(staging) === true
@@ -135,18 +135,18 @@ export class TuiComposerStore {
  * session reset all apply unchanged. `writable` lets the host keep shadow
  * (observational) modes from mutating the composer.
  */
-export function createChannelComposerSink(
+export function createChannelContextChipsSink(
   channel: {
     readonly attachedContexts: readonly AttachedContext[]
     attachContext(input: { source: 'panel' | 'plugin'; sourceId: string; title: string; content: string }): void
     detachContext(id: string): void
   },
   writable: () => boolean = () => true,
-): TuiComposerSink {
+): TuiContextChipsSink {
   const pluginChip = (sourceId: string): AttachedContext | undefined =>
     (channel.attachedContexts ?? []).find(item => item.source === 'plugin' && item.sourceId === sourceId)
   return Object.freeze({
-    attach(staging: TuiComposerStaging): boolean {
+    attach(staging: TuiContextChipStaging): boolean {
       if (!writable()) return false
       channel.attachContext({ source: 'plugin', sourceId: staging.sourceId, title: staging.title, content: staging.content })
       return pluginChip(staging.sourceId) !== undefined
@@ -166,13 +166,13 @@ export function createChannelComposerSink(
 
 declare module '@deepseek-ai/cordis' {
   interface Context {
-    tuiComposer: TuiComposerRuntime
+    tuiContextChips: TuiContextChipsRuntime
   }
 }
 
-interface ComposerState {
+interface ContextChipsState {
   readonly runtime: AdapterRuntimeOptions
-  readonly store: TuiComposerStore
+  readonly store: TuiContextChipsStore
   readonly hostContext: Context
   readonly fallbackGrants: GrantStore
   /** Per-activation attach timestamps inside the sliding window. */
@@ -199,7 +199,7 @@ function releaseOwned(owned: Map<string, OwnedChip>, key: string): void {
   cleanup?.()
 }
 
-const hostComposerStates = new WeakMap<TuiComposerRuntime, ComposerState>()
+const hostContextChipsStates = new WeakMap<TuiContextChipsRuntime, ContextChipsState>()
 
 /** Anonymous activation ids are session-only, never persistent identities
  *  (the same `session:actN` shape side panels fall back to). */
@@ -225,46 +225,46 @@ function normalizeKey(value: unknown): string | undefined {
 
 /** Grants: the plugin-host row's store when mounted, else a private read.
  *  Resolved per call, like the storage/observer seams. */
-function grantsFor(state: ComposerState): GrantStore {
+function grantsFor(state: ContextChipsState): GrantStore {
   return getHostGrantStore(state.hostContext.get('tuiPluginHost')) ?? state.fallbackGrants
 }
 
 /** Two-level checkpoint, the same shape as `commands.invoke`: `root` is the
  *  user's global switch; a verified Component is then checked under its own
  *  id. An anonymous activation has no id to revoke, so only `root` applies. */
-function authorized(state: ComposerState, caller: Context): boolean {
+function authorized(state: ContextChipsState, caller: Context): boolean {
   const grants = grantsFor(state)
-  if (!grants.allows({ componentId: 'root' }, COMPOSER_CONTEXT_PERMISSION, 'root')) return false
+  if (!grants.allows({ componentId: 'root' }, CONTEXT_CHIPS_PERMISSION, 'root')) return false
   const identity = componentIdentityOf(caller)
   if (identity === undefined) return true
   return grants.allows(
     { componentId: identity.componentId, activationId: identity.activationId },
-    COMPOSER_CONTEXT_PERMISSION,
+    CONTEXT_CHIPS_PERMISSION,
     identity.componentId,
   )
 }
 
 /**
- * `ctx.tuiComposer` — plugin-facing composer context chips. Invalid input,
+ * `ctx.tuiContextChips` — plugin-facing composer context chips. Invalid input,
  * over-limit callers, revoked grants and hosts without a bound chat channel
  * make the methods return `false` with a logger warning instead of
  * throwing: a chip must never take the TUI down.
  */
-export class TuiComposerRuntime extends Service {
+export class TuiContextChipsRuntime extends Service {
   constructor(ctx: Context) {
-    super(ctx, 'tuiComposer')
+    super(ctx, 'tuiContextChips')
     const hostContext = compositionRoot(ctx)
     const runtime = adapterRuntimeFor(ctx)
-    const state: ComposerState = {
+    const state: ContextChipsState = {
       runtime,
-      store: new TuiComposerStore(),
+      store: new TuiContextChipsStore(),
       hostContext,
       fallbackGrants: readGrantStore(undefined, undefined, runtime),
       windows: new Map(),
       warned: new Set(),
       owned: new WeakMap(),
     }
-    hostComposerStates.set(this, state)
+    hostContextChipsStates.set(this, state)
   }
 
   /**
@@ -272,19 +272,19 @@ export class TuiComposerRuntime extends Service {
    * composer. Returns `true` when the chip is staged on the bound channel;
    * `false` when the input is invalid (bad key, non-string or empty
    * title/content), the activation already holds 4 other chips, it exceeded
-   * 20 attaches per minute, `composer.context.attach` is revoked, or no chat
+   * 20 attaches per minute, `context-chips.attach` is revoked, or no chat
    * channel is bound (headless/Web hosts never mount this service at all).
    */
-  attachContext(input: TuiComposerContextInput): boolean {
-    assertCapabilityShadowPolicy('host.composer.attach', composerStateFor(this).runtime.mode, composerStateFor(this).runtime.slices)
+  attachContext(input: TuiContextChipInput): boolean {
+    assertCapabilityShadowPolicy('host.context-chips.attach', contextChipsStateFor(this).runtime.mode, contextChipsStateFor(this).runtime.slices)
     let caller: Context
     try {
-      caller = requirePluginCaller(this.ctx, 'tuiComposer.attachContext', this)
+      caller = requirePluginCaller(this.ctx, 'tuiContextChips.attachContext', this)
     } catch {
-      this.ctx.logger.warn('dsh-tui: tuiComposer.attachContext requires a live non-root plugin activation')
+      this.ctx.logger.warn('dsh-tui: tuiContextChips.attachContext requires a live non-root plugin activation')
       return false
     }
-    const state = composerStateFor(this)
+    const state = contextChipsStateFor(this)
     let rawKey: unknown
     let rawTitle: unknown
     let rawContent: unknown
@@ -293,32 +293,32 @@ export class TuiComposerRuntime extends Service {
       rawTitle = input.title
       rawContent = input.content
     } catch {
-      caller.logger.warn('dsh-tui: tuiComposer.attachContext rejected unreadable input')
+      caller.logger.warn('dsh-tui: tuiContextChips.attachContext rejected unreadable input')
       return false
     }
     const key = normalizeKey(rawKey)
     if (key === undefined) {
-      caller.logger.warn('dsh-tui: tuiComposer.attachContext rejected an invalid key')
+      caller.logger.warn('dsh-tui: tuiContextChips.attachContext rejected an invalid key')
       return false
     }
     if (typeof rawTitle !== 'string' || typeof rawContent !== 'string') {
-      caller.logger.warn(`dsh-tui: tuiComposer.attachContext rejected "${key}": title and content must be strings`)
+      caller.logger.warn(`dsh-tui: tuiContextChips.attachContext rejected "${key}": title and content must be strings`)
       return false
     }
     const title = cleanScalarText(rawTitle, TITLE_CELLS)
     if (title === '' || rawContent.trim() === '') {
-      caller.logger.warn(`dsh-tui: tuiComposer.attachContext rejected "${key}": empty title or content`)
+      caller.logger.warn(`dsh-tui: tuiContextChips.attachContext rejected "${key}": empty title or content`)
       return false
     }
     const owner = activationFiber(caller)
     if (owner === undefined) {
-      caller.logger.warn('dsh-tui: tuiComposer.attachContext requires a live activation owner')
+      caller.logger.warn('dsh-tui: tuiContextChips.attachContext requires a live activation owner')
       return false
     }
     if (!authorized(state, caller)) {
-      caller.logger.warn(`dsh-tui: tuiComposer.attachContext refused "${key}" (${COMPOSER_CONTEXT_PERMISSION} revoked in the grants file)`)
+      caller.logger.warn(`dsh-tui: tuiContextChips.attachContext refused "${key}" (${CONTEXT_CHIPS_PERMISSION} revoked in the grants file)`)
       caller.get('tuiEffectLedger')?.record(
-        { operation: 'bind', resource: { kind: 'permission', id: COMPOSER_CONTEXT_PERMISSION }, result: 'failed', errorCode: 'PERMISSION_NOT_GRANTED' },
+        { operation: 'bind', resource: { kind: 'permission', id: CONTEXT_CHIPS_PERMISSION }, result: 'failed', errorCode: 'PERMISSION_NOT_GRANTED' },
         caller,
       )
       return false
@@ -328,7 +328,7 @@ export class TuiComposerRuntime extends Service {
     const staged = state.store.staged()
     const replacing = staged.includes(sourceId)
     if (!replacing && staged.filter(id => id.startsWith(prefix)).length >= MAX_KEYS) {
-      caller.logger.warn(`dsh-tui: tuiComposer.attachContext rejected "${key}": ${MAX_KEYS} chips already staged by this plugin`)
+      caller.logger.warn(`dsh-tui: tuiContextChips.attachContext rejected "${key}": ${MAX_KEYS} chips already staged by this plugin`)
       return false
     }
     const now = Date.now()
@@ -337,7 +337,7 @@ export class TuiComposerRuntime extends Service {
     if (window.length >= RATE_LIMIT) {
       if (!state.warned.has(owner)) {
         state.warned.add(owner)
-        caller.logger.warn(`dsh-tui: tuiComposer.attachContext rate-limited an activation to ${RATE_LIMIT}/min; further attaches in this window are dropped`)
+        caller.logger.warn(`dsh-tui: tuiContextChips.attachContext rate-limited an activation to ${RATE_LIMIT}/min; further attaches in this window are dropped`)
       }
       state.windows.set(owner, window)
       return false
@@ -367,7 +367,7 @@ export class TuiComposerRuntime extends Service {
         if (keys.get(key) !== entry) return
         releaseOwned(keys, key)
         if (state.store.detach(sourceId)) {
-          ledger?.record({ operation: 'release', resource: { kind: 'composer-context', id: sourceId }, result: 'applied' }, caller)
+          ledger?.record({ operation: 'release', resource: { kind: 'context-chip', id: sourceId }, result: 'applied' }, caller)
         }
       }
       keys.set(key, entry)
@@ -376,7 +376,7 @@ export class TuiComposerRuntime extends Service {
     ledger?.record(
       {
         operation: replacing ? 'replace' : 'bind',
-        resource: { kind: 'composer-context', id: sourceId },
+        resource: { kind: 'context-chip', id: sourceId },
         result: 'applied',
         ...(replacing ? { replaces: { resourceId: sourceId } } : {}),
       },
@@ -391,23 +391,23 @@ export class TuiComposerRuntime extends Service {
    * cleared by a session reset).
    */
   detachContext(key: string): boolean {
-    assertCapabilityShadowPolicy('host.composer.detach', composerStateFor(this).runtime.mode, composerStateFor(this).runtime.slices)
+    assertCapabilityShadowPolicy('host.context-chips.detach', contextChipsStateFor(this).runtime.mode, contextChipsStateFor(this).runtime.slices)
     let caller: Context
     try {
-      caller = requirePluginCaller(this.ctx, 'tuiComposer.detachContext', this)
+      caller = requirePluginCaller(this.ctx, 'tuiContextChips.detachContext', this)
     } catch {
-      this.ctx.logger.warn('dsh-tui: tuiComposer.detachContext requires a live non-root plugin activation')
+      this.ctx.logger.warn('dsh-tui: tuiContextChips.detachContext requires a live non-root plugin activation')
       return false
     }
-    const state = composerStateFor(this)
+    const state = contextChipsStateFor(this)
     const normalized = normalizeKey(key)
     if (normalized === undefined) {
-      caller.logger.warn('dsh-tui: tuiComposer.detachContext rejected an invalid key')
+      caller.logger.warn('dsh-tui: tuiContextChips.detachContext rejected an invalid key')
       return false
     }
     const owner = activationFiber(caller)
     if (owner === undefined) {
-      caller.logger.warn('dsh-tui: tuiComposer.detachContext requires a live activation owner')
+      caller.logger.warn('dsh-tui: tuiContextChips.detachContext requires a live activation owner')
       return false
     }
     const sourceId = pluginIdFor(caller, owner) + ':' + normalized
@@ -417,26 +417,26 @@ export class TuiComposerRuntime extends Service {
     if (owned !== undefined) releaseOwned(owned, normalized)
     const removed = state.store.detach(sourceId)
     if (removed) {
-      caller.get('tuiEffectLedger')?.record({ operation: 'release', resource: { kind: 'composer-context', id: sourceId }, result: 'applied' }, caller)
+      caller.get('tuiEffectLedger')?.record({ operation: 'release', resource: { kind: 'context-chip', id: sourceId }, result: 'applied' }, caller)
     }
     return removed
   }
 }
 
-function composerStateFor(runtime: TuiComposerRuntime): ComposerState {
-  const state = hostComposerStates.get(concreteService(runtime))
-  if (state === undefined) throw new Error('tuiComposer host store is unavailable')
+function contextChipsStateFor(runtime: TuiContextChipsRuntime): ContextChipsState {
+  const state = hostContextChipsStates.get(concreteService(runtime))
+  if (state === undefined) throw new Error('tuiContextChips host store is unavailable')
   return state
 }
 
-/** Host-only composer store accessor; not part of the package export map. */
-export function getHostComposerStore(runtime: TuiComposerRuntime | undefined): TuiComposerStore | undefined {
+/** Host-only context-chips store accessor; not part of the package export map. */
+export function getHostContextChipsStore(runtime: TuiContextChipsRuntime | undefined): TuiContextChipsStore | undefined {
   if (runtime === undefined) return undefined
   try {
-    return hostComposerStates.get(concreteService(runtime))?.store
+    return hostContextChipsStates.get(concreteService(runtime))?.store
   } catch {
     return undefined
   }
 }
 
-export default TuiComposerRuntime
+export default TuiContextChipsRuntime

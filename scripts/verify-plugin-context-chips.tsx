@@ -1,5 +1,5 @@
 /**
- * Verification of the plugin composer seam (ctx.tuiComposer): host-side
+ * Verification of the plugin context-chips seam (ctx.tuiContextChips): host-side
  * plugins stage keyed context chips on the chat composer through the SAME
  * attached-context registry the side-panel "Send to Chat" uses.
  *
@@ -12,14 +12,14 @@
  *     never throw), key/title/content validation, title folding + 80-cell
  *     cap, host-derived `<plugin id>:<key>` sourceIds (no cross-plugin
  *     detach), 4 live keys per activation, 20 attaches/min per activation,
- *     dispose peeling, and the `composer.context.attach` grant (root switch +
+ *     dispose peeling, and the `context-chips.attach` grant (root switch +
  *     verified Component) read live from the grants file.
  *  C. Real channel: a plugin chip rides the next submission as an
  *     `<attached-context source="plugin" …>` block exactly once.
  *  D. Real PromptInput (headless xterm): the chip renders as the usual
  *     `⧉ title` strip above the input and Esc peels it before the draft.
  *
- * Run: node --import tsx/esm scripts/verify-plugin-composer.tsx
+ * Run: node --import tsx/esm scripts/verify-plugin-context-chips.tsx
  */
 process.env.FORCE_COLOR = '3'
 process.env.DSH_TUI_LANG = 'zh'
@@ -31,7 +31,7 @@ process.env.DSH_TUI_DISABLE_TERMINAL_IMAGES = '1'
 const nodeFs = await import('node:fs')
 const nodeOs = await import('node:os')
 const nodePath = await import('node:path')
-const isolatedHome = nodeFs.mkdtempSync(nodePath.join(nodeOs.tmpdir(), 'dshtui-plugin-composer-'))
+const isolatedHome = nodeFs.mkdtempSync(nodePath.join(nodeOs.tmpdir(), 'dshtui-plugin-context-chips-'))
 process.env.HOME = isolatedHome
 process.env.USERPROFILE = isolatedHome
 const dataDir = nodePath.join(isolatedHome, '.dsh-tui')
@@ -42,8 +42,8 @@ const clearGrants = (): void => { nodeFs.rmSync(grantsFile, { force: true }) }
 
 const { Context } = await import('@deepseek-ai/cordis')
 const {
-  TuiComposerRuntime, TuiComposerStore, createChannelComposerSink, getHostComposerStore, COMPOSER_CONTEXT_PERMISSION,
-} = await import('../src/dsh-adapter/composer.js')
+  TuiContextChipsRuntime, TuiContextChipsStore, createChannelContextChipsSink, getHostContextChipsStore, CONTEXT_CHIPS_PERMISSION,
+} = await import('../src/dsh-adapter/context-chips.js')
 const { createAttachedContextRegistry } = await import('../src/dsh-adapter/channel/attached-context.js')
 const { bindComponentIdentity } = await import('../src/dsh-adapter/component-identity.js')
 const { createChannel } = await import('../src/dsh-adapter/channel.js')
@@ -83,13 +83,13 @@ function registryChannel() {
 
 // ── A. store + bridge units ──────────────────────────────────────────────
 {
-  const store = new TuiComposerStore()
+  const store = new TuiContextChipsStore()
   check('A1 store: sink-less attach/detach return false, staged() is empty',
     store.attach({ sourceId: 'p:k', title: 't', content: 'c' }) === false
     && store.detach('p:k') === false && store.staged().length === 0)
 
   const { holder, registry, channel } = registryChannel()
-  const sink = createChannelComposerSink(channel)
+  const sink = createChannelContextChipsSink(channel)
   store.setSink(sink)
   check('A2 bridge: attach stages a source=plugin chip',
     store.attach({ sourceId: 'p:sel', title: 'Selection · 3', content: 'a, b, c' }) === true
@@ -112,19 +112,19 @@ function registryChannel() {
   check('A5 bridge: detaching a missing chip is false', store.detach('p:sel') === false)
 
   let writable = false
-  const gated = createChannelComposerSink(channel, () => writable)
+  const gated = createChannelContextChipsSink(channel, () => writable)
   check('A6 bridge: a non-writable (shadow) host stages nothing',
     gated.attach({ sourceId: 'p:x', title: 'x', content: 'x' }) === false && holder.attachedContexts.length === 1)
   writable = true
   check('A6 bridge: …and stages once writable', gated.attach({ sourceId: 'p:x', title: 'x', content: 'x' }) === true)
 
-  const other = createChannelComposerSink(channel)
+  const other = createChannelContextChipsSink(channel)
   store.clearSink(other)
   check('A7 store: clearSink ignores a sink that is not the registered one', store.hasSink())
   store.clearSink(sink)
   check('A7 store: clearSink drops its own sink', !store.hasSink())
 
-  const throwing = new TuiComposerStore()
+  const throwing = new TuiContextChipsStore()
   throwing.setSink({ attach: () => { throw new Error('boom') }, detach: () => { throw new Error('boom') }, staged: () => { throw new Error('boom') } })
   check('A8 store: a throwing sink degrades to false/[] (never throws)',
     throwing.attach({ sourceId: 'p:k', title: 't', content: 'c' }) === false
@@ -139,24 +139,24 @@ ctx.logger.warn = (format: unknown, ...params: unknown[]) => {
 }
 const warnCount = (fragment: string): number => warnings.filter(line => line.includes(fragment)).length
 
-ctx.plugin(TuiComposerRuntime)
-await settle(() => ctx.get('tuiComposer') !== undefined)
-check('B1 runtime: service mounts on the cordis root', ctx.get('tuiComposer') !== undefined)
-const store = getHostComposerStore(ctx.tuiComposer)
-if (store === undefined) throw new Error('composer host store was not initialized')
+ctx.plugin(TuiContextChipsRuntime)
+await settle(() => ctx.get('tuiContextChips') !== undefined)
+check('B1 runtime: service mounts on the cordis root', ctx.get('tuiContextChips') !== undefined)
+const store = getHostContextChipsStore(ctx.tuiContextChips)
+if (store === undefined) throw new Error('context-chips host store was not initialized')
 const bench = registryChannel()
-store.setSink(createChannelComposerSink(bench.channel))
+store.setSink(createChannelContextChipsSink(bench.channel))
 const chips = (): readonly AttachedContext[] => bench.holder.attachedContexts
 
 check('B1 runtime: root-context attach is refused',
-  ctx.tuiComposer.attachContext({ key: 'x', title: 'x', content: 'x' }) === false
+  ctx.tuiContextChips.attachContext({ key: 'x', title: 'x', content: 'x' }) === false
   && warnCount('requires a live non-root plugin activation') >= 1)
 
 async function activation(name: string, identity?: string): Promise<{ ctx: Context; dispose: () => Promise<void> }> {
   let captured: Context | undefined
   const fiber = ctx.plugin({
     name,
-    inject: ['tuiComposer'],
+    inject: ['tuiContextChips'],
     apply: (candidate: Context) => {
       if (identity !== undefined) {
         bindComponentIdentity(candidate, { permissions: [], contributes: { commands: [] }, subscriptions: [] } as never,
@@ -170,8 +170,8 @@ async function activation(name: string, identity?: string): Promise<{ ctx: Conte
   return { ctx: captured, dispose: async () => { await Promise.resolve(fiber.dispose()) } }
 }
 
-const blender = await activation('composer-probe-verified', 'blender-bridge')
-const attach = (input: unknown, who: Context = blender.ctx): boolean => who.tuiComposer.attachContext(input as never)
+const blender = await activation('chips-probe-verified', 'blender-bridge')
+const attach = (input: unknown, who: Context = blender.ctx): boolean => who.tuiContextChips.attachContext(input as never)
 
 check('B2 runtime: a verified plugin stages its chip',
   attach({ key: 'selection', title: 'Blender 选中 · 3', content: 'Cube, Wheel_FL, Axle' }) === true
@@ -191,7 +191,7 @@ check('B4 runtime: invalid keys are refused',
   && attach({ key: 42, title: 't', content: 'c' }) === false
   && warnCount('rejected an invalid key') === 4)
 check('B4 runtime: a 64-character key is accepted', attach({ key: 'a'.repeat(64), title: 't', content: 'c' }) === true)
-blender.ctx.tuiComposer.detachContext('a'.repeat(64))
+blender.ctx.tuiContextChips.detachContext('a'.repeat(64))
 check('B5 runtime: non-string title/content is refused',
   attach({ key: 'k', title: 3, content: 'c' }) === false && attach({ key: 'k', title: 't', content: { x: 1 } }) === false
   && warnCount('must be strings') === 2)
@@ -225,7 +225,7 @@ check('B7 runtime: replacing an existing key at the cap still works', attach({ k
 
 // Cross-plugin isolation: another activation derives its own prefix, so it
 // can neither replace nor detach the verified plugin's chips.
-const anonymous = await activation('composer-probe-anonymous')
+const anonymous = await activation('chips-probe-anonymous')
 check('B8 runtime: an anonymous activation gets a session-only sourceId',
   attach({ key: 'selection', title: 'other', content: 'o' }, anonymous.ctx) === true
   && chips().some(item => /^session:act\d+:selection$/u.test(item.sourceId)),
@@ -233,12 +233,12 @@ check('B8 runtime: an anonymous activation gets a session-only sourceId',
 check('B8 runtime: same key from another plugin is a separate chip',
   chips().find(item => item.sourceId === 'blender-bridge:selection')?.title === 'Blender 选中 · 5')
 check('B8 runtime: another plugin cannot detach my chip',
-  anonymous.ctx.tuiComposer.detachContext('k3') === false && chips().some(item => item.sourceId === 'blender-bridge:k3'))
+  anonymous.ctx.tuiContextChips.detachContext('k3') === false && chips().some(item => item.sourceId === 'blender-bridge:k3'))
 
-check('B9 runtime: detach removes the chip and reports true', blender.ctx.tuiComposer.detachContext('k3') === true
+check('B9 runtime: detach removes the chip and reports true', blender.ctx.tuiContextChips.detachContext('k3') === true
   && !chips().some(item => item.sourceId === 'blender-bridge:k3'))
-check('B9 runtime: detaching a missing chip reports false', blender.ctx.tuiComposer.detachContext('k3') === false)
-check('B9 runtime: detach rejects an invalid key', blender.ctx.tuiComposer.detachContext('Bad Key') === false
+check('B9 runtime: detaching a missing chip reports false', blender.ctx.tuiContextChips.detachContext('k3') === false)
+check('B9 runtime: detach rejects an invalid key', blender.ctx.tuiContextChips.detachContext('Bad Key') === false
   && warnCount('detachContext rejected an invalid key') === 1)
 
 // Dispose peels exactly that activation's chips.
@@ -249,16 +249,16 @@ check('B10 runtime: disposing an activation peels its chips',
   && chips().filter(item => item.sourceId.startsWith('blender-bridge:')).length === verifiedBefore)
 
 // Grants: read live from the grants file on every attach.
-writeGrants({ denies: { root: [{ name: COMPOSER_CONTEXT_PERMISSION, scope: 'root' }] } })
+writeGrants({ denies: { root: [{ name: CONTEXT_CHIPS_PERMISSION, scope: 'root' }] } })
 check('B11 grants: a root deny refuses every plugin',
   attach({ key: 'selection', title: 'denied', content: 'x' }) === false && warnCount('revoked in the grants file') === 1)
-writeGrants({ denies: { 'blender-bridge': [{ name: COMPOSER_CONTEXT_PERMISSION, scope: 'blender-bridge' }] } })
-const scoped = await activation('composer-probe-anonymous-2')
+writeGrants({ denies: { 'blender-bridge': [{ name: CONTEXT_CHIPS_PERMISSION, scope: 'blender-bridge' }] } })
+const scoped = await activation('chips-probe-anonymous-2')
 check('B11 grants: a component deny refuses that plugin…',
   attach({ key: 'selection', title: 'denied', content: 'x' }) === false)
 check('B11 grants: …but not an unrelated activation',
   attach({ key: 'selection', title: 'fine', content: 'x' }, scoped.ctx) === true)
-writeGrants({ denies: { 'blender-bridge': [{ name: COMPOSER_CONTEXT_PERMISSION, scope: 'other-plugin' }] } })
+writeGrants({ denies: { 'blender-bridge': [{ name: CONTEXT_CHIPS_PERMISSION, scope: 'other-plugin' }] } })
 check('B11 grants: a deny scoped to another id does not apply', attach({ key: 'selection', title: 'Blender 选中 · 5', content: 'x' }) === true)
 nodeFs.writeFileSync(grantsFile, '{not json')
 check('B11 grants: a corrupt grants file fails closed', attach({ key: 'selection', title: 'x', content: 'x' }) === false)
@@ -268,7 +268,7 @@ await scoped.dispose()
 
 // Rate limit: 20 attaches per minute per activation (replacements count),
 // sticky single warning; a fresh activation has its own budget.
-const burst = await activation('composer-probe-burst')
+const burst = await activation('chips-probe-burst')
 let burstOk = 0
 for (let index = 0; index < 20; index += 1) {
   if (!attach({ key: 'burst', title: `burst ${index}`, content: String(index) }, burst.ctx)) break
@@ -278,7 +278,7 @@ check('B12 rate: 20 attaches per minute are allowed', burstOk === 20, `${burstOk
 check('B12 rate: the 21st attach is dropped', attach({ key: 'burst', title: 'over', content: 'x' }, burst.ctx) === false)
 check('B12 rate: the drop warns exactly once',
   warnCount('rate-limited') === 1 && attach({ key: 'burst', title: 'over', content: 'x' }, burst.ctx) === false && warnCount('rate-limited') === 1)
-const fresh = await activation('composer-probe-fresh')
+const fresh = await activation('chips-probe-fresh')
 check('B12 rate: a fresh activation has its own budget', attach({ key: 'burst', title: 'fresh', content: 'x' }, fresh.ctx) === true)
 await burst.dispose()
 await fresh.dispose()
@@ -287,10 +287,10 @@ store.setSink(undefined)
 check('B13 runtime: no bound channel → attach returns false',
   attach({ key: 'selection', title: 'x', content: 'x' }) === false)
 check('B14 host-only: the store and sink are absent from the plugin service',
-  !('store' in (blender.ctx.tuiComposer as object)) && !('setSink' in (blender.ctx.tuiComposer as object)))
+  !('store' in (blender.ctx.tuiContextChips as object)) && !('setSink' in (blender.ctx.tuiContextChips as object)))
 const publicSurface = await import('../src/extensions.js')
-check('B14 public surface: extensions shim exports TuiComposerRuntime',
-  (publicSurface as Record<string, unknown>).TuiComposerRuntime === TuiComposerRuntime)
+check('B14 public surface: extensions shim exports TuiContextChipsRuntime',
+  (publicSurface as Record<string, unknown>).TuiContextChipsRuntime === TuiContextChipsRuntime)
 
 // ── C. real channel: submit carries the plugin block once ───────────────
 const delivered: Array<{ content: Array<{ type: string; text: string }> }> = []
@@ -311,7 +311,7 @@ const delivered: Array<{ content: Array<{ type: string; text: string }> }> = []
   channelCtx.provide('agents' as never, { get: () => undefined, create: () => Promise.reject(new Error('unused')) } as never)
   const channel = createChannel(channelCtx, makeAgent('agent-a', 'sess-a') as never,
     { model: 'm0', cwd: '/tmp/demo', provider: 'p0', activity: false } as never)
-  store.setSink(createChannelComposerSink(channel))
+  store.setSink(createChannelContextChipsSink(channel))
   check('C1 channel: the plugin chip lands on the real channel projection',
     attach({ key: 'selection', title: 'Blender 选中 · 3', content: 'Cube, Wheel_FL, Axle' }) === true
     && channel.attachedContexts.length === 1 && channel.attachedContexts[0]!.source === 'plugin')
@@ -322,7 +322,7 @@ const delivered: Array<{ content: Array<{ type: string; text: string }> }> = []
       && delivered[0]!.content[0]!.text === '把这些改成红色' && delivered[0]!.content[1]!.text === expected),
     delivered.length === 1 ? JSON.stringify(delivered[0]!.content) : 'no delivery')
   check('C2 channel: the chip is consumed by that submission', channel.attachedContexts.length === 0)
-  check('C2 runtime: detach after the chip was sent reports false', blender.ctx.tuiComposer.detachContext('selection') === false)
+  check('C2 runtime: detach after the chip was sent reports false', blender.ctx.tuiContextChips.detachContext('selection') === false)
   channel.submit('第二条')
   check('C3 channel: the following submission carries no block',
     await settled(() => delivered.length === 2 && delivered[1]!.content.length === 1))
@@ -372,7 +372,7 @@ const delivered: Array<{ content: Array<{ type: string; text: string }> }> = []
     attachContext(input: { source: 'panel' | 'plugin'; sourceId: string; title: string; content: string }) { registry.attach(input); bump() },
     detachContext(id: string) { registry.detach(id); bump() },
   }
-  store.setSink(createChannelComposerSink(promptChannel))
+  store.setSink(createChannelContextChipsSink(promptChannel))
 
   function Host(): React.ReactElement {
     React.useSyncExternalStore(listener => promptChannel.subscribe(listener), () => promptChannel.version)
@@ -409,8 +409,8 @@ await blender.dispose()
 nodeFs.rmSync(isolatedHome, { recursive: true, force: true })
 
 if (failures > 0) {
-  console.error(`verify-plugin-composer: ${failures} failure(s)`)
+  console.error(`verify-plugin-context-chips: ${failures} failure(s)`)
   process.exit(1)
 }
-console.log('verify-plugin-composer: ALL PASS')
+console.log('verify-plugin-context-chips: ALL PASS')
 process.exit(0)

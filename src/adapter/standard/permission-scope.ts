@@ -15,7 +15,7 @@ export const STORAGE_PERMISSIONS = new Set(
 )
 
 /** Permissions whose registry scope is the caller's own plugin namespace
- *  (`storage.local.*`, `composer.context.attach`): the only enforceable scope
+ *  (`storage.local.*`, `context-chips.attach`): the only enforceable scope
  *  is the Component id itself. Derived from the same vendored registry. */
 const COMPONENT_SCOPED_PERMISSIONS = new Set(
   EXPECTED_PERMISSIONS.filter(permission => permission.scope === 'plugin namespace').map(permission => permission.name),

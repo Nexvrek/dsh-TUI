@@ -183,9 +183,9 @@ const METHOD_POLICY: Record<string, Record<string, MethodPolicy>> = {
   TuiToastRuntime: {
     show: { kind: 'capability', capability: 'host.toast.show' },
   },
-  TuiComposerRuntime: {
-    attachContext: { kind: 'capability', capability: 'host.composer.attach' },
-    detachContext: { kind: 'capability', capability: 'host.composer.detach' },
+  TuiContextChipsRuntime: {
+    attachContext: { kind: 'capability', capability: 'host.context-chips.attach' },
+    detachContext: { kind: 'capability', capability: 'host.context-chips.detach' },
   },
   TuiEffectLedgerRuntime: {
     record: { kind: 'capability', capability: 'host.ledger.record', guard: 'kernel' },
@@ -225,8 +225,8 @@ const NON_SERVICE_POLICY: Readonly<Record<string, {
   TuiToastStore: Object.freeze({
     default: { kind: 'exempt', reason: 'internal Cordis-free toast sink; public adapter entry point is TuiToastRuntime.show' },
   }),
-  TuiComposerStore: Object.freeze({
-    default: { kind: 'exempt', reason: 'internal Cordis-free composer sink; public adapter entry points are TuiComposerRuntime.attachContext/detachContext' },
+  TuiContextChipsStore: Object.freeze({
+    default: { kind: 'exempt', reason: 'internal Cordis-free context-chips sink; public adapter entry points are TuiContextChipsRuntime.attachContext/detachContext' },
   }),
   SubagentActivityStore: Object.freeze({
     default: { kind: 'exempt', reason: 'internal TUI subagent activity projection; not part of the adapter capability surface' },
@@ -778,8 +778,8 @@ try {
     TuiToastRuntime,
   } = await import('../src/dsh-adapter/toast.js')
   const {
-    TuiComposerRuntime,
-  } = await import('../src/dsh-adapter/composer.js')
+    TuiContextChipsRuntime,
+  } = await import('../src/dsh-adapter/context-chips.js')
   const {
     TuiCommandTreeRuntime,
   } = await import('../src/dsh-adapter/command-trees.js')
@@ -804,7 +804,7 @@ try {
   const p3Renderers = new TuiRendererRuntime(passiveRoot)
   const p3Themes = new TuiThemeRuntime(passiveRoot)
   const p3Toast = new TuiToastRuntime(passiveRoot)
-  const p3Composer = new TuiComposerRuntime(passiveRoot)
+  const p3ContextChips = new TuiContextChipsRuntime(passiveRoot)
   const p3CommandTrees = new TuiCommandTreeRuntime(passiveRoot)
   const p3Workspaces = new TuiWorkspaceRuntime(passiveRoot)
   const p3Dialogs = new TuiDialogRuntime(passiveRoot)
@@ -819,8 +819,8 @@ try {
   assert.throws(() => p3Renderers.register('foo/bar', () => undefined), /shadow policy denies/)
   assert.throws(() => p3Themes.register({ name: 'x', base: 'dark' } as never), /shadow policy denies/)
   assert.throws(() => p3Toast.show('x'), /shadow policy denies/)
-  assert.throws(() => p3Composer.attachContext({ key: 'x', title: 'x', content: 'x' }), /shadow policy denies/)
-  assert.throws(() => p3Composer.detachContext('x'), /shadow policy denies/)
+  assert.throws(() => p3ContextChips.attachContext({ key: 'x', title: 'x', content: 'x' }), /shadow policy denies/)
+  assert.throws(() => p3ContextChips.detachContext('x'), /shadow policy denies/)
   assert.throws(() => p3CommandTrees.register({ root: 'x', children: () => [] } as never), /shadow policy denies/)
   await assert.rejects(p3Workspaces.rename('x', 'y'), /shadow policy denies/)
   // The Channel mutates workspaces through the host facade, not through the
@@ -949,8 +949,8 @@ try {
     TuiToastRuntime,
   } = await import('../src/dsh-adapter/toast.js')
   const {
-    TuiComposerRuntime,
-  } = await import('../src/dsh-adapter/composer.js')
+    TuiContextChipsRuntime,
+  } = await import('../src/dsh-adapter/context-chips.js')
   const {
     TuiCommandTreeRuntime,
   } = await import('../src/dsh-adapter/command-trees.js')
@@ -975,7 +975,7 @@ try {
   const p3Renderers = new TuiRendererRuntime(root)
   const p3Themes = new TuiThemeRuntime(root)
   const p3Toast = new TuiToastRuntime(root)
-  const p3Composer = new TuiComposerRuntime(root)
+  const p3ContextChips = new TuiContextChipsRuntime(root)
   const p3CommandTrees = new TuiCommandTreeRuntime(root)
   const p3Workspaces = new TuiWorkspaceRuntime(root)
   const p3Dialogs = new TuiDialogRuntime(root)
@@ -990,8 +990,8 @@ try {
   assert.throws(() => p3Renderers.register('foo/bar', () => undefined), /shadow policy denies/)
   assert.throws(() => p3Themes.register({ name: 'x', base: 'dark' } as never), /shadow policy denies/)
   assert.throws(() => p3Toast.show('x'), /shadow policy denies/)
-  assert.throws(() => p3Composer.attachContext({ key: 'x', title: 'x', content: 'x' }), /shadow policy denies/)
-  assert.throws(() => p3Composer.detachContext('x'), /shadow policy denies/)
+  assert.throws(() => p3ContextChips.attachContext({ key: 'x', title: 'x', content: 'x' }), /shadow policy denies/)
+  assert.throws(() => p3ContextChips.detachContext('x'), /shadow policy denies/)
   assert.throws(() => p3CommandTrees.register({ root: 'x', children: () => [] } as never), /shadow policy denies/)
   await assert.rejects(p3Workspaces.rename('x', 'y'), /shadow policy denies/)
   // The Channel mutates workspaces through the host facade, not through the
