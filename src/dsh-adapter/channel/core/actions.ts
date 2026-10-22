@@ -96,7 +96,7 @@ export function createCapabilityDelegates(deps: {
     setDefaultEffort: id => {
       void guarded('effort', undefined, async () => {
         const effort = caps().effort
-        if (effort === undefined) return
+        if (effort === undefined || (id !== undefined && effort.levelsAvailable === false)) return
         const applied = id === undefined ? undefined : nearestLowerEffort(id, effort.levels().map(level => level.id))
         await effort.set(applied ?? null)
         if (!deps.owner.current() || id === undefined || applied === id) return

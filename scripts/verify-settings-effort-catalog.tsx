@@ -265,6 +265,69 @@ try {
   await wait(() => codexPrefs.at(-1) === null, 'explicit Auto clears the backend-scoped default')
   assert.equal(codexUpdates.at(-1)?.effort, 'medium')
 } finally { codexChannel.releaseContributions() }
+// A failed catalog is not a reliable empty ladder: preserve the saved
+// preference until the existing model catalog has actually loaded.
+const catalogFailures: string[] = []
+for (const scenario of ['initial failure', 'repeated failure', 'empty ladder', 'empty catalog', 'explicit Auto']) {
+  let modelCalls = 0
+  const failCount = scenario === 'repeated failure' ? 2 : ['initial failure', 'explicit Auto'].includes(scenario) ? 1 : 0
+  const saved: (string | null)[] = []
+  const updates: Record<string, unknown>[] = []
+  const settings = { model: 'declared', effort: 'ultra-custom' as string | null }
+  const controls = createCodexControls({
+    hub: { call: async (method: string, params: Record<string, unknown>) => {
+      if (method === 'model/list') {
+        if (++modelCalls <= failCount) throw new Error('fixture catalog unavailable')
+        return { data: scenario === 'empty catalog' ? [] : [{ id: 'declared', model: 'declared', defaultReasoningEffort: 'medium',
+          supportedReasoningEfforts: (scenario === 'empty ladder' ? [] : ['medium', 'ultra-custom']).map(reasoningEffort => ({ reasoningEffort })) }] }
+      }
+      if (method === 'collaborationMode/list') return { data: [] }
+      assert.equal(method, 'thread/settings/update')
+      updates.push(params)
+      return {}
+    } },
+    prefs: { write: (patch: { effort: string | null }) => { saved.push(patch.effort) } },
+    settings, ctx: {}, cwd: process.cwd(), threadId: () => 'catalog-fixture', busy: () => false, emit: () => {}, debug: () => {},
+  } as never)
+  await controls.initialize()
+  const tested = createChannel({ on: () => () => {}, get: () => undefined, logger: { warn: () => {}, debug: () => {} } } as never, {
+    ref: { backendId: 'codex', sessionId: 'catalog-fixture' }, cwd: process.cwd(), status: 'idle',
+    capabilities: { effort: controls.capabilities.effort, native: {} },
+    history: async () => [], subscribe: () => () => {}, dispose: async () => {},
+  } as never, { model: 'declared', provider: 'codex', cwd: process.cwd(), activity: false })
+  try {
+    if (scenario === 'initial failure' || scenario === 'repeated failure') {
+      tested.setDefaultEffort('ultra-custom')
+      await sleep(30) // 固定窗:探针 Negative-observation window: an unavailable catalog must not mutate preferences.
+      assert.deepEqual(saved, [], 'failed catalog leaves the existing saved preference untouched')
+      assert.equal(modelCalls, 1, 'unavailable catalog must not turn a concrete preference into a reset retry')
+      assert.deepEqual(updates, [], 'failed catalog does not send a backend reset')
+      assert.equal(settings.effort, 'ultra-custom')
+      if (scenario === 'repeated failure') {
+        await assert.rejects(controls.capabilities.models!.list(), /fixture catalog unavailable/u)
+        tested.setDefaultEffort('ultra-custom')
+        await sleep(30) // 固定窗:探针 Negative-observation window after a second catalog failure.
+        assert.deepEqual(saved, [], 'continued unavailability cannot clear the preference')
+      }
+      await controls.capabilities.models!.list()
+      tested.setDefaultEffort('ultra-custom')
+      await wait(() => saved.length === 1, 'recovered catalog applies the original supported preference')
+      assert.equal(saved[0], 'ultra-custom')
+      assert.equal(updates[0]?.effort, 'ultra-custom')
+    } else {
+      tested.setDefaultEffort(scenario === 'explicit Auto' ? undefined : 'ultra-custom')
+      await wait(() => saved.length === 1, 'reliable empty ladder and explicit Auto retain backend reset semantics')
+      assert.equal(saved[0], null)
+      assert.equal(updates[0]?.effort, scenario === 'empty catalog' ? null : 'medium')
+      assert.equal(modelCalls, scenario === 'explicit Auto' ? 2 : 1, 'Auto may recover through the existing catalog; reliable empty reuses it')
+    }
+    console.log(`PASS: Codex default effort ${scenario}`)
+  } catch (error) {
+    catalogFailures.push(`${scenario}: ${error instanceof Error ? error.message : String(error)}`)
+    console.log(`FAIL: Codex default effort ${catalogFailures.at(-1)}`)
+  } finally { tested.releaseContributions() }
+}
+assert.deepEqual(catalogFailures, [], 'Codex unavailable and reliable-empty catalogs have distinct semantics')
 // The default host entry opens backends after mounting a starting session.
 // A pending default must wait for adoption and read the latest settings once.
 const { createStartingSession } = await import('../src/agent/starting-session.js')
