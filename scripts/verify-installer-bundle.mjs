@@ -9,6 +9,7 @@
  *
  * 平台：全平台可跑。Windows 专属组（PS 5.1 默认解码回读 / cmd stub 冒烟）只在
  * Windows 上执行；非 Windows 打显式 SKIP 并计入 SKIPPED，不冒充 PASS。
+ * DSH_TUI_TEST_POWERSHELL 可指定其他平台的 pwsh，仅运行 PS1 流程，不冒充 Windows 验收。
  *
  * 运行：node scripts/verify-installer-bundle.mjs（有 FAIL 即以非 0 退出）
  */
@@ -179,7 +180,7 @@ try {
     } catch (err) {
       return fail('cmd 冒烟 install.bat（stub 隔离）', `stub 布置失败（${err.code ?? err.message}）`, 'N/A')
     }
-    const run = spawnSync(comSpec, ['/c', 'install.bat'], { cwd: smokeDir, encoding: 'utf8', timeout: 20000, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true })
+    const run = spawnSync(comSpec, ['/d', '/c', 'install.bat'], { cwd: smokeDir, encoding: 'utf8', timeout: 20000, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true })
     if (run.error) return fail('cmd 冒烟 install.bat（stub 隔离）', `cmd 执行失败（${run.error.code ?? run.error.message}）`, 'N/A')
     const stdout = run.stdout ?? ''
     const stderr = run.stderr ?? ''
@@ -188,8 +189,144 @@ try {
     if (/is not recognized as an internal or external command/i.test(stdout + stderr))
       return fail('cmd 冒烟 install.bat（stub 隔离）', 'stdout/stderr 含 cmd 解析错误 "is not recognized as an internal or external command"', 'N/A')
     pass('cmd 冒烟 install.bat（stub 隔离）: 退出码 0 且 stub 标记命中')
+
+    writeFileSync(join(smokeDir, 'install.ps1'), 'exit 13\n', 'utf8')
+    const failedInstall = spawnSync(comSpec, ['/d', '/c', 'install.bat'], {
+      cwd: smokeDir, encoding: 'utf8', timeout: 20_000, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true,
+    })
+    if (failedInstall.error || failedInstall.status !== 1 || !failedInstall.stdout?.includes('Installer failed.')) {
+      fail('install.bat: child failure', '安装失败未保留错误提示与非零退出码', 'N/A')
+    } else pass('install.bat: child failure remains nonzero after pause')
+
+    copyFileSync(stage('启动 dsh-tui.bat'), join(smokeDir, 'launch.bat'))
+    for (const code of [0, 17]) {
+      writeFileSync(join(smokeDir, 'dsh-tui.cmd'), `@echo off\r\necho DSH_LAUNCH_STUB_OK\r\nexit /b ${code}\r\n`)
+      const launch = spawnSync(comSpec, ['/d', '/c', 'launch.bat'], {
+        cwd: smokeDir, encoding: 'utf8', timeout: 20_000, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true,
+      })
+      if (launch.error || launch.status !== code || !launch.stdout?.includes('DSH_LAUNCH_STUB_OK')
+        || launch.stdout.includes('Read the error above') !== (code !== 0)) {
+        fail(`启动 dsh-tui.bat: exit ${code}`, '启动器未返回调用结果或保留失败提示', 'N/A')
+      } else pass(`启动 dsh-tui.bat: child exit ${code}, failure remains visible`)
+    }
   }
   checkCmdSmoke()
+
+  // Run the generated installer, with package commands and user persistence
+  // isolated in the child PowerShell process. No downloads or registry writes.
+  const checkInstallerFlow = () => {
+    const powershell = process.env.DSH_TUI_TEST_POWERSHELL ?? (isWin ? 'powershell' : undefined)
+    if (!powershell) return skip('生成 install.ps1 安装与首次启动流程', '需要 PowerShell；Windows CI 使用 PS 5.1')
+    const fixtures = [
+      { name: 'reject Node 22.18', node: '22.18.0', code: 1, installs: 0 },
+      { name: 'reject Node 23', node: '23.10.0', code: 1, installs: 0 },
+      { name: 'accept Node 22.19 and upgrade pnpm 10', node: '22.19.0', pnpm: '10.20.0', pnpmInstalls: 1 },
+      { name: 'recheck pnpm after install', pnpm: '10.20.0', keepOldPnpm: true, code: 1, installs: 0, pnpmInstalls: 1 },
+      { name: 'version failure is not installation success', versionCode: 7, code: 1, launches: 0, complete: false },
+      { name: 'Enter launches with an existing process key', processKey: true, savedKey: true, keyPresent: true },
+      { name: 'saved user key is available immediately', savedKey: true, keyPresent: true },
+      { name: 'new key is hidden, saved and available immediately', newKey: true, keyPresent: true, saved: true },
+      { name: 'blank key continues to in-app setup', keyPresent: false },
+      { name: 'launch error is returned', launchCode: 9, code: 1 },
+      { name: 'N leaves without launching', launchAnswer: ' N ', launches: 0 },
+      { name: 'redirected input does not prompt or launch', redirected: true, prompts: 0, launches: 0 },
+    ]
+    for (const [index, fixture] of fixtures.entries()) {
+      const config = {
+        node: '24.0.0', pnpm: '11.21.0', versionCode: 0, launchCode: 0,
+        launchAnswer: '', ...fixture,
+      }
+      const configPath = join(tmp, `flow-${index}.json`)
+      const resultPath = join(tmp, `flow-${index}-result.json`)
+      const wrapper = join(tmp, `flow-${index}.ps1`)
+      writeFileSync(configPath, JSON.stringify(config))
+      writeFileSync(wrapper, `\uFEFF
+$ErrorActionPreference = 'Stop'
+[System.Console]::OutputEncoding = [Text.UTF8Encoding]::new($false)
+$global:config = Get-Content -Raw -LiteralPath ${psQuote(configPath)} | ConvertFrom-Json
+$global:events = [Collections.Generic.List[string]]::new()
+$global:pnpmVersion = $config.pnpm
+$global:LASTEXITCODE = 0
+class Environment {
+  static [string]$SavedKey = ''
+  static [bool]$Written = $false
+  static [string] GetEnvironmentVariable([string]$name, [string]$target) {
+    if ($name -eq 'DEEPSEEK_API_KEY') { return [Environment]::SavedKey }
+    return ''
+  }
+  static [void] SetEnvironmentVariable([string]$name, [string]$value, [string]$target) {
+    if ($name -ne 'DEEPSEEK_API_KEY' -or $target -ne 'User') { throw 'Unexpected persistent write' }
+    [Environment]::SavedKey = $value
+    [Environment]::Written = $true
+  }
+}
+class Console { static [bool]$IsInputRedirected = $false }
+[Console]::IsInputRedirected = [bool]$config.redirected
+if ($config.savedKey) { [Environment]::SavedKey = 'fixture-saved-secret' }
+$env:DEEPSEEK_API_KEY = if ($config.processKey) { 'fixture-process-secret' } else { '' }
+function node { $global:LASTEXITCODE = 0; "v$($config.node)" }
+function npm { throw 'Bare npm may select an unsigned PowerShell shim' }
+function pnpm { throw 'Bare pnpm may select an unsigned PowerShell shim' }
+function dsh-tui { throw 'Bare dsh-tui may select an unsigned PowerShell shim' }
+function npm.cmd {
+  $global:LASTEXITCODE = 0
+  if ($args[0] -eq 'config') { return 'C:\\fixture\\npm' }
+  if ($args -match '^pnpm@') {
+    $events.Add('pnpm-install')
+    if (-not $config.keepOldPnpm) { $global:pnpmVersion = '11.21.0' }
+  } else { $events.Add('install') }
+}
+function pnpm.cmd { $global:LASTEXITCODE = 0; $global:pnpmVersion }
+function dsh-tui.cmd {
+  if ($args -contains '--version') { $global:LASTEXITCODE = $config.versionCode; return '0.16.1' }
+  $events.Add('launch')
+  if ($config.processKey -and $env:DEEPSEEK_API_KEY -ne 'fixture-process-secret') { throw 'Existing key changed' }
+  if ($config.newKey -and $env:DEEPSEEK_API_KEY -ne 'fixture-new-secret') { throw 'New key not inherited' }
+  if (-not $config.processKey -and $config.savedKey -and $env:DEEPSEEK_API_KEY -ne 'fixture-saved-secret') { throw 'Saved key not inherited' }
+  $global:LASTEXITCODE = $config.launchCode
+}
+function Read-Host {
+  param([string]$Prompt, [switch]$AsSecureString)
+  $events.Add('prompt')
+  if ($Prompt -like '*DEEPSEEK_API_KEY*') {
+    if (-not $AsSecureString) { throw 'API key input must be hidden' }
+    if ($config.newKey) { return ConvertTo-SecureString '  fixture-new-secret  ' -AsPlainText -Force }
+    return [Security.SecureString]::new()
+  }
+  return $config.launchAnswer
+}
+& ${psQuote(stage('install.ps1'))}
+$code = $LASTEXITCODE
+$result = @{ events = @($events.ToArray()); saved = [Environment]::Written; keyPresent = [bool]$env:DEEPSEEK_API_KEY }
+[IO.File]::WriteAllText(${psQuote(resultPath)}, ($result | ConvertTo-Json -Compress), [Text.UTF8Encoding]::new($false))
+exit $code
+`, 'utf8')
+      const run = spawnSync(powershell, ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', wrapper], {
+        encoding: 'utf8', timeout: 20_000, windowsHide: true,
+      })
+      const output = (run.stdout ?? '') + (run.stderr ?? '')
+      let result
+      try { result = JSON.parse(readFileSync(resultPath, 'utf8')) } catch {}
+      const count = name => result?.events.filter(event => event === name).length
+      const expectedCode = config.code ?? 0
+      const problems = [
+        run.error && String(run.error),
+        run.status !== expectedCode && `exit ${run.status}, expected ${expectedCode}`,
+        !result && 'missing fixture result',
+        count('install') !== (config.installs ?? 1) && 'incorrect package install count',
+        count('pnpm-install') !== (config.pnpmInstalls ?? 0) && 'incorrect pnpm repair count',
+        count('launch') !== (config.launches ?? (expectedCode === 0 || config.launchCode ? 1 : 0)) && 'incorrect first-launch count',
+        config.prompts !== undefined && count('prompt') !== config.prompts && 'unexpected prompt',
+        result?.saved !== (config.saved ?? false) && 'incorrect credential persistence',
+        config.keyPresent !== undefined && result?.keyPresent !== config.keyPresent && 'incorrect child credential state',
+        config.complete === false && output.includes('安装完成！启动方式') && 'false success message',
+        /fixture-(process|saved|new)-secret/.test(output) && 'credential leaked to output',
+      ].filter(Boolean)
+      if (problems.length) fail(`install.ps1: ${config.name}`, `${problems.join('; ')} (${clip(output, 400)})`, 'N/A')
+      else pass(`install.ps1: ${config.name}${isWin ? ' (PS 5.1)' : ' (pwsh; 非 Windows)'}`)
+    }
+  }
+  checkInstallerFlow()
 
   console.log(`\nPASS: ${passed} / FAIL: ${failed} / SKIPPED: ${skipped}`)
   exitCode = failed === 0 ? 0 : 1

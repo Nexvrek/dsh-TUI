@@ -23,6 +23,8 @@ import { fileURLToPath } from 'node:url'
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
 const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'))
+const pnpmVersion = pkg.packageManager.match(/^pnpm@([\d.]+)(?:\+|$)/)?.[1]
+if (!pnpmVersion) throw new Error('packageManager must pin a pnpm version')
 const argOut = process.argv.indexOf('--out')
 const outDir = resolve(argOut >= 0 ? process.argv[argOut + 1] : join(root, 'dist-bundle'))
 const pkgDirName = 'dsh-tui-setup'
@@ -40,20 +42,27 @@ if errorlevel 1 (
   echo.
   echo Installer failed. Please rerun it, or follow the manual steps in 使用说明.txt.
   pause
+  exit /b 1
 )
 endlocal
 `
 
 const LAUNCH_BAT = `@echo off
 rem dsh-TUI launcher (Windows): double-click to start the TUI.
-where dsh-tui >nul 2>&1
+setlocal
+where dsh-tui.cmd >nul 2>&1
 if errorlevel 1 (
   echo dsh-tui was not found. Please run install.bat first.
   pause
   exit /b 1
 )
-dsh-tui
-pause
+call dsh-tui.cmd
+set "EXIT_CODE=%ERRORLEVEL%"
+if not "%EXIT_CODE%"=="0" (
+  echo dsh-tui could not start. Read the error above or run dsh-tui.cmd doctor.
+  pause
+)
+exit /b %EXIT_CODE%
 `
 
 const INSTALL_PS1 = `# dsh-TUI 一键安装脚本（Windows / PowerShell）
@@ -101,36 +110,48 @@ if (-not $node) {
 }
 $nv = Get-NodeVersion
 $nvText = if ($null -ne $nv) { $nv.ToString() } else { '未知' }
-if (-not $nv -or ($nv -lt [version]'22.19' -and $nv.Major -lt 24)) {
-  Fail "Node.js 版本过低（当前 $nvText），请升级到 22.19+ 或 24+（winget upgrade OpenJS.NodeJS.LTS）后重跑"
+if (-not $nv -or -not (($nv.Major -eq 22 -and $nv.Minor -ge 19) -or $nv.Major -ge 24)) {
+  Fail "Node.js 版本不兼容（当前 $nvText），需要 ^22.19 或 >=24；请升级后重跑"
 }
 OK "Node.js $($nv.ToString())"
 
-# 2. pnpm（dsh profile 初始化需要）
-Step '检查 pnpm'
-if (-not (Get-Command pnpm -ErrorAction SilentlyContinue)) {
-  Warn '未检测到 pnpm，正在安装…'
-  & npm install -g pnpm
-  if ($LASTEXITCODE -ne 0) {
-    Warn 'npm 安装 pnpm 失败，尝试 corepack…'
-    & corepack enable pnpm
-    if ($LASTEXITCODE -ne 0) { Fail 'pnpm 安装失败，请手动执行：npm install -g pnpm' }
-  }
+# 2. pnpm（dsh profile 初始化需要 11+）
+# npm's .cmd launchers work even when PowerShell blocks unsigned .ps1 shims.
+if (-not (Get-Command npm.cmd -ErrorAction SilentlyContinue)) {
+  Fail '未找到 npm.cmd，请重新安装包含 npm 的 Node.js 后重跑'
 }
-OK 'pnpm 就绪'
+function Get-PnpmVersion {
+  if (-not (Get-Command pnpm.cmd -ErrorAction SilentlyContinue)) { return $null }
+  try {
+    $raw = & pnpm.cmd --version 2>$null
+    if ($LASTEXITCODE -ne 0 -or -not $raw) { return $null }
+    return [version](($raw.Trim() -split '-')[0])
+  } catch { return $null }
+}
+Step '检查 pnpm（需要 11+）'
+$pv = Get-PnpmVersion
+if (-not $pv -or $pv.Major -lt 11) {
+  Warn 'pnpm 不可用或版本过旧，正在安装兼容版本…'
+  & npm.cmd install -g pnpm@${pnpmVersion}
+  if ($LASTEXITCODE -ne 0) { Fail 'pnpm 安装失败，请手动执行：npm.cmd install -g pnpm@${pnpmVersion}' }
+  Refresh-Path
+  $pv = Get-PnpmVersion
+}
+if (-not $pv -or $pv.Major -lt 11) { Fail 'pnpm 11+ 仍不可用，请检查 PATH 后重跑 install.bat' }
+OK "pnpm $($pv.ToString())"
 
 # 3. 全局安装 dsh CLI + dsh-TUI
 Step '安装 @deepseek-ai/dsh 与 @deepseek-harness-tui/dsh-tui（首次较慢，请稍候）'
-$prefix = (& npm config get prefix 2>$null).Trim()
+$prefix = (& npm.cmd config get prefix 2>$null).Trim()
 if ($prefix -match 'Program Files') {
   Warn "npm 全局目录在受保护路径（$prefix），若下面安装报权限错误，请右键 install.bat 以管理员身份运行，或执行：npm config set prefix \"\$env:APPDATA\\npm\""
 }
 $npmArgs = @('install', '-g', '@deepseek-ai/dsh', '@deepseek-harness-tui/dsh-tui',
   '--fetch-timeout=60000', '--fetch-retries=1')
-& npm @npmArgs
+& npm.cmd @npmArgs
 if ($LASTEXITCODE -ne 0) {
   Warn 'npm 官方源安装失败（国内网络常见），切换 npmmirror 镜像重试…'
-  & npm @npmArgs --registry=https://registry.npmmirror.com
+  & npm.cmd @npmArgs --registry=https://registry.npmmirror.com
   if ($LASTEXITCODE -ne 0) {
     Fail "安装失败。可手动执行：npm install -g @deepseek-ai/dsh @deepseek-harness-tui/dsh-tui --registry=https://registry.npmmirror.com"
   }
@@ -140,26 +161,38 @@ OK 'dsh CLI 与 dsh-TUI 安装完成'
 # 4. 校验
 Step '校验安装'
 Refresh-Path
-if (-not (Get-Command dsh-tui -ErrorAction SilentlyContinue)) {
+if (-not (Get-Command dsh-tui.cmd -ErrorAction SilentlyContinue)) {
   Fail '未找到 dsh-tui 命令。请关闭本窗口、重新打开终端后再次运行 install.bat'
 }
-& dsh-tui --version
-if ($LASTEXITCODE -ne 0) { Warn '版本校验未通过，但安装可能已成功，请用 dsh-tui 命令验证' }
+& dsh-tui.cmd --version
+if ($LASTEXITCODE -ne 0) { Fail 'dsh-tui 启动校验失败。请保留上方错误，并运行 dsh-tui.cmd doctor 检查环境' }
 OK 'dsh-tui 命令可用'
 
 # 5. DEEPSEEK_API_KEY
 Step '检查 DEEPSEEK_API_KEY'
-$hasKey = [Environment]::GetEnvironmentVariable('DEEPSEEK_API_KEY', 'User') -or
-          [Environment]::GetEnvironmentVariable('DEEPSEEK_API_KEY', 'Process')
-if (-not $hasKey) {
-  Warn '未配置 DEEPSEEK_API_KEY。请到 https://platform.deepseek.com 申请 API Key 后粘贴到下面（输入后回车）：'
-  $key = Read-Host 'DEEPSEEK_API_KEY'
-  if ($key) {
-    [Environment]::SetEnvironmentVariable('DEEPSEEK_API_KEY', $key.Trim(), 'User')
-    OK '已写入用户环境变量（永久生效）'
-    Warn '请关闭本窗口并重新打开终端，配置才会在当前会话生效'
-  } else {
-    Warn '已跳过。之后可手动配置：setx DEEPSEEK_API_KEY "你的密钥"'
+# An existing process value takes precedence; load a saved user value only when absent.
+if (-not $env:DEEPSEEK_API_KEY) {
+  $env:DEEPSEEK_API_KEY = [Environment]::GetEnvironmentVariable('DEEPSEEK_API_KEY', 'User')
+}
+if (-not $env:DEEPSEEK_API_KEY -and [Console]::IsInputRedirected) {
+  Warn '已跳过 API Key 输入。进入界面后可用 /provider 或 /login 配置。'
+} elseif (-not $env:DEEPSEEK_API_KEY) {
+  Warn '可粘贴 https://platform.deepseek.com 申请的 API Key；也可直接回车跳过，进入界面后配置账号。'
+  $secureKey = Read-Host 'DEEPSEEK_API_KEY（输入隐藏）' -AsSecureString
+  $keyPointer = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secureKey)
+  try {
+    $key = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($keyPointer).Trim()
+    if ($key) {
+      [Environment]::SetEnvironmentVariable('DEEPSEEK_API_KEY', $key, 'User')
+      $env:DEEPSEEK_API_KEY = $key
+      OK '已保存 API Key，本次启动立即生效'
+    } else {
+      Warn '已跳过。进入界面后可用 /provider 或 /login 配置。'
+    }
+  } finally {
+    [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($keyPointer)
+    $key = $null
+    $secureKey.Dispose()
   }
 } else {
   OK '已配置'
@@ -169,13 +202,19 @@ if (-not $hasKey) {
 Write-Host ''
 Write-Host '============================================' -ForegroundColor Green
 Write-Host '  安装完成！启动方式：' -ForegroundColor Green
-Write-Host '    1. 重新打开终端，运行：dsh-tui 或 dst' -ForegroundColor Green
+Write-Host '    1. 打开终端，运行：dsh-tui.cmd 或 dst.cmd' -ForegroundColor Green
 Write-Host '    2. 或双击本目录下的：启动 dsh-tui.bat' -ForegroundColor Green
 Write-Host '  首次启动会自动初始化 profile，稍等片刻即可进入界面。' -ForegroundColor Green
-Write-Host '  更新：dsh-tui update ｜ 文档：https://dshtui.com' -ForegroundColor Green
+Write-Host '  更新：dsh-tui.cmd update ｜ 文档：https://dshtui.com' -ForegroundColor Green
 Write-Host '============================================' -ForegroundColor Green
 Write-Host ''
-Read-Host '按回车键退出'
+Write-Host '  按回车键立即启动；输入 N 后回车退出。' -ForegroundColor Green
+if ([Console]::IsInputRedirected) { exit 0 }
+$launch = Read-Host '现在启动'
+if ($launch.Trim() -notmatch '^(n|no)$') {
+  & dsh-tui.cmd
+  if ($LASTEXITCODE -ne 0) { Fail '首次启动失败。请保留上方错误，并运行 dsh-tui.cmd doctor 检查环境' }
+}
 `
 
 const INSTALL_SH = `#!/usr/bin/env bash
@@ -291,13 +330,14 @@ const README_TXT = `dsh-TUI 一键安装整合包（dsh-tui-setup）
 
 安装过程中会做什么
   1. 检查 Node.js（^22.19 或 >=24），没有则自动安装（Windows 用 winget）；
-  2. 安装 pnpm；
+  2. 安装 pnpm（Windows 会检查 11+，缺失或过旧时安装兼容版本）；
   3. 全局安装 @deepseek-ai/dsh 与 @deepseek-harness-tui/dsh-tui；
   4. 校验 dsh-tui 命令可用；
-  5. 检查 DEEPSEEK_API_KEY，未配置时引导你粘贴并持久化保存。
+  5. Windows 下隐藏输入 API Key，保存后本次启动立即生效；也可跳过后在界面配置。
+  6. Windows 安装完成后按回车即可立即启动。
 
 启动
-  Windows：双击"启动 dsh-tui.bat"；或打开终端运行：dsh-tui 或 dst
+  Windows：双击"启动 dsh-tui.bat"；或打开终端运行：dsh-tui.cmd 或 dst.cmd
   macOS / Linux：运行：dsh-tui 或 dst
   首次启动会自动初始化 profile（dsh --profile dsh-tui 等价），稍等片刻进入界面。
 
@@ -317,7 +357,9 @@ English summary:
   Windows: double-click install.bat. macOS/Linux: sh install.sh.
   It installs Node (if missing), pnpm, @deepseek-ai/dsh + @deepseek-harness-tui/dsh-tui,
   verifies the dsh-tui command, and guides DEEPSEEK_API_KEY setup.
-  Launch with: dsh-tui (or dst)
+  On Windows, key input is hidden and takes effect immediately; press Enter to launch.
+  You can skip the key and configure an account inside the TUI.
+  Windows: dsh-tui.cmd (or dst.cmd). macOS/Linux: dsh-tui (or dst).
 `
 
 // ─── 组装 ───────────────────────────────────────────────────────────────────
