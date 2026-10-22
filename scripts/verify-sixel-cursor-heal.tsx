@@ -143,11 +143,15 @@ for (const scenario of ['healthy', 'drift', 'delayed', 'disabled', 'unsupported'
       assert.equal(output.samples.length, 1, 'resize frame skips probing')
     }
   }
-  await handle.detachForShutdown()
+  if (scenario === 'unmount') {
+    const exited = handle.waitUntilExit()
+    handle.unmount()
+    await exited
+  } else await handle.detachForShutdown()
   const bytes = output.data.length
   input.write('\x1b[?23;17;1R')
   await Promise.resolve()
-  assert.equal(output.data.length, bytes, 'late reply after detach emits no recovery or probe')
+  assert.equal(output.data.length, bytes, 'late reply after teardown emits no recovery or probe')
   assert.equal(input.isRaw, false)
   input.destroy()
   console.log(`PASS actual renderer: ${scenario}`)
