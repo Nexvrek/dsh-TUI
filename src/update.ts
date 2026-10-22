@@ -353,13 +353,14 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 /** Fetch `latest` from a registry; undefined on any failure. */
-async function fetchLatestVersion(registryBase: string): Promise<string | undefined> {
+async function fetchLatestVersion(registryBase: string, signal?: AbortSignal): Promise<string | undefined> {
+  if (signal?.aborted) return undefined
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), UPDATE_CHECK_TIMEOUT_MS)
   try {
     const response = await fetch(`${registryBase}/${PACKAGE_NAME}/latest`, {
       headers: { accept: 'application/json' },
-      signal: controller.signal,
+      signal: signal === undefined ? controller.signal : AbortSignal.any([controller.signal, signal]),
     })
     if (!response.ok) return undefined
     const payload: unknown = await response.json()
@@ -423,6 +424,8 @@ export interface GithubReleaseQuery {
   apiBaseUrl?: string
   /** Fetch implementation; defaults to the global fetch. */
   fetchImpl?: typeof fetch
+  /** Cancellation shared with the update that requested this release. */
+  signal?: AbortSignal
 }
 
 /**
@@ -467,14 +470,15 @@ export function releaseChecksumUrl(version: string): string {
  * the transition-period warning path instead of being blocked (new releases
  * always ship the manifest; old ones must keep updating).
  */
-async function probeChecksumManifestUrl(url: string): Promise<string | undefined> {
+async function probeChecksumManifestUrl(url: string, signal?: AbortSignal): Promise<string | undefined> {
+  if (signal?.aborted) return undefined
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), UPDATE_CHECK_TIMEOUT_MS)
   try {
     const response = await fetch(url, {
       headers: { 'user-agent': 'dsh-tui-updater' },
       redirect: 'follow',
-      signal: controller.signal,
+      signal: signal === undefined ? controller.signal : AbortSignal.any([controller.signal, signal]),
     })
     return response.ok ? url : undefined
   } catch {
@@ -493,13 +497,14 @@ async function probeChecksumManifestUrl(url: string): Promise<string | undefined
  *   failure.
  */
 export async function fetchGithubLatestRelease(options: GithubReleaseQuery = {}): Promise<{ version: string; downloadUrl?: string; checksumUrl?: string } | undefined> {
+  if (options.signal?.aborted) return undefined
   const doFetch = options.fetchImpl ?? fetch
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), UPDATE_CHECK_TIMEOUT_MS)
   try {
     const response = await doFetch(`${options.apiBaseUrl ?? 'https://api.github.com'}/repos/${GITHUB_REPO}/releases/latest`, {
       headers: { accept: 'application/vnd.github.v3+json', 'user-agent': 'dsh-tui-updater' },
-      signal: controller.signal,
+      signal: options.signal === undefined ? controller.signal : AbortSignal.any([controller.signal, options.signal]),
     })
     if (!response.ok) return undefined
     const payload: unknown = await response.json()
@@ -717,6 +722,7 @@ export function validateExtractedTree(extractDir: string): ExtractedTreeCheck {
 async function fetchChecksumManifest(
   checksumUrl: string,
   maxManifestBytes: number = MAX_CHECKSUM_MANIFEST_BYTES,
+  signal?: AbortSignal,
 ): Promise<string> {
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), STANDALONE_DOWNLOAD_TIMEOUT_MS)
@@ -724,7 +730,7 @@ async function fetchChecksumManifest(
     const response = await fetch(checksumUrl, {
       headers: { 'user-agent': 'dsh-tui-updater' },
       redirect: 'follow',
-      signal: controller.signal,
+      signal: signal === undefined ? controller.signal : AbortSignal.any([controller.signal, signal]),
     })
     if (!response.ok) {
       throw new Error(`checksum manifest fetch failed: HTTP ${response.status} ${response.statusText}`)
@@ -770,6 +776,8 @@ export interface StandaloneDownloadOptions {
    * server stream.
    */
   maxChecksumManifestBytes?: number
+  /** Cancel both the archive and checksum transfer before replacement. */
+  signal?: AbortSignal
 }
 
 /**
@@ -797,11 +805,15 @@ export async function downloadAndReplaceStandaloneBinary(
   options: StandaloneDownloadOptions = {},
 ): Promise<{ success: boolean; error?: string }> {
   const maxAssetBytes = options.maxAssetBytes ?? MAX_ASSET_BYTES
+  const controller = new AbortController()
+  const signal = options.signal === undefined ? controller.signal : AbortSignal.any([controller.signal, options.signal])
+  const timeout = setTimeout(() => controller.abort(), STANDALONE_DOWNLOAD_TIMEOUT_MS)
   const tempDir = join(
     process.env.DSH_TUI_STANDALONE_CACHE ?? join(homedir(), '.cache', 'dsh-tui-standalone'),
     `.update-${Date.now()}-${process.pid}`,
   )
   try {
+    signal.throwIfAborted()
     const currentBinary = getStandaloneBinaryPath()
     const targetDir = dirname(currentBinary)
     const assetName = getStandaloneAssetName()
@@ -810,18 +822,11 @@ export async function downloadAndReplaceStandaloneBinary(
     const downloadPath = join(tempDir, assetName)
 
     onProgress?.(`downloading: ${downloadUrl}`)
-    const controller = new AbortController()
-    const timeout = setTimeout(() => controller.abort(), STANDALONE_DOWNLOAD_TIMEOUT_MS)
-    let response: Response
-    try {
-      response = await fetch(downloadUrl, {
-        headers: { 'user-agent': 'dsh-tui-updater' },
-        redirect: 'follow',
-        signal: controller.signal,
-      })
-    } finally {
-      clearTimeout(timeout)
-    }
+    const response = await fetch(downloadUrl, {
+      headers: { 'user-agent': 'dsh-tui-updater' },
+      redirect: 'follow',
+      signal,
+    })
     if (!response.ok) {
       throw new Error(`HTTP ${response.status} ${response.statusText}`)
     }
@@ -868,6 +873,7 @@ export async function downloadAndReplaceStandaloneBinary(
       const manifest = await fetchChecksumManifest(
         checksumUrl,
         options.maxChecksumManifestBytes ?? MAX_CHECKSUM_MANIFEST_BYTES,
+        signal,
       )
       if (!verifyAssetChecksum(buffer, manifest, assetName)) {
         // Fail closed: never leave a mismatching (potentially hostile) asset
@@ -879,6 +885,7 @@ export async function downloadAndReplaceStandaloneBinary(
     }
 
     onProgress?.('extracting…')
+    signal.throwIfAborted()
     const extractDir = join(tempDir, 'extracted')
     mkdirSync(extractDir, { recursive: true })
 
@@ -923,6 +930,7 @@ export async function downloadAndReplaceStandaloneBinary(
     }
 
     onProgress?.('replacing binary…')
+    signal.throwIfAborted()
     if (process.platform !== 'win32') {
       try { chmodSync(newBinaryPath, 0o755) } catch {}
     }
@@ -945,11 +953,12 @@ export async function downloadAndReplaceStandaloneBinary(
       renameSync(stagedTarget, currentBinary)
     }
 
-    try { rmSync(tempDir, { recursive: true, force: true }) } catch {}
     return { success: true }
   } catch (error) {
-    try { rmSync(tempDir, { recursive: true, force: true }) } catch {}
     return { success: false, error: error instanceof Error ? error.message : String(error) }
+  } finally {
+    clearTimeout(timeout)
+    try { rmSync(tempDir, { recursive: true, force: true }) } catch {}
   }
 }
 
@@ -966,14 +975,17 @@ export async function downloadAndReplaceStandaloneBinary(
  * say "installing X now, official latest is Y" instead of silently
  * upgrading to yesterday's version.
  */
-export async function resolveTuiUpdateTarget(): Promise<TuiUpdateTarget> {
+export async function resolveTuiUpdateTarget(signal?: AbortSignal): Promise<TuiUpdateTarget> {
+  if (signal?.aborted) return { kind: 'unknown' }
   const current = installedTuiVersion()
   const currentVersion = current === undefined ? null : valid(current)
   if (currentVersion === null) return { kind: 'unknown' }
 
   if (isStandaloneRuntime()) {
-    const ghRelease = await fetchGithubLatestRelease()
-    const latest = ghRelease?.version ?? (await fetchLatestVersion(resolveRegistryBase()))
+    const ghRelease = await fetchGithubLatestRelease({ signal })
+    if (signal?.aborted) return { kind: 'unknown' }
+    const latest = ghRelease?.version ?? (await fetchLatestVersion(resolveRegistryBase(), signal))
+    if (signal?.aborted) return { kind: 'unknown' }
     if (latest === undefined) return { kind: 'unknown' }
     if (!gt(latest, currentVersion)) return { kind: 'latest', current: currentVersion, isStandalone: true }
     const downloadUrl = ghRelease?.downloadUrl ?? `https://github.com/${GITHUB_REPO}/releases/download/v${latest}/${getStandaloneAssetName()}`
@@ -986,7 +998,7 @@ export async function resolveTuiUpdateTarget(): Promise<TuiUpdateTarget> {
     // release-bundle.yml generates it alongside the assets).
     const checksumUrl = ghRelease !== undefined
       ? ghRelease.checksumUrl
-      : await probeChecksumManifestUrl(releaseChecksumUrl(latest))
+      : await probeChecksumManifestUrl(releaseChecksumUrl(latest), signal)
     return checksumUrl === undefined
       ? { kind: 'update', current: currentVersion, latest, isStandalone: true, downloadUrl }
       : { kind: 'update', current: currentVersion, latest, isStandalone: true, downloadUrl, checksumUrl }
@@ -994,8 +1006,8 @@ export async function resolveTuiUpdateTarget(): Promise<TuiUpdateTarget> {
 
   const registryBase = resolveRegistryBase()
   const [latest, official] = await Promise.all([
-    fetchLatestVersion(registryBase),
-    registryBase === DEFAULT_REGISTRY ? undefined : fetchLatestVersion(DEFAULT_REGISTRY),
+    fetchLatestVersion(registryBase, signal),
+    registryBase === DEFAULT_REGISTRY ? undefined : fetchLatestVersion(DEFAULT_REGISTRY, signal),
   ])
   if (latest === undefined) return { kind: 'unknown' }
   if (!gt(latest, currentVersion)) return { kind: 'latest', current: currentVersion }
@@ -1804,9 +1816,11 @@ export async function updateTui(
   // process then compares new-vs-new and false-alarms "version did not
   // advance" on every successful update (issue #307's screenshots).
   const updatedFrom = installedTuiVersion() ?? ''
+  if (signal?.aborted) return { code: 130, updatedFrom }
 
   if (isStandaloneRuntime()) {
-    const target = await resolveTuiUpdateTarget()
+    const target = await resolveTuiUpdateTarget(signal)
+    if (signal?.aborted) return { code: 130, updatedFrom }
     const latestVersion = targetVersion ?? (target.kind === 'update' ? target.latest : undefined)
     const downloadUrl = (target.kind === 'update' && target.downloadUrl)
       ? target.downloadUrl
@@ -1821,7 +1835,8 @@ export async function updateTui(
     process.stderr.write(`dsh-tui: 正在更新便携包 (${updatedFrom || 'current'} → ${latestVersion})…\n`)
     const result = await downloadAndReplaceStandaloneBinary(downloadUrl, msg => {
       process.stderr.write(`dsh-tui: ${msg}\n`)
-    }, checksumUrl)
+    }, checksumUrl, { signal })
+    if (signal?.aborted) return { code: 130, updatedFrom }
     if (!result.success) {
       process.stderr.write(`dsh-tui: 便携包更新失败: ${result.error ?? '未知错误'}\n`)
       return { code: 1, updatedFrom }
@@ -1887,6 +1902,7 @@ export async function updateTui(
   // use the same code/stderr as a retryable installer failure. Never overlap
   // a surviving installer with a retry, stale-file removal, repair or restart.
   if (cleanupUnconfirmed) return { code: updateCode || 1, updatedFrom }
+  if (signal?.aborted) return { code: 130, updatedFrom }
   // Transient Windows tmp-rename race (issue #225): retry the identical
   // command once — it succeeds on a clean second run, and only the
   // `_tmp_<pid>` race signature qualifies, never a real resolution error.
@@ -1895,6 +1911,7 @@ export async function updateTui(
     updateStderr = ''
     updateCode = await runProcess(dsh, updateArgs, installerOptions)
     if (cleanupUnconfirmed) return { code: updateCode || 1, updatedFrom }
+    if (signal?.aborted) return { code: 130, updatedFrom }
   }
   // Deterministic Linux tmp-rename race (issue #479): EEXIST never clears on
   // a plain retry (the staging-dir collision reproduces every run), and a
@@ -1913,6 +1930,7 @@ export async function updateTui(
     updateStderr = ''
     updateCode = await runProcess(dsh, updateArgs, installerOptions)
     if (cleanupUnconfirmed) return { code: updateCode || 1, updatedFrom }
+    if (signal?.aborted) return { code: 130, updatedFrom }
   }
   if (updateCode !== 0) return { code: updateCode, updatedFrom }
 
@@ -1923,6 +1941,7 @@ export async function updateTui(
   // who was already on it keeps their restart (their combo demonstrably
   // boots) and gets the repair hint on the next /update instead.
   const installedNow = installedTuiVersion()
+  if (signal?.aborted) return { code: 130, updatedFrom }
   if (installedNow !== undefined && installedNow !== updatedFrom && isBootDeadlockTarget(installedNow)) {
     process.stderr.write(
       `dsh-tui: update landed on ${installedNow}, which can permanently deadlock boot under older launcher patches ` +
@@ -1940,9 +1959,11 @@ export async function updateTui(
   // a mixed state and hand the user the exact repair command instead.
   if (targetVersion !== undefined) {
     let installed = installedTuiVersion()
+    if (signal?.aborted) return { code: 130, updatedFrom }
     if (installed !== targetVersion) {
       const repairCode = await runProcess(dsh, ['plugin', '--profile', profile, 'install'], { shell: true, signal, onCleanupError })
       if (cleanupUnconfirmed) return { code: repairCode || 1, updatedFrom }
+      if (signal?.aborted) return { code: 130, updatedFrom }
       if (repairCode !== 0) return { code: repairCode, updatedFrom }
       installed = installedTuiVersion()
     }
@@ -1960,11 +1981,13 @@ export async function updateTui(
   // delegating shim — stamp it over the global launcher so this is the LAST
   // time the outer copy can lag. Best-effort; the alignment warning stays as
   // the fallback when the copy is impossible.
+  if (signal?.aborted) return { code: 130, updatedFrom }
   if (migrateGlobalLauncher()) {
     process.stderr.write('dsh-tui: global launcher aligned to the delegating shim (no manual npm i -g needed anymore).\n')
   }
 
-  return { code: 0, updatedFrom, installed: installedTuiVersion() }
+  const installed = installedTuiVersion()
+  return { code: signal?.aborted ? 130 : 0, updatedFrom, installed }
 }
 
 /**
@@ -1998,6 +2021,7 @@ export async function updateTuiAndRestart(
   const outcome = await updateTui(profile, targetVersion, signal)
   const { updatedFrom } = outcome
   if (outcome.code !== 0) return { updateCode: outcome.code, restartCode: outcome.code }
+  if (signal?.aborted) return { updateCode: 130, restartCode: 130 }
 
   // Restart through the same hardened handoff as /restart (issues
   // #284/#307/#483): wait for the replacement's natural exit (the outer
