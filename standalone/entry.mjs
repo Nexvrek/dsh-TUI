@@ -37,7 +37,6 @@ import { createRequire } from 'node:module'
 import { homedir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
-import { extractRuntime } from './extractRuntime.mjs'
 
 const require = createRequire(import.meta.url)
 const fs = require('node:fs')
@@ -57,6 +56,7 @@ const {
 // single source of truth in cacheGuard.cjs, tested directly by
 // scripts/verify-standalone-cache-guard.mjs).
 const { ensureRuntime } = require('./cacheGuard.cjs')
+const { extractRuntime } = require('./extractRuntime.cjs')
 
 // Build seeds: make-standalone-bundle synchronizes both from package.json and
 // the adapter's primary contract before resolving or archiving the runtime.

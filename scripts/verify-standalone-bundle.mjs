@@ -46,7 +46,7 @@ const probe = () => {
 const ok = (result, label) => assert.equal(result.status, 0, `${label}: ${result.stdout}\n${result.stderr}`)
 
 try {
-  for (const path of ['scripts/make-standalone-bundle.mjs', 'scripts/verify-standalone-runtime.mjs', 'scripts/lib/standalone-test-process.mjs', 'standalone/entry.mjs', 'standalone/extractRuntime.mjs', 'standalone/cacheGuard.cjs', 'standalone/package.json']) {
+  for (const path of ['scripts/make-standalone-bundle.mjs', 'scripts/verify-standalone-runtime.mjs', 'scripts/lib/standalone-test-process.mjs', 'standalone/entry.mjs', 'standalone/extractRuntime.cjs', 'standalone/cacheGuard.cjs', 'standalone/package.json']) {
     mkdirSync(dirname(join(fixture, path)), { recursive: true })
     copyFileSync(join(source, path), join(fixture, path))
   }
@@ -129,7 +129,7 @@ try {
   // every host. The normal-launch check below must use that path too.
   const entryPath = join(fixture, 'standalone/entry.mjs')
   const entryText = readFileSync(entryPath, 'utf8')
-  const extractorPath = join(fixture, 'standalone/extractRuntime.mjs')
+  const extractorPath = join(fixture, 'standalone/extractRuntime.cjs')
   const extractorText = readFileSync(extractorPath, 'utf8')
   const fallbackExtractor = extractorText.replace("const nativeTar = windows && systemRoot ? join(systemRoot, 'System32', 'tar.exe') : undefined", 'const nativeTar = undefined')
   assert.notEqual(fallbackExtractor, extractorText)

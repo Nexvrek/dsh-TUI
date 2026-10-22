@@ -1,8 +1,8 @@
-import { spawn } from 'node:child_process'
-import { createReadStream, statSync } from 'node:fs'
-import { join, posix, relative, win32 } from 'node:path'
-import { pipeline } from 'node:stream/promises'
-import { t as listTar, x as extractTar } from 'tar'
+const { spawn } = require('node:child_process')
+const { createReadStream, statSync } = require('node:fs')
+const { join, posix, relative, win32 } = require('node:path')
+const { pipeline } = require('node:stream/promises')
+const { t: listTar, x: extractTar } = require('tar')
 
 const isBinLink = (path, entry) => entry.type === 'SymbolicLink'
   && /(?:^|\/)node_modules\/\.bin\/[^/]+$/.test(path)
@@ -98,7 +98,7 @@ async function runWindowsTar(executable, args, cwd, onProgress) {
 }
 
 /** Both normal launch and --self-test use the same extractor and cache guard. */
-export async function extractRuntime(options, { windows = process.platform === 'win32', onReadEntry, onProgress, trace = () => {} } = {}) {
+async function extractRuntime(options, { windows = process.platform === 'win32', onReadEntry, onProgress, trace = () => {} } = {}) {
   const systemRoot = process.env.SystemRoot ?? process.env.SYSTEMROOT
   const nativeTar = windows && systemRoot ? join(systemRoot, 'System32', 'tar.exe') : undefined
   let nativeAvailable = false
@@ -131,3 +131,5 @@ export async function extractRuntime(options, { windows = process.platform === '
   // No retry after a native error: it may have already written a partial tree.
   await runWindowsTar(nativeTar, args, options.cwd, onProgress)
 }
+
+module.exports = { extractRuntime }
