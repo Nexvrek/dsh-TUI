@@ -61,7 +61,11 @@ try {
   assert.equal(version.status, 0, 'Windows tar version query failed')
   const destination = mkdtempSync(join(dirname(archive), '原生 解压诊断 '))
   report.destination = destination
-  const args = ['-xf', archive, '-C', destination, '--no-same-owner', '--no-same-permissions']
+  // Node sets the Unicode cwd through Windows APIs. Keep tar's argv ASCII for
+  // Windows builds whose command-line path conversion uses the ANSI code page.
+  const archiveArgument = relative(destination, archive)
+  assert.match(archiveArgument, /^[\x20-\x7e]+$/, 'The retained archive needs a non-ASCII argument; refusing to copy or retry it')
+  const args = ['-xf', archiveArgument, '--no-same-owner', '--no-same-permissions']
   report.args = args
   started = performance.now()
   const extracted = spawnSync(executable, args, { cwd: destination, env: environment, encoding: 'utf8',
