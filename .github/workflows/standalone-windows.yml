@@ -27,6 +27,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: portable-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   candidate:
     if: inputs.artifact_name == ''
@@ -63,7 +67,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: ${{ inputs.source_ref || github.ref }}
+          ref: ${{ inputs.source_ref || github.sha }}
           submodules: recursive
       - uses: pnpm/action-setup@v6
       - uses: actions/setup-node@v7
