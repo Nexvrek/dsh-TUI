@@ -33,6 +33,9 @@ Image files referenced with `@path` use the same admission and resize/conversion
 
 
 ## Highlights
+
+Panels without a verified Component identity are temporary: settings show their title and a distinct number for this run. Their toggles take effect immediately without being saved, and unrelated settings changes preserve that choice. Old `actN:panel` entries cannot be mapped safely: remove the placeholder and select the current panel again. Verified Components named `actN` keep their public runtime address; an explicit selection uses `component:actN:panel` in saved preferences to avoid claiming an old anonymous entry.
+
 Resuming a DSH session preserves its recorded reasoning effort (or its live selection when reattaching). The saved default seeds new sessions; explicit `/effort` and effort-default settings changes still apply to the current session’s next request.
 
 
@@ -62,6 +65,8 @@ Keys and commands: [Interaction and commands](docs/interaction.en.md). Everythin
 
 Plugin side panels stay enabled when unrelated settings change. Editing the enabled panel list still applies your explicit selection.
 
+
+Workspace side-panel counts match the session manager: the current conversation counts; empty logs, subagents, fork ancestors and archived sessions do not. Registered workspaces with no visible conversations remain at zero. Loading and read errors are shown separately; press `r` to refresh.
 
 ## Preview
 
