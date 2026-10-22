@@ -108,6 +108,14 @@ try {
     }
     try {
       await expectScreen(guide, 'first-run guide', 90_000)
+      // Inspect output as soon as the guide appears, so a message printed
+      // later cannot make a silent preparation phase pass this check.
+      const preparationElapsed = [...output.matchAll(/\[dsh-tui\] 正在准备运行环境，已用 (\d+) 秒/g)]
+        .map(match => Number(match[1]))
+      if (mode === 'cold') {
+        assert.match(output, /首次运行，正在释放内置 DSH\/TUI 运行时/, 'Cold start did not explain runtime preparation')
+        assert.ok(preparationElapsed.length > 0, 'Cold start did not show elapsed preparation time before the guide')
+      }
       capture('welcome')
       // The first painted frame can precede the input listener. Retry only Esc
       // while the guide is still visible; never replay a submitted command.
@@ -132,9 +140,14 @@ try {
       assert.equal(exited.exitCode, 0, `${mode}: /quit must exit successfully`)
       await writeParsed(terminal, '')
       assert.doesNotMatch(output, /fatal load failure|plugin tree failed to load|UnhandledPromiseRejection|does not provide an export named/)
+      if (mode === 'warm') {
+        assert.doesNotMatch(output, /首次运行，正在释放内置 DSH\/TUI 运行时|正在准备运行环境，已用 \d+ 秒/,
+          'Warm start unexpectedly showed runtime preparation')
+      }
       assert.equal(cursorVisible, true, `${mode}: exit did not restore the cursor`)
       capture('exit')
-      results.push({ mode, startupMs, totalMs: Date.now() - startedAt, exitCode: exited.exitCode, interaction: '/help → Esc → /quit' })
+      results.push({ mode, startupMs, preparationElapsedSeconds: preparationElapsed.at(-1) ?? null,
+        totalMs: Date.now() - startedAt, exitCode: exited.exitCode, interaction: '/help → Esc → /quit' })
       console.log(`PASS: ${mode} standalone ${process.platform === 'win32' ? 'ConPTY' : 'PTY'}: local /help, /quit exited 0 (${startupMs}ms to prompt)`)
     } finally {
       if (!exited) {

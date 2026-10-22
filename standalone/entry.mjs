@@ -84,6 +84,11 @@ const tuiRoot = join(runtimeRoot, 'node_modules', '@deepseek-harness-tui', 'dsh-
  * Delegates to cacheGuard.cjs (hash-manifest guard + extraction flow).
  */
 async function ensureRuntimeReady() {
+  const windowsExtraction = process.platform === 'win32'
+  const showProgress = !selfTest && process.stderr.isTTY
+  const progressStart = performance.now()
+  let lastProgressAt = progressStart
+  let progressVisible = false
   await ensureRuntime({
     cacheBase,
     runtimeRoot,
@@ -91,18 +96,31 @@ async function ensureRuntimeReady() {
     archivePath,
     extract: async options => {
       // cacheGuard has finished copying the embedded archive before calling
-      // this extractor. Progress counts entries, never user paths or content.
-      traceStage('extract-start', { synchronous: process.platform === 'win32' })
+      // this extractor. Diagnostics count reads; interactive progress reports time.
+      traceStage('extract-start', { synchronous: windowsExtraction })
       let entries = 0
       await extractTar({
         ...options,
         // node-tar serializes asynchronous filesystem operations on Windows.
         // Its synchronous extractor keeps the same path checks while avoiding
         // a thread-pool round trip for each operation in the bundled tree.
-        sync: process.platform === 'win32',
-        ...(selfTest ? { onReadEntry() {
-          entries++
-          if (entries % 2000 === 0) traceStage('extract-progress', { entries })
+        sync: windowsExtraction,
+        // POSIX command aliases are not Windows .cmd shims. The launcher loads
+        // their original package files, without requiring symlink privileges.
+        // Keep real files, hardlinks and every other symlink under tar's checks.
+        filter: (path, entry) => !(windowsExtraction && entry.type === 'SymbolicLink'
+          && /(?:^|\/)node_modules\/\.bin\/[^/]+$/.test(path)),
+        ...(selfTest || showProgress ? { onReadEntry() {
+          if (selfTest) {
+            entries++
+            if (entries % 2000 === 0) traceStage('extract-progress', { entries })
+          } else {
+            const now = performance.now()
+            if (progressVisible && now - lastProgressAt < 1000) return
+            lastProgressAt = now
+            progressVisible = true
+            process.stderr.write(`\r[dsh-tui] 正在准备运行环境，已用 ${Math.floor((now - progressStart) / 1000)} 秒`)
+          }
         } } : {}),
       })
       traceStage('extract-done', { entries })
@@ -117,6 +135,8 @@ async function ensureRuntimeReady() {
       traceStage('archive-copy-start')
       process.stderr.write(text)
     },
+  }).finally(() => {
+    if (progressVisible) process.stderr.write('\n')
   })
 }
 

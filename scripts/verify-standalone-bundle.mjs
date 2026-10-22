@@ -9,7 +9,7 @@ import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync,
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { c as createTar } from 'tar'
+import { Header, PackSync, ReadEntry } from 'tar'
 
 const source = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const fixture = mkdtempSync(join(tmpdir(), 'standalone-bundle-'))
@@ -89,7 +89,21 @@ try {
     json(join(path, 'package.json'), { name: `@deepseek-ai/${name}`, type: 'module', exports: './index.js' })
     write(join(path, 'index.js'), 'export {}\n')
   }
-  const archive = () => createTar({ file: join(fixture, 'standalone/runtime.tar.gz'), cwd: staging, gzip: true }, ['node_modules'])
+  // Synthetic link headers avoid requiring OS symlink privileges merely to
+  // construct the regression that verifies an unprivileged Windows launch.
+  const archive = (extraEntries = []) => {
+    const pack = new PackSync({ cwd: staging, gzip: true })
+    const chunks = []
+    pack.on('data', chunk => chunks.push(chunk))
+    pack.add('node_modules')
+    for (const fields of extraEntries) {
+      const entry = new ReadEntry(new Header({ size: 0, mode: 0o777, ...fields }))
+      pack.add(entry)
+      entry.end()
+    }
+    pack.end()
+    write(join(fixture, 'standalone/runtime.tar.gz'), Buffer.concat(chunks))
+  }
   await archive()
   const compatible = probe()
   ok(compatible, 'cold and warm compatible runtime')
@@ -99,17 +113,34 @@ try {
   assert.match(coldTrace, /"stage":"extract-done"/)
   assert.match(coldTrace, /"stage":"imports-done"/)
   assert.doesNotMatch(warmTrace, /"stage":"extract-start"/)
+  assert.doesNotMatch(coldTrace + warmTrace, /正在准备运行环境，已用/)
   console.log('PASS: real entry extracts and imports a compatible runtime without launching a profile')
 
   // Exercise Windows' synchronous extractor through the same copied launcher
   // on every host. The normal-launch check below must use that path too.
   const entryPath = join(fixture, 'standalone/entry.mjs')
   const entryText = readFileSync(entryPath, 'utf8')
-  const synchronousEntry = entryText.replace("sync: process.platform === 'win32'", 'sync: true')
+  const synchronousEntry = entryText.replace("const windowsExtraction = process.platform === 'win32'", 'const windowsExtraction = true')
   assert.notEqual(synchronousEntry, entryText, 'The launcher must select its Windows extractor')
-  write(entryPath, synchronousEntry)
+  const deniedEntry = synchronousEntry.replace("traceStage('runtime-check')",
+    "fs.symlinkSync = () => { throw Object.assign(new Error('FIXTURE_SYMLINK_PRIVILEGE_REQUIRED'), { code: 'EPERM' }) }\ntraceStage('runtime-check')")
+  assert.notEqual(deniedEntry, synchronousEntry)
+  write(join(staging, 'node_modules/.bin/tool.cmd'), '@echo fixture command\r\n')
+  const binLinks = [
+    { path: 'node_modules/.bin/dsh', linkpath: '../@deepseek-ai/dsh/lib/bin.js', type: 'SymbolicLink' },
+    { path: 'node_modules/@deepseek-ai/dsh/node_modules/.bin/tool', linkpath: '../../lib/bin.js', type: 'SymbolicLink' },
+    { path: 'node_modules/.bin/tool-hardlink', linkpath: 'node_modules/.bin/tool.cmd', type: 'Link' },
+  ]
+  await archive(binLinks)
+  const unfilteredEntry = deniedEntry.replace('filter: (path, entry) => !(windowsExtraction', 'filter: (path, entry) => !(false')
+  assert.notEqual(unfilteredEntry, deniedEntry)
+  write(entryPath, unfilteredEntry)
+  const deniedLink = probe()
+  assert.notEqual(deniedLink.status, 0)
+  assert.match(deniedLink.stderr, /FIXTURE_SYMLINK_PRIVILEGE_REQUIRED/)
+  write(entryPath, deniedEntry)
   ok(probe(), 'synchronous cold and warm compatible runtime')
-  console.log('PASS: synchronous extraction loads the runtime and reuses its complete cache on a warm start')
+  console.log('PASS: Windows extraction works without POSIX bin-link privileges and reuses its complete cache')
 
   const launchHome = join(fixture, 'normal launch home')
   const launchEnv = Object.fromEntries(Object.entries(process.env)
@@ -123,10 +154,28 @@ try {
     env: launchEnv, encoding: 'utf8', timeout: 30_000,
   })
   ok(launched, 'ordinary standalone launch')
+  assert.doesNotMatch(launched.stderr, /正在准备运行环境，已用/, 'Non-TTY launch must not emit interactive progress')
   const invocations = launched.stdout.split(/\r?\n/).filter(line => line.startsWith('DSH_TUI_BOOT_CALLED '))
   assert.equal(invocations.length, 1, 'The imported DSH public entry must be invoked exactly once')
   assert.deepEqual(JSON.parse(invocations[0].slice('DSH_TUI_BOOT_CALLED '.length)), ['--profile', 'dsh-tui', '--resume', 'example-session'])
+  const launchedRuntime = join(launchEnv.DSH_TUI_STANDALONE_CACHE, `tui-${tuiVersion}-dsh-${primary}`)
+  assert.ok(!existsSync(join(launchedRuntime, binLinks[0].path)))
+  assert.ok(!existsSync(join(launchedRuntime, binLinks[1].path)))
+  for (const name of ['tool.cmd', 'tool-hardlink']) {
+    assert.equal(readFileSync(join(launchedRuntime, 'node_modules/.bin', name), 'utf8'), '@echo fixture command\r\n')
+  }
   console.log('PASS: ordinary launch calls the imported DSH entry once with its profile and user arguments')
+
+  for (const path of ['node_modules/@deepseek-ai/dsh/runtime-link.js', 'node_modules/example/.bin/tool']) {
+    await archive([...binLinks, { path, linkpath: 'unneeded.js', type: 'SymbolicLink' }])
+    const otherLink = probe()
+    assert.notEqual(otherLink.status, 0)
+    assert.match(otherLink.stderr, /FIXTURE_SYMLINK_PRIVILEGE_REQUIRED/)
+    const otherReport = readJson(join(otherLink.evidence, 'cold.result.json'))
+    assert.equal(otherReport.cache.completeMarkerPresent, false)
+    assert.deepEqual(otherReport.cache.entries, [])
+  }
+  console.log('PASS: other symlinks still fail strictly without leaving a complete or temporary runtime')
 
   write(join(fixture, 'standalone/runtime.tar.gz'), 'not a tar archive\n')
   const corruptArchive = probe()
