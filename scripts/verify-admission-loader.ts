@@ -246,7 +246,7 @@ for (const reverse of [false, true]) {
     for (const entry of reverse ? [...packages].reverse() : packages) {
       await composition.root.loader.create({ ...entry, config: { report: composition.report } })
       await composition.root.loader.await()
-      check('collision fixture applied ' + entry.id, await settled(() => readFileSync(composition.report, 'utf8').trim().split('\n').length > ids.length))
+      check('collision fixture applied ' + entry.id, await settled(() => readFileSync(composition.report, 'utf8').split('\n').filter(Boolean).length > ids.length))
       ids.push(...reportedIds(composition.report))
     }
     const temporary = ids.find(id => /^session:act[0-9]+:search$/u.test(id))
