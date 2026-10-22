@@ -90,6 +90,7 @@ import { createContextOccupancyStore } from './context-occupancy.js'
 import { createTeamRosterStore } from './team-roster.js'
 import { createTeamCommandEntry, filterTeamReplacedTools } from './team-mode.js'
 import { getHostToastStore, type TuiToastRuntime } from './toast.js'
+import { createChannelComposerSink, getHostComposerStore, type TuiComposerRuntime } from './composer.js'
 import { getHostShortcuts, type TuiShortcutRuntime } from './shortcuts.js'
 import { getHostThemes, type TuiThemeHost, type TuiThemeRuntime } from './themes.js'
 import type { DshAuthService } from './oauth/service.js'
@@ -1310,6 +1311,18 @@ export async function apply(ctx: Context, runtimeConfig: RuntimeConfig<Config>, 
     })
   }
   bindToastSink()
+  // Plugin composer chips ride the channel's own attached-context registry —
+  // the strip panel "Send to Chat" already uses — so Esc peeling, the
+  // consume-once submit and the session reset apply unchanged. Shadow
+  // (observational) modes stage nothing, like every other renderer action.
+  const composerSink = createChannelComposerSink(channel, () => !shadow)
+  const bindComposerSink = (): void => {
+    getHostComposerStore(ctx.get('tuiComposer') as TuiComposerRuntime | undefined)?.setSink(composerSink)
+  }
+  bindComposerSink()
+  ctx.effect(() => () => {
+    getHostComposerStore(ctx.get('tuiComposer') as TuiComposerRuntime | undefined)?.clearSink(composerSink)
+  })
   if (questionSeams?.registration.kind === 'waterfall') {
     // Ownership follows the mutable channel; registration cleanup belongs to
     // this Cordis fiber.
@@ -2888,11 +2901,12 @@ export async function apply(ctx: Context, runtimeConfig: RuntimeConfig<Config>, 
   }
   /**
    * Services composed after the mount: re-read what the screen took as values
-   * at mount (Chat's stores, theme host, toast sink). The /settings section
+   * at mount (Chat's stores, theme host, toast and composer sinks). The /settings section
    * follows its registry on its own (trackHostSettingsSection).
    */
   const refreshHostServices = (): void => {
     bindToastSink()
+    bindComposerSink()
     if (!exited) instance?.rerender(buildTree())
   }
   if (entrySlot !== undefined) entrySlot.firstFrameFlushed = flushFirstFrame
