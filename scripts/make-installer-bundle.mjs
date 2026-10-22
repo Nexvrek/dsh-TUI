@@ -135,7 +135,8 @@ OK "Node.js $($nv.ToString())"
 
 # 2. pnpm（dsh profile 初始化需要 11+）
 # npm's .cmd launchers work even when PowerShell blocks unsigned .ps1 shims.
-$npmCmd = Get-Command npm.cmd -CommandType Application -ErrorAction SilentlyContinue
+$npmCmd = Get-Command npm.cmd -CommandType Application -ErrorAction SilentlyContinue |
+  Select-Object -First 1 -ExpandProperty Source
 if (-not $npmCmd) {
   Fail '未找到 npm.cmd，请重新安装包含 npm 的 Node.js 后重跑'
 }

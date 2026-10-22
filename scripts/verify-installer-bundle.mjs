@@ -287,9 +287,10 @@ if (tool === 'npm') {
       }
       const flowDir = mkdtempSync(join(tmp, `flow-${index}-`))
       const oldBin = join(flowDir, 'old machine bin')
+      const lowerBin = join(flowDir, 'lower priority npm bin')
       const prefix = join(flowDir, '新 npm [1] prefix')
       const templates = join(flowDir, 'templates')
-      for (const dir of [oldBin, prefix, templates]) mkdirSync(dir)
+      for (const dir of [oldBin, lowerBin, prefix, templates]) mkdirSync(dir)
       const config = {
         node: '24.0.0', pnpm: '11.21.0', versionCode: 0, launchCode: 0,
         oldPnpm: '10.20.0', launchAnswer: '', ...fixture,
@@ -305,6 +306,7 @@ if (tool === 'npm') {
         ? `@echo off\r\n"%DSH_FIXTURE_NODE%" "%DSH_FIXTURE_DRIVER%" ${tool} "%DSH_FIXTURE_CONFIG%" %*\r\nexit /b %ERRORLEVEL%\r\n`
         : `#!/bin/sh\nexec "$DSH_FIXTURE_NODE" "$DSH_FIXTURE_DRIVER" ${tool} "$DSH_FIXTURE_CONFIG" "$@"\n`, { mode: 0o755 })
       command(join(oldBin, 'npm.cmd'), 'npm')
+      command(join(lowerBin, 'npm.cmd'), 'old-npm')
       for (const name of ['pnpm', 'dsh', 'dsh-tui']) {
         command(join(oldBin, `${name}.cmd`), `old-${name}`)
         command(join(templates, `${name}.cmd`), name)
@@ -359,7 +361,7 @@ exit $code
       const env = { ...process.env, DSH_FIXTURE_NODE: process.execPath, DSH_FIXTURE_DRIVER: driver,
         DSH_FIXTURE_CONFIG: configPath, DEEPSEEK_API_KEY: config.processKey ? 'fixture-process-secret' : '' }
       const pathKey = Object.keys(env).find(name => name.toLowerCase() === 'path') ?? 'PATH'
-      env[pathKey] = oldBin + (isWin ? ';' : ':') + (env[pathKey] ?? '')
+      env[pathKey] = [oldBin, lowerBin, env[pathKey] ?? ''].join(isWin ? ';' : ':')
       const run = spawnSync(powershell, ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', wrapper], {
         env, encoding: 'utf8', timeout: 20_000, windowsHide: true,
       })
