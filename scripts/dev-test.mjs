@@ -10,7 +10,7 @@ import {
   rmSync,
   writeFileSync,
 } from 'node:fs'
-import { dirname, join, resolve } from 'node:path'
+import { dirname, join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { commandInvocation } from './dev-command.mjs'
 import { resolveDevPaths } from './dev-copy-config.mjs'
@@ -138,6 +138,13 @@ try {
           throw new Error('npm pack reported an invalid packaged path')
         }
         assertSameFile(join(repoRoot, entry.path), join(installed, entry.path))
+      }
+      const expected = new Set(packedFiles.map(entry => entry.path))
+      for (const entry of readdirSync(installed, { recursive: true, withFileTypes: true })) {
+        if (!entry.isDirectory()) {
+          const path = relative(installed, join(entry.parentPath, entry.name)).replaceAll('\\', '/')
+          if (!expected.has(path)) throw new Error(`installed package contains an unpacked file: ${path}`)
+        }
       }
     }
     if (fast && inputs !== undefined && inputs === devInputHash(repoRoot, devRoot, toolVersions)) {

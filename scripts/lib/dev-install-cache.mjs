@@ -3,12 +3,12 @@ import { lstatSync, readFileSync, readdirSync, readlinkSync, realpathSync } from
 import { dirname, join, relative, resolve, sep } from 'node:path'
 
 // Root links are intentional (pnpm package roots). Nested links are hashed by
-// their target text, never followed. Reuse requires that target to be another
+// their target text, never walked. Reuse requires that target to be another
 // ordinary entry hashed in this tree: external, excluded, dangling and cyclic
 // links disable caching rather than silently omitting their contents.
 export function treeHash(path, skip = () => false) {
   try {
-    const root = realpathSync(path)
+    const root = realpathSync.native(path)
     const hash = createHash('sha256')
     const entries = new Set()
     const links = []
@@ -31,7 +31,9 @@ export function treeHash(path, skip = () => false) {
     }
     walk(root, '')
     for (const [link, target] of links) {
-      if (!entries.has(target)) throw new Error(`symlink target is outside the hashed entries: ${link}`)
+      // Native resolution preserves OS semantics for a directory link before
+      // "..", which can escape despite an internal lexical target.
+      if (!entries.has(target) || !entries.has(realpathSync.native(link))) throw new Error(`symlink target is outside the hashed entries: ${link}`)
     }
     return hash.digest('hex')
   } catch (error) {
@@ -52,6 +54,10 @@ export function devOutputHash(repoRoot) {
 }
 
 export function devInputHash(repoRoot, devRoot, toolVersions = []) {
+  if (realpathSync.native(repoRoot) === realpathSync.native(devRoot)) {
+    console.warn('dev-test: cache unavailable: development root is the repository')
+    return undefined
+  }
   if (toolVersions.some(version => version === undefined)) {
     console.warn('dev-test: cache unavailable: a tool version is unrecognized')
     return undefined
@@ -82,17 +88,15 @@ export function devInputHash(repoRoot, devRoot, toolVersions = []) {
 }
 
 export function installedHash(installed) {
-  const metadata = treeHash(resolve(installed, '../../..'), (_path, name) => name.split('/').at(-1) === 'node_modules')
-  const contents = treeHash(installed)
-  return metadata && contents ? createHash('sha256').update(`${metadata}\0${contents}`).digest('hex') : undefined
+  return treeHash(resolve(installed, '../../..'))
 }
 
 export function reusableInstall(stamp, { repoRoot, packageRoot, installed, inputs }) {
   if (!stamp || !inputs || stamp.repoRoot !== repoRoot || stamp.inputs !== inputs || typeof stamp.tarball !== 'string') return false
   const artifactPath = relative(packageRoot, stamp.tarball).split(sep)
   if (artifactPath.length !== 2 || !/^\d{8}T\d{9}Z-\d+$/u.test(artifactPath[0]) || !artifactPath[1].endsWith('.tgz')) return false
-  // Verify profile metadata and this installed package, resolving its root
-  // pnpm link while validating nested links against hashed package entries.
+  // Verify the owned profile, including non-bundled dependencies. Unverifiable
+  // links outside this tree conservatively disable reuse.
   return typeof stamp.outputs === 'string' && devOutputHash(repoRoot) === stamp.outputs
     && typeof stamp.profile === 'string' && installedHash(installed) === stamp.profile
     && typeof stamp.artifact === 'string' && treeHash(stamp.tarball) === stamp.artifact

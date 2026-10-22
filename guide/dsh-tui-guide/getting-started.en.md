@@ -333,8 +333,10 @@ pnpm dev
 iteration, set `DSH_TUI_DEV_FAST=1` (for example,
 `DSH_TUI_DEV_FAST=1 pnpm dev -- --no-launch`). A miss runs frozen install,
 `compile`, pack without repeating `prepare`, and isolated profile installation.
-An unchanged hit skips all four stages only while source/config/tool contents,
-compiled and vendor output, the tarball, and the installed package/profile match.
+An unchanged hit skips all four stages only while source/config and compiler-loader contents,
+Node/pnpm/npm/dsh versions, compiled and vendor output, the tarball, and the installed
+package/profile match. Replacing pnpm/npm/dsh without changing its reported version
+requires one normal (non-fast) development run.
 Internal document links such as `CLAUDE.md -> AGENTS.md` are fingerprinted;
 external, excluded, dangling or cyclic links and unreadable inputs disable reuse
 with a diagnostic. Failures invalidate the success stamp before work begins.

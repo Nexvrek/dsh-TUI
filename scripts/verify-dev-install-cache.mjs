@@ -11,7 +11,7 @@ import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSy
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { treeHash } from './lib/dev-install-cache.mjs'
+import { treeHash, devInputHash } from './lib/dev-install-cache.mjs'
 
 if (process.platform === 'win32') {
   console.log('SKIP: POSIX executable fixture; Windows command quoting is covered by verify-dev-command.mjs')
@@ -79,7 +79,7 @@ if (tool === 'dsh' && args[0] === 'plugin') {
     put(join(tools, name), stub)
     chmodSync(join(tools, name), 0o755)
   }
-  const run = (label, { fail, stale = '', fast = true, hit = false } = {}) => {
+  const run = (label, { fail, stale = '', fast = true, hit = false, cacheable = true } = {}) => {
     put(log, '')
     const start = performance.now()
     const result = spawnSync(process.execPath, [join(repo, 'scripts/dev-test.mjs'), '--', '--no-launch'], {
@@ -99,7 +99,7 @@ if (tool === 'dsh' && args[0] === 'plugin') {
     } else {
       assert.deepEqual(calls.map(call => call.slice(0, 2)), [['pnpm', 'install'], ['pnpm', fast ? 'compile' : 'build'], ['npm', 'pack'], ['dsh', 'plugin']], label)
       assert.equal(calls[2].includes('--ignore-scripts'), fast)
-      assert.equal(existsSync(stamp), fast, `${label}: only success may stamp`)
+      assert.equal(existsSync(stamp), fast && cacheable, `${label}: only verified success may stamp`)
       assert.match(result.stdout, /pnpm install took [\d.]+s/u)
       assert.match(result.stdout, /dsh plugin took [\d.]+s/u)
     }
@@ -108,6 +108,18 @@ if (tool === 'dsh' && args[0] === 'plugin') {
   }
   run('cold')
   run('warm', { hit: true })
+  assert.equal(devInputHash(repo, repo), undefined, 'the development root cannot exclude the whole repository')
+  const dependency = join(dev, 'dsh-home/profiles/dsh-tui/node_modules/dependency/index.js')
+  put(dependency, 'dependency original')
+  run('new profile dependency')
+  put(dependency, 'dependency changed')
+  run('changed profile dependency')
+  rmSync(dependency)
+  run('deleted profile dependency')
+  put(join(repo, 'src/app.ts'), 'force extra-file validation\n')
+  run('installed obsolete file', { stale: 'obsolete.js' })
+  rmSync(join(installed, 'obsolete.js'))
+  run('recover obsolete file')
   put(join(repo, 'src/app.ts'), 'new module\n')
   run('successful installer with stale non-entry module', { stale: 'lib/types/extra.js' })
   run('recover stale compiled payload')
@@ -148,6 +160,18 @@ if (tool === 'dsh' && args[0] === 'plugin') {
   }
   run('default retains build and pack lifecycle', { fast: false })
   assert.equal(existsSync(stamp), false)
+  // The filesystem follows the directory link before resolving "..". Its
+  // lexical target is an internal decoy; the actual source is outside repo.
+  put(join(root, 'outside.ts'), 'first actual external source\n')
+  put(join(repo, 'outside.ts'), 'decoy inside repo\n')
+  symlinkSync('.', join(repo, 'back'))
+  rmSync(join(repo, 'src/app.ts'))
+  symlinkSync('../back/../outside.ts', join(repo, 'src/app.ts'))
+  assert.equal(treeHash(join(repo, 'src/app.ts')), treeHash(join(root, 'outside.ts')), 'root links hash their actual target')
+  run('parent-symlink escape cold', { cacheable: false })
+  put(join(root, 'outside.ts'), 'changed actual external source\n')
+  run('parent-symlink escape changed', { cacheable: false })
+  assert.equal(readFileSync(join(installed, 'lib/types/index.js'), 'utf8'), 'changed actual external source\n')
   const linkTree = join(root, 'links')
   put(join(linkTree, 'real'))
   symlinkSync('../repo/AGENTS.md', join(linkTree, 'external'))
