@@ -7,7 +7,7 @@
  * this checks local interaction, not a paid provider request or account login.
  */
 import assert from 'node:assert/strict'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { delimiter, dirname, join, resolve } from 'node:path'
@@ -180,7 +180,8 @@ try {
   console.error(error)
   writeFileSync(join(out, 'failure.txt'), `${error.stack ?? error}\nTemporary state: ${scratch}\n`)
 } finally {
-  writeFileSync(join(out, 'result.json'), `${JSON.stringify({ passed, platform: process.platform, tuiVersion, dshVersion, results }, null, 2)}\n`)
+  writeFileSync(join(out, 'result.json'), `${JSON.stringify({ passed, platform: process.platform, tuiVersion, dshVersion,
+    cwd: { requested: workspace, real: realpathSync.native(workspace) }, results }, null, 2)}\n`)
   if (passed) {
     // Windows can keep the verifier's loaded node-pty DLL open until process
     // exit; any locked remainder belongs to the runner's temporary directory.

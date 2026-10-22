@@ -35,7 +35,7 @@ if (typeof Intl !== 'undefined') {
 }
 import { createRequire } from 'node:module'
 import { homedir } from 'node:os'
-import { dirname, join, resolve } from 'node:path'
+import { basename, dirname, join, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 
 const require = createRequire(import.meta.url)
@@ -71,7 +71,35 @@ function traceStage(stage, details = {}) {
   if (selfTest) process.stderr.write(`DSH_TUI_STANDALONE_STAGE ${JSON.stringify({ stage, elapsedMs: Math.round(performance.now() - diagnosticStart), ...details })}\n`)
 }
 
-const cacheBase = resolve(
+const launchCwd = process.cwd()
+const windowsPaths = process.platform === 'win32'
+// The bundled libuv can abort when a watched 8.3 path receives a long-path
+// event (libuv#5152). Give DSH one physical spelling of the roots we own.
+// Resolve missing suffixes without creating them: cacheGuard still owns cache
+// permissions, and a self-test must not initialize the user's profile.
+function canonicalWindowsPath(path) {
+  let current = resolve(launchCwd, path)
+  if (!windowsPaths) return current
+  const missing = []
+  while (true) {
+    try {
+      const canonical = fs.realpathSync.native(current)
+      if (missing.length && !fs.statSync(canonical).isDirectory()) {
+        throw Object.assign(new Error(`Standalone path parent is not a directory: ${canonical}`), { code: 'ENOTDIR' })
+      }
+      return join(canonical, ...missing.reverse())
+    } catch (error) {
+      if (error.code !== 'ENOENT') throw error
+      const parent = dirname(current)
+      if (parent === current) throw error
+      missing.push(basename(current))
+      current = parent
+    }
+  }
+}
+if (windowsPaths) process.chdir(canonicalWindowsPath(launchCwd))
+
+const cacheBase = canonicalWindowsPath(
   process.env.DSH_TUI_STANDALONE_CACHE ??
     join(process.env.XDG_CACHE_HOME ?? join(homedir(), '.cache'), 'dsh-tui-standalone'),
 )
@@ -155,7 +183,7 @@ function replaceNodeModulesLink(profileDir) {
  * Configure and initialize the standalone profile environment with cordis patch and dependencies.
  */
 function ensureProfile() {
-  const standaloneHome = resolve(
+  const standaloneHome = canonicalWindowsPath(
     process.env.DSH_TUI_STANDALONE_HOME ?? join(homedir(), '.dsh-tui-standalone'),
   )
   process.env.DSH_HOME = standaloneHome
@@ -192,7 +220,7 @@ if (process.pkg && process.platform === 'win32') {
   }
 }
 
-traceStage('runtime-check')
+traceStage('runtime-check', { node: process.versions.node, uv: process.versions.uv, launchCwd, cwd: process.cwd() })
 await ensureRuntimeReady()
 traceStage('runtime-ready')
 if (selfTest) {
@@ -229,7 +257,7 @@ const cliCommand = process.argv.slice(2)[0]
 if (['cli', 'run', '-p', '--print', 'session', 'models', 'skills', 'mcp', 'auth', 'capabilities', 'dsh'].includes(cliCommand)) {
   // Bypass TUI profile initialization. The standalone cache supplies the same
   // independently shipped CLI; DSH owns its own headless profile and home.
-  process.env.DSH_HOME ??= resolve(process.env.DSH_TUI_STANDALONE_HOME ?? join(homedir(), '.dsh-tui-standalone'))
+  process.env.DSH_HOME ??= canonicalWindowsPath(process.env.DSH_TUI_STANDALONE_HOME ?? join(homedir(), '.dsh-tui-standalone'))
   process.env.DSH_TUI_CLI_INSTALL_ANCHOR ??= dirname(dirname(dshBin))
   const node = process.env.DSH_TUI_CLI_NODE ?? 'node'
   const { spawn } = await import('node:child_process')

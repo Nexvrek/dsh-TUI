@@ -5,7 +5,7 @@
  */
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
-import { copyFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { copyFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -86,7 +86,31 @@ try {
   const tui = join(staging, 'node_modules/@deepseek-harness-tui/dsh-tui')
   const llm = join(staging, 'node_modules/@deepseek-ai/dsh-llm')
   json(join(dsh, 'package.json'), { name: '@deepseek-ai/dsh', version: primary, type: 'module' })
-  write(join(dsh, 'lib/bin.js'), "export async function runCli() { if (process.argv.includes('--self-test')) throw new Error('Self-test must not launch a profile'); console.log('DSH_TUI_BOOT_CALLED ' + JSON.stringify(process.argv.slice(2))) }\n")
+  write(join(dsh, 'lib/bin.js'), `
+import { watch, writeFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
+export async function runCli() {
+  if (process.argv.includes('--self-test')) throw new Error('Self-test must not launch a profile')
+  console.log('DSH_TUI_BOOT_CALLED ' + JSON.stringify(process.argv.slice(2)))
+  if (process.env.DSH_TUI_FIXTURE_WATCH !== '1') return
+  const paths = { cwd: process.cwd(), home: process.env.DSH_HOME, runtime: dirname(fileURLToPath(import.meta.url)) }
+  for (const path of Object.values(paths)) {
+    await new Promise((resolve, reject) => {
+      const watcher = watch(path, (_event, filename) => {
+        if (filename?.toString() !== 'fixture-watched.txt') return
+        clearTimeout(timer)
+        watcher.close()
+        resolve()
+      })
+      const timer = setTimeout(() => { watcher.close(); reject(new Error('No filesystem event for ' + path)) }, 5000)
+      watcher.on('error', error => { clearTimeout(timer); watcher.close(); reject(error) })
+      writeFileSync(join(path, 'fixture-watched.txt'), path)
+    })
+  }
+  console.log('DSH_TUI_BOOT_PATHS ' + JSON.stringify(paths))
+}
+`)
   json(join(tui, 'package.json'), { name: '@deepseek-harness-tui/dsh-tui', version: tuiVersion, type: 'module' })
   write(join(tui, 'cordis.patch.yml'), '[]\n')
   for (const path of ['lib/types/index.js', 'cli/entry.mjs', 'cli/adapters/dsh/management-plugin.mjs']) write(join(tui, path), 'export {}\n')
@@ -136,8 +160,8 @@ try {
   write(extractorPath, fallbackExtractor)
   const synchronousEntry = entryText.replace("const windowsExtraction = process.platform === 'win32'", 'const windowsExtraction = true')
   assert.notEqual(synchronousEntry, entryText, 'The launcher must select its Windows extractor')
-  const deniedEntry = synchronousEntry.replace("traceStage('runtime-check')",
-    "fs.symlinkSync = () => { throw Object.assign(new Error('FIXTURE_SYMLINK_PRIVILEGE_REQUIRED'), { code: 'EPERM' }) }\ntraceStage('runtime-check')")
+  const deniedEntry = synchronousEntry.replace("traceStage('runtime-check',",
+    "fs.symlinkSync = () => { throw Object.assign(new Error('FIXTURE_SYMLINK_PRIVILEGE_REQUIRED'), { code: 'EPERM' }) }\ntraceStage('runtime-check',")
   assert.notEqual(deniedEntry, synchronousEntry)
   write(join(staging, 'node_modules/.bin/tool.cmd'), '@echo fixture command\r\n')
   const binLinks = [
@@ -180,6 +204,47 @@ try {
     assert.equal(readFileSync(join(launchedRuntime, 'node_modules/.bin', name), 'utf8'), '@echo fixture command\r\n')
   }
   console.log('PASS: ordinary launch calls the imported DSH entry once with its profile and user arguments')
+
+  // A real directory alias plus missing Chinese/space suffixes exercises the
+  // launcher's Windows path boundary on every host. Windows uses a junction;
+  // the native acceptance test also retains its original 8.3 TEMP ancestor.
+  const physicalHome = join(fixture, '真实 用户目录')
+  const aliasedHome = join(fixture, '用户目录 alias')
+  mkdirSync(join(physicalHome, '工作 目录'), { recursive: true })
+  symlinkSync(physicalHome, aliasedHome, process.platform === 'win32' ? 'junction' : 'dir')
+  const pathEntry = synchronousEntry.replace("const windowsPaths = process.platform === 'win32'", 'const windowsPaths = true')
+  assert.notEqual(pathEntry, synchronousEntry)
+  write(entryPath, pathEntry)
+  const pathEnv = { ...launchEnv,
+    HOME: aliasedHome, USERPROFILE: aliasedHome,
+    DSH_TUI_STANDALONE_HOME: join(aliasedHome, '首次 创建', '配置 home'),
+    DSH_TUI_STANDALONE_CACHE: join(aliasedHome, '首次 创建', 'runtime cache'),
+    DSH_TUI_FIXTURE_WATCH: '1',
+  }
+  const pathOptions = { env: pathEnv, cwd: join(aliasedHome, '工作 目录'), encoding: 'utf8', timeout: 30_000 }
+  const pathSelfTest = spawnSync(process.execPath, [entryPath, '--self-test'], pathOptions)
+  ok(pathSelfTest, 'self-test through an aliased root and nonexistent home')
+  assert.equal(existsSync(pathEnv.DSH_TUI_STANDALONE_HOME), false, 'Canonicalization must not create a self-test profile')
+  const pathRuntime = join(pathEnv.DSH_TUI_STANDALONE_CACHE, `tui-${tuiVersion}-dsh-${primary}`)
+  const pathMarker = readFileSync(join(pathRuntime, '.complete'), 'utf8')
+  const pathLaunch = spawnSync(process.execPath, [entryPath], pathOptions)
+  ok(pathLaunch, 'normal launch watches canonical paths')
+  const actualPaths = JSON.parse(pathLaunch.stdout.split(/\r?\n/).find(line => line.startsWith('DSH_TUI_BOOT_PATHS ')).slice('DSH_TUI_BOOT_PATHS '.length))
+  for (const [name, path] of Object.entries({ cwd: pathOptions.cwd, home: pathEnv.DSH_TUI_STANDALONE_HOME, runtime: join(pathRuntime, 'node_modules/@deepseek-ai/dsh/lib') })) {
+    assert.equal(actualPaths[name], realpathSync.native(path), `${name} must use its native physical path`)
+    assert.equal(readFileSync(join(path, 'fixture-watched.txt'), 'utf8'), actualPaths[name], `${name} must still refer to the same directory`)
+  }
+  assert.equal(readFileSync(join(pathRuntime, '.complete'), 'utf8'), pathMarker)
+  assert.doesNotMatch(pathLaunch.stderr, /首次运行，正在释放/, 'Canonical aliases must reuse the same complete cache')
+  const fileAncestor = join(physicalHome, 'regular-file')
+  write(fileAncestor, 'not a directory')
+  const invalidPath = spawnSync(process.execPath, [entryPath, '--self-test'], {
+    ...pathOptions, env: { ...pathEnv, DSH_TUI_STANDALONE_CACHE: join(fileAncestor, 'runtime cache') },
+  })
+  assert.notEqual(invalidPath.status, 0)
+  assert.match(invalidPath.stderr, /ENOTDIR|not a directory/)
+  console.log('PASS: canonical Windows roots preserve directory identity, deliver watch events and leave self-test profiles absent')
+  write(entryPath, deniedEntry)
 
   for (const path of ['node_modules/@deepseek-ai/dsh/runtime-link.js', 'node_modules/example/.bin/tool']) {
     await archive([...binLinks, { path, linkpath: 'unneeded.js', type: 'SymbolicLink' }])
