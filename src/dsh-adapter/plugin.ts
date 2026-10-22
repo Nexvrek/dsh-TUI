@@ -1687,8 +1687,8 @@ export async function apply(ctx: Context, runtimeConfig: RuntimeConfig<Config>, 
       // Auto and resumed sessions keep that selection until the user changes it.
       const preserve = !settingsEditsLive && backendStart !== undefined && (level === undefined || backendStart.resumedSessionId !== undefined)
       if (!preserve && backendStart !== undefined && !channel.ready) { lastEffortDefault = undefined; return }
+      if (!preserve && (channel.setDefaultEffort(level) as unknown) === false) { lastEffortDefault = undefined; return }
       lastEffortDefault = next
-      if (!preserve) channel.setDefaultEffort(level)
     }
     const apply = (next: SettingsValue): void => {
       applyLayout(next)
@@ -1730,13 +1730,22 @@ export async function apply(ctx: Context, runtimeConfig: RuntimeConfig<Config>, 
     settingsEditsLive = false
     apply(fullscreenMigration === 'unset' ? migratedSettings : bootSettings)
     settingsEditsLive = true
-    if (backendStart !== undefined && !channel.ready) settingsCtx.effect(() => {
+    if (backendStart !== undefined) settingsCtx.effect(() => {
+      let active = true
+      let generation = channel.ready ? channel.agentBindingGeneration : undefined
       const stop = channel.subscribe(() => {
-        if (!channel.ready) return
-        stop()
-        applyEffortDefault(scope.get())
+        if (!channel.ready || (lastEffortDefault !== undefined && generation === channel.agentBindingGeneration)) return
+        // Adoption publishes several synchronous updates before its binding generation.
+        queueMicrotask(() => {
+          if (!active || !channel.ready) return
+          if (generation !== undefined && generation !== channel.agentBindingGeneration) {
+            lastEffortDefault = scope.get().effortDefault ?? null
+          }
+          generation = channel.agentBindingGeneration
+          if (lastEffortDefault === undefined) applyEffortDefault(scope.get())
+        })
       })
-      return stop
+      return () => { active = false; stop() }
     })
     let lastTerminalImages = bootSettings.terminalImages ?? config.terminalImages ?? true
     let lastLaunchpad = bootSettings.launchpad ?? config.launchpad ?? true

@@ -26,7 +26,7 @@ import type { ChannelState } from '../types.js'
 export function createCapabilityDelegates(deps: {
   owner: Pick<ChannelOwner, 'current'>
   session(): AgentSession
-  state: () => Pick<ChannelState, 'provider' | 'model' | 'backendCapabilities'>
+  state: () => Pick<ChannelState, 'provider' | 'model' | 'backendCapabilities' | 'emit'>
   notify: ChannelState['notify']
   unavailable(name: string): void
   unavailableLines(name: string): string[]
@@ -54,11 +54,14 @@ export function createCapabilityDelegates(deps: {
       await modes.set(list[(index + 1) % list.length]!.id)
     }),
     listModels: () => guarded('model', [], async () => {
-      const models = caps().models
+      const session = deps.session()
+      const models = session.capabilities.models
       if (models === undefined) { unavailable('model'); return [] }
       // One provider: the backend itself; `/model <id>` needs no provider segment.
       const provider = deps.state().provider
-      return (await models.list()).map(model => ({ provider: model.provider ?? provider, id: model.id, name: model.label, ...(model.description === undefined ? {} : { description: model.description }) }))
+      const list = await models.list()
+      if (deps.owner.current() && deps.session() === session) deps.state().emit()
+      return list.map(model => ({ provider: model.provider ?? provider, id: model.id, name: model.label, ...(model.description === undefined ? {} : { description: model.description }) }))
     }),
     switchModel: (provider, model) => guarded('model', false, async () => {
       const models = caps().models
@@ -94,9 +97,10 @@ export function createCapabilityDelegates(deps: {
       return Promise.resolve({ efforts: levels.map(level => ({ id: level.id, name: level.label })), defaultEffort: effort.current(), ...(effort.levelsFallback === true ? { levelsFallback: true as const } : {}) })
     },
     setDefaultEffort: id => {
+      const effort = caps().effort
+      if (id !== undefined && effort?.levelsAvailable === false) return false
       void guarded('effort', undefined, async () => {
-        const effort = caps().effort
-        if (effort === undefined || (id !== undefined && effort.levelsAvailable === false)) return
+        if (effort === undefined) return
         const applied = id === undefined ? undefined : nearestLowerEffort(id, effort.levels().map(level => level.id))
         await effort.set(applied ?? null)
         if (!deps.owner.current() || id === undefined || applied === id) return

@@ -75,7 +75,7 @@ const pluginSource = ts.createSourceFile('plugin.ts', readFileSync(new URL('../s
 const watcherDeclarations = new Map<string, string>()
 let readinessStatement = ''
 const findWatcher = (node: import('typescript').Node): void => {
-  if (ts.isIfStatement(node) && node.expression.getText(pluginSource) === 'backendStart !== undefined && !channel.ready') readinessStatement = node.getText(pluginSource)
+  if (ts.isIfStatement(node) && node.expression.getText(pluginSource).startsWith('backendStart !== undefined') && node.getText(pluginSource).includes('applyEffortDefault(scope.get())')) readinessStatement = node.getText(pluginSource)
   if (ts.isVariableStatement(node)) for (const declaration of node.declarationList.declarations) {
     const name = declaration.name.getText(pluginSource)
     if (name === 'lastEffortDefault' || name === 'applyEffortDefault') watcherDeclarations.set(name, node.getText(pluginSource))
@@ -84,6 +84,7 @@ const findWatcher = (node: import('typescript').Node): void => {
 }
 findWatcher(pluginSource)
 assert.equal(watcherDeclarations.size, 2)
+assert.notEqual(readinessStatement, '', 'production readiness/catalog subscription is exercised')
 const watcherJs = ts.transpileModule(`let settingsEditsLive = false;
 ${watcherDeclarations.get('lastEffortDefault')}
 ${watcherDeclarations.get('applyEffortDefault')}
@@ -365,3 +366,95 @@ for (const scenario of [
   }
 }
 console.log('PASS: dynamic effort catalog, persisted unknown value, stale/error/empty capability refresh')
+
+
+// Startup recovery through the real session/RPC/channel and production watcher.
+// Only the app-server transport is scripted; no second setDefaultEffort call.
+const { openHarness, threadAnswer } = await import('./lib/codex-session-harness.js')
+const { mountChannelUi } = await import('../src/dsh-adapter/channel-ui.js')
+for (const scenario of ['recover', 'empty', 'Auto-before', 'Auto-after', 'Auto-then-concrete', 'resume', 'switch'] as const) {
+  let available = scenario === 'empty'
+  let latestDefault = { effortDefault: scenario === 'Auto-then-concrete' ? 'auto' : 'ultra-custom' }
+  let resolveStartup!: (value: { session: import('../src/agent/session.js').AgentSession; history: [] }) => void
+  const startup = new Promise<{ session: import('../src/agent/session.js').AgentSession; history: [] }>(resolve => { resolveStartup = resolve })
+  let replacement: Awaited<ReturnType<typeof openHarness>> | undefined
+  const starting = createChannel({ on: () => () => {}, get: () => undefined, logger: { warn: () => {}, debug: () => {} } } as never,
+    createStartingSession('codex', process.cwd()), { model: 'gpt-5.6-terra', provider: 'codex', cwd: process.cwd(), activity: false, startup,
+      openSession: async () => {
+        replacement = await openHarness({ prefs: { effort: 'low' }, configureFake: fake => {
+          fake.on('model/list', () => ({ data: [{ model: 'gpt-5.6-terra', supportedReasoningEfforts: [{ reasoningEffort: 'low' }] }] }))
+        } })
+        return replacement.session
+      },
+    })
+  const mounted = mountChannelUi({}, starting, undefined, 'legacy')
+  const disposers: (() => void)[] = []
+  const watcher = new Function('channel', 'backendStart', 'settingsCtx', 'scope', watcherJs)(mounted.channel,
+    scenario === 'resume' ? { resumedSessionId: 'resumed' } : {},
+    { effect: (effect: () => () => void) => { disposers.push(effect()) } }, { get: () => latestDefault }) as
+    ((value: { effortDefault: string }, live: boolean) => void) & { start(): void }
+  watcher(latestDefault, false)
+  watcher.start()
+  const h = await openHarness({ prefs: { effort: 'low' }, ...(scenario === 'resume' ? { resume: threadAnswer() } : {}), configureFake: fake => {
+    fake.on('model/list', () => {
+      if (!available) throw new Error('startup catalog unavailable')
+      return { data: scenario === 'empty' ? [] : [{ model: 'gpt-5.6-terra', defaultReasoningEffort: 'medium',
+        supportedReasoningEfforts: ['medium', 'ultra-custom'].map(reasoningEffort => ({ reasoningEffort })) }] }
+    })
+    fake.on('thread/settings/update', () => ({}))
+  } })
+  try {
+    resolveStartup({ session: h.session, history: [] })
+    await wait(() => starting.ready, 'real Codex startup reaches ready despite unavailable optional catalog')
+    if (scenario === 'empty') {
+      await wait(() => h.sent('thread/settings/update').length === 1, 'reliable empty catalog is handled using null fallback')
+      assert.equal(h.sent('thread/settings/update')[0]?.effort, null)
+      await wait(() => h.session.capabilities.effort!.current() === undefined, 'empty catalog reset reaches the acknowledged session state')
+    } else {
+      assert.equal(h.sent('thread/settings/update').length, 0, 'unavailable boot catalog does not clear or prematurely apply preference')
+      assert.equal(h.session.capabilities.effort!.current(), 'low', 'restored effort survives unavailable catalog')
+      if (scenario === 'switch') {
+        const before = starting.agentBindingGeneration
+        await starting.newSession()
+        assert.notEqual(starting.agentBindingGeneration, before, 'real session replacement changes binding even for the same id')
+        await mounted.channel.listModels()
+        assert.equal(replacement!.sent('thread/settings/update').length, 0, 'old startup pending does not affect a replacement session')
+      } else {
+        if (scenario === 'Auto-then-concrete') {
+          latestDefault = { effortDefault: 'ultra-custom' }
+          watcher(latestDefault, true)
+        }
+        available = true
+        if (scenario === 'Auto-before') {
+          latestDefault = { effortDefault: 'auto' }
+          watcher(latestDefault, true)
+        }
+        await mounted.channel.listModels()
+        if (scenario === 'resume') {
+          assert.equal(h.sent('thread/settings/update').length, 0, 'catalog recovery preserves resumed effort')
+        } else {
+          await wait(() => h.sent('thread/settings/update').length === 1, 'successful catalog notification applies pending preference exactly once')
+          assert.equal(h.sent('thread/settings/update')[0]?.effort, scenario === 'Auto-before' ? 'medium' : 'ultra-custom')
+          await wait(() => h.session.capabilities.effort!.current() === (scenario === 'Auto-before' ? 'medium' : 'ultra-custom'), 'pending preference reaches acknowledged session state')
+          if (scenario === 'Auto-after') {
+            latestDefault = { effortDefault: 'auto' }
+            watcher(latestDefault, true)
+            await wait(() => h.sent('thread/settings/update').length === 2, 'active Auto after default application resets effort')
+            assert.equal(h.sent('thread/settings/update')[1]?.effort, 'medium')
+            await wait(() => h.session.capabilities.effort!.current() === 'medium', 'active Auto reset reaches acknowledged session state')
+          }
+        }
+        const count = h.sent('thread/settings/update').length
+        await mounted.channel.listModels()
+        assert.equal(h.sent('thread/settings/update').length, count, 'later catalog reads do not replay handled defaults')
+      }
+    }
+    console.log(`PASS: production effort startup pending ${scenario}`)
+  } finally {
+    for (const dispose of disposers) dispose()
+    mounted.dispose()
+    starting.releaseContributions()
+    await h.session.dispose()
+    await replacement?.session.dispose()
+  }
+}
