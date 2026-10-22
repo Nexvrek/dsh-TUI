@@ -16,6 +16,7 @@
  */
 
 import { stringWidth } from '../ink/stringWidth.js'
+import { getGraphemeSegmenter } from '../utils/intl.js'
 
 /** Sanitize an already-string value for the render path. */
 export function cleanRenderText(value: string, maxCells: number): string {
@@ -61,7 +62,15 @@ export function cleanCommandReport(value: string): { lines: string[]; truncated:
     const plain = flattenPasteInline(row)
     if (stringWidth(plain) <= maxCells) return plain
     truncated = true
-    return `${capCells(plain, maxCells - 1)}…`
+    let clipped = ''
+    let cells = 0
+    for (const { segment } of getGraphemeSegmenter().segment(plain)) {
+      const width = stringWidth(segment)
+      if (cells + width > maxCells - 1) break
+      clipped += segment
+      cells += width
+    }
+    return `${clipped}…`
   })
   return { lines: value === '' ? [] : lines, truncated }
 }

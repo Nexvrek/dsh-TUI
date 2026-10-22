@@ -4,20 +4,39 @@
  */
 process.env.DSH_TUI_LANG = 'en'
 process.env.FORCE_COLOR = '3'
+const { mkdtempSync, readFileSync, writeFileSync, rmSync } = await import('node:fs')
+const { tmpdir } = await import('node:os')
+const { join } = await import('node:path')
+const home = mkdtempSync(join(tmpdir(), 'dsh-command-report-'))
+process.env.HOME = home
+process.env.USERPROFILE = home
+try {
 const [assert, React, { Writable, PassThrough }, { Terminal }, ui, { Chat },
   { createChannel }, { QuestionStore }, { settle, settled, sleep, findText },
   { cleanBlockLines, cleanCommandReport }, { stringWidth }, { default: instances },
-  { getSelectedText }, { mkdtempSync }, { tmpdir }, { join }] = await Promise.all([
+  { getSelectedText }, { DATA_DIR }, { MAX_ROWS }] = await Promise.all([
   import('node:assert/strict'), import('react'), import('node:stream'), import('@xterm/headless'),
   import('../src/ui.js'), import('../src/screens/Chat.js'), import('../src/dsh-adapter/channel.js'),
   import('../src/dsh-adapter/questions.js'), import('./lib/term-test.mjs'),
   import('../src/channel/sanitize.js'), import('../src/ink/stringWidth.js'),
   import('../src/ink/instances.js'), import('../src/ink/selection.js'),
-  import('node:fs'), import('node:os'), import('node:path'),
+  import('../src/utils/paths.js'), import('../src/channel/transcript.js'),
 ])
-const home = mkdtempSync(join(tmpdir(), 'dsh-command-report-'))
-process.env.HOME = home
-process.env.USERPROFILE = home
+assert.equal(DATA_DIR, join(home, '.dsh-tui'), 'application imports must see the isolated home')
+
+// Count input units passed through the real width function: a deterministic
+// work bound, independent of machine speed, on the production sanitizer.
+const original = new URL('../src/channel/sanitize.ts', import.meta.url)
+const measured = new URL(`./sanitize.work-${process.pid}.ts`, original)
+writeFileSync(measured, readFileSync(original, 'utf8').replace(
+  "import { stringWidth } from '../ink/stringWidth.js'",
+  "import { stringWidth as actualWidth } from '../ink/stringWidth.js'\nexport let measuredUnits = 0\nfunction stringWidth(value: string): number { measuredUnits += value.length; return actualWidth(value) }"))
+try {
+  const probe = await import(measured.href)
+  const input = '中文😀'.repeat(3000)
+  assert.equal(probe.cleanCommandReport(input).truncated, true)
+  assert.ok(probe.measuredUnits < input.length * 4, 'report clipping must not repeatedly measure growing prefixes')
+} finally { rmSync(measured, { force: true }) }
 
 assert.deepEqual(cleanBlockLines('  one  two\n\nthree', 100), ['one two', 'three'])
 assert.deepEqual(cleanCommandReport('  one\n\n\x1b[31m中文😀\x1b[0m\x1b]0;hidden\x07\x00').lines, ['  one', '', '中文😀 '])
@@ -112,6 +131,17 @@ for (const fullscreen of [false, true]) {
   console.log('PASS visible truncation marker through real Chat')
 }
 {
+  const h = await harness(false, async () => ({ kind: 'success', text: 'retained' }))
+  h.channel.rows.push({ id: -1, kind: 'user', text: 'backend fact must survive local report eviction' })
+  for (let i = 0; i < 8; i++) h.channel.pushLocal(`REPORT ${i}`, Array(200).fill(`line ${i}`), { preserveWhitespace: true })
+  assert.ok(h.channel.rows.filter(row => row.kind === 'local' || row.kind === 'local-output').length <= MAX_ROWS)
+  assert.equal(h.channel.rows.find(row => row.id === -1)?.text, 'backend fact must survive local report eviction')
+  assert.equal(h.channel.rows.at(-1).text, 'line 7')
+  assert.equal(h.channel.rows.find(row => row.kind === 'local')?.text, 'REPORT 6', 'evict whole old reports')
+  await h.close()
+  console.log('PASS bounded aggregate local reports; newest whole blocks and backend facts retained')
+}
+{
   let resolve
   const h = await harness(false, () => new Promise(done => { resolve = done }))
   await h.run()
@@ -126,3 +156,4 @@ for (const fullscreen of [false, true]) {
   console.log('PASS actual session replacement drops late result')
 }
 console.log('verify-plugin-command-output: all checks passed')
+} finally { rmSync(home, { recursive: true, force: true }) }
