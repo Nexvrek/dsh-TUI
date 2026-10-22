@@ -272,8 +272,8 @@ export default class Ink {
   constructor(private readonly options: Options) {
     this.shutdownInput = claimShutdownInput(options.stdin, options.stdout, () => {
       drainStdin(options.stdin)
-      options.drainStdin?.()
-    })
+      try { options.drainStdin?.() } catch { /* a revoked device must not abort cleanup */ }
+    }, () => this.unmount())
     autoBind(this);
     if (options.stdin.isTTY) {
       // Keep this listener through teardown: a pending libuv TTY read can
@@ -2817,7 +2817,11 @@ export default class Ink {
     }
     if (!this.shutdownInput.ownsInput()) {
       // Release this tree without resetting terminal modes now owned elsewhere.
-      void this.detachForShutdown()
+      const cleanup = this.detachForShutdown()
+      void Promise.resolve(cleanup).then(() => {
+        if (error instanceof Error) this.rejectExitPromise(error)
+        else this.resolveExitPromise()
+      }, cleanupError => this.rejectExitPromise(error instanceof Error ? error : cleanupError))
       return
     }
     // The final frame render is best-effort: a mid-state React commit can

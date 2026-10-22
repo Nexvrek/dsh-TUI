@@ -6,7 +6,7 @@ export type ShutdownInput = {
   release: () => void
 }
 
-const owners = new WeakMap<NodeJS.ReadStream, object>()
+const owners = new WeakMap<NodeJS.ReadStream, { revoke?: () => void }>()
 const handles = new WeakMap<() => void, ShutdownInput>()
 
 /** Claim the actual input; a later renderer automatically revokes the old lease. */
@@ -14,14 +14,18 @@ export function claimShutdownInput(
   stdin: NodeJS.ReadStream,
   stdout: NodeJS.WriteStream,
   drain: () => void,
+  revoke?: () => void,
 ): ShutdownInput {
-  const token = {}
+  const previous = owners.get(stdin)
+  const token = { revoke }
   owners.set(stdin, token)
-  const ownsInput = () => owners.get(stdin) === token && !stdin.destroyed
+  // Revoke before latching the old renderer so its cleanup cannot touch ours.
+  previous?.revoke?.()
+  const ownsInput = () => owners.get(stdin) === token
   return {
     stdout,
     ownsInput,
-    drain: () => { if (ownsInput() && stdin.isTTY) drain() },
+    drain: () => { if (ownsInput() && stdin.isTTY && !stdin.destroyed) drain() },
     release: () => { if (owners.get(stdin) === token) owners.delete(stdin) },
   }
 }

@@ -9,7 +9,7 @@
 import { readFileSync } from 'node:fs'
 import { PassThrough, Writable } from 'node:stream'
 import React from 'react'
-import { createRoot, AlternateScreen, Text, useInput } from '../src/ui.js'
+import { createRoot, render, AlternateScreen, Text, useInput } from '../src/ui.js'
 import { claimShutdownInput, getShutdownInput } from '../src/ink/shutdown-input.js'
 import { cursorMove } from '../src/ink/termio/csi.js'
 import { Context } from '@deepseek-ai/cordis'
@@ -185,6 +185,74 @@ for (const mode of ['owned', 'revoked', 'replacement', 'revoked-before', 'replac
     await instances.get(output as unknown as NodeJS.WriteStream)!.detachForShutdown()
     replacement.unmount()
   }
+  input.destroy()
+}
+
+// Review regressions: exercise real roots, leases and shutdown, not copied policy.
+for (const mode of ['destroyed', 'detached-legacy', 'throwing-drain', 'revoked', 'revoked-error', 'replacement'] as const) {
+  const input = new OwnedInput()
+  const output = new CapturingStream()
+  output.isTTY = mode === 'replacement'
+  let effectDisposed = false
+  let throwDrain = mode === 'throwing-drain'
+  function Owner() {
+    useInput(() => {})
+    React.useEffect(() => () => { effectDisposed = true }, [])
+    return React.createElement(Text, null, 'original root')
+  }
+  const handle = await createRoot({
+    stdin: input as unknown as NodeJS.ReadStream, stdout: output as unknown as NodeJS.WriteStream,
+    patchConsole: false, terminalImages: false,
+    drainStdin: () => { if (throwDrain) throw new Error('revoked device') },
+  })
+  handle.render(React.createElement(AlternateScreen, null, React.createElement(Owner)))
+  await new Promise<void>(resolve => setImmediate(resolve))
+  const ink = instances.get(output as unknown as NodeJS.WriteStream)!
+  if (mode === 'destroyed' || mode === 'detached-legacy') {
+    if (mode === 'destroyed') input.destroy()
+    else await ink.detachForShutdown()
+    output.chunks.length = 0
+    await finishExit(ctx, { unmount: handle.unmount } as never, true, 'still-restored', undefined, () => {})
+    check(`${mode}: actual output exits alt screen and retains notice`,
+      output.chunks.join('').includes(EXIT_ALT_SCREEN) && output.chunks.join('').includes('still-restored'))
+  } else if (mode === 'throwing-drain') {
+    let threw = false
+    try { await ink.detachForShutdown() } catch { threw = true }
+    check('throwing device drain does not abort tree cleanup', !threw && effectDisposed && !input.isRaw)
+    throwDrain = false
+  } else {
+    let outcome = 'pending'
+    void handle.waitUntilExit().then(() => { outcome = 'resolved' }, error => { outcome = error.message })
+    let replacement: Awaited<ReturnType<typeof createRoot>> | undefined
+    if (mode === 'replacement') {
+      replacement = await createRoot({ stdin: input as unknown as NodeJS.ReadStream,
+        stdout: output as unknown as NodeJS.WriteStream, patchConsole: false, terminalImages: false })
+      replacement.render(React.createElement(AlternateScreen, null, React.createElement(Text, null, 'new root')))
+      output.chunks.length = 0
+      // A queued recovery/render from the old instance must be inert immediately.
+      ;(ink as unknown as { handleResume(): void }).handleResume()
+      ink.onRender()
+      check('replacement synchronously stops old recovery and frame output', output.chunks.length === 0)
+    } else {
+      handle.shutdownInput.release()
+      ink.unmount(mode === 'revoked-error' ? new Error('original exit error') : undefined)
+    }
+    await new Promise<void>(resolve => setImmediate(resolve))
+    check(`${mode}: exit promise settles after effect cleanup`, effectDisposed &&
+      outcome === (mode === 'revoked-error' ? 'original exit error' : 'resolved'))
+    if (replacement) await instances.get(output as unknown as NodeJS.WriteStream)!.detachForShutdown()
+  }
+  await ink.detachForShutdown()
+  input.destroy()
+}
+{
+  const input = new OwnedInput(), output = new CapturingStream()
+  output.isTTY = false
+  const options = { stdin: input as unknown as NodeJS.ReadStream, stdout: output as unknown as NodeJS.WriteStream, patchConsole: false }
+  const first = await render(React.createElement(Text, null, 'first'), options)
+  const next = await render(React.createElement(Text, null, 'next'), options)
+  check('same-instance render retains its original live lease', first.shutdownInput === next.shutdownInput && next.shutdownInput.ownsInput())
+  await next.detachForShutdown()
   input.destroy()
 }
 

@@ -3432,7 +3432,6 @@ export async function finishExit(
         ? undefined
         : fromHandle
     )
-    let fullyUnmounted = false
     if (runtime === undefined) {
       ctx.logger.debug('dsh-tui: Ink runtime unavailable during shutdown; using generic terminal cleanup')
       if (instance !== undefined) {
@@ -3444,7 +3443,6 @@ export async function finishExit(
         // must never hand a broken terminal back to the shell.
         try {
           instance.unmount()
-          fullyUnmounted = input !== undefined
         } catch {
           ctx.logger.debug('dsh-tui: Ink shutdown unmount fallback failed; continuing with generic terminal cleanup')
         }
@@ -3469,7 +3467,7 @@ export async function finishExit(
     //    the spawn; it clears it and writes the switch notice there.
     //  - ownsAltScreenExit() false: this is a replacement exiting before its
     //    first frame, and the old process will close the alternate screen.
-    const exitAlt = !fullyUnmounted && fullscreen && !(options.keepAltScreen === true) && ownsAltScreenExit() ? EXIT_ALT_SCREEN : ''
+    const exitAlt = fullscreen && !(options.keepAltScreen === true) && ownsAltScreenExit() ? EXIT_ALT_SCREEN : ''
     const cleanup = [
       ESU,
       exitAlt,
