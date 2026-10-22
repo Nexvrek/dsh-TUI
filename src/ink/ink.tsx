@@ -31,6 +31,7 @@ import { suppressInputFor } from './input-suppression.js';
 import { LogUpdate } from './log-update.js';
 import { KittyGraphicsManager } from './kitty-graphics.js';
 import { SixelGraphicsManager } from './sixel-graphics.js';
+import { SixelCursorHeal } from './sixel-cursor-heal.js'
 import { selectTerminalImageProtocol } from './terminal-image-protocol.js';
 import { nodeCache } from './node-cache.js';
 import { optimize } from './optimizer.js';
@@ -52,6 +53,7 @@ import { TerminalWriteProvider } from './useTerminalNotification.js';
 import { TerminalImagesContext } from './hooks/use-terminal-images.js';
 import { DEFAULT_TERMINAL_CELL_SIZE, resolveTerminalCellSize, type TerminalImagePlacement } from './terminal-image.js';
 import { detachHandoffStdin } from './stdin-handoff.js';
+import { claimShutdownInput, type ShutdownInput } from './shutdown-input.js'
 
 // Alt-screen: renderer.ts sets cursor.visible = !isTTY || screen.height===0,
 // which is always false in alt-screen (TTY + content fills screen).
@@ -91,10 +93,12 @@ export type Options = {
   exitOnCtrlC: boolean;
   patchConsole: boolean;
   terminalImages?: boolean;
+  drainStdin?: () => void
   waitUntilExit?: () => Promise<void>;
   onFrame?: (event: FrameEvent) => void;
 };
 export default class Ink {
+  readonly shutdownInput: ShutdownInput
   private readonly log: LogUpdate;
   private readonly terminal: Terminal;
   private readonly kittyGraphicsManager = new KittyGraphicsManager();
@@ -103,6 +107,10 @@ export default class Ink {
     dom.markTreeDirty(this.rootNode);
     this.scheduleRender();
   });
+  private readonly sixelCursorHeal = new SixelCursorHeal(
+    () => this.forceRedraw(), message => logForDebugging(message),
+  )
+  private sixelCursorCheckSupported = false
   private sixelGraphicsSupported = false;
   private kittyGraphicsSupported = false;
   private kittyGraphicsProbeStarted = false;
@@ -267,6 +275,10 @@ export default class Ink {
     throw error;
   }
   constructor(private readonly options: Options) {
+    this.shutdownInput = claimShutdownInput(options.stdin, options.stdout, () => {
+      drainStdin(options.stdin)
+      try { options.drainStdin?.() } catch { /* a revoked device must not abort cleanup */ }
+    }, () => this.unmount())
     autoBind(this);
     if (options.stdin.isTTY) {
       // Keep this listener through teardown: a pending libuv TTY read can
@@ -446,6 +458,7 @@ export default class Ink {
   // blank→paint flicker). useVirtualScroll's height scaling already bounds
   // the per-resize cost; synchronous handling keeps dimensions consistent.
   private handleResize = () => {
+    this.sixelCursorHeal.reset()
     const cols = this.options.stdout.columns || 80;
     const rows = this.options.stdout.rows || 24;
     // Duplicate resize events normally leave both layout and surface intact.
@@ -548,6 +561,7 @@ export default class Ink {
    */
   enterAlternateScreen(): void {
     this.pause();
+    this.sixelCursorHeal.reset()
     this.app?.querier.suspend();
     if (this.terminalQueryResumeTimer !== null) {
       clearTimeout(this.terminalQueryResumeTimer);
@@ -1115,6 +1129,13 @@ export default class Ink {
       if (sixelFrame.erase !== '') optimized.unshift({ type: 'stdout', content: sixelFrame.erase });
       if (graphicsOutput !== '') {
         optimized.push({ type: 'stdout', content: graphicsOutput });
+        const expected = this.sixelGraphicsManager.cursorAfterPaint
+        if (sixelActive && this.sixelCursorCheckSupported && expected !== undefined &&
+            this.measuredImageCellSize !== undefined && this.app !== null &&
+            !this.terminalQueriesSuspended && process.env.DSH_TUI_SIXEL_CURSOR_HEAL !== '0') {
+          const request = this.sixelCursorHeal.prepare(this.app.querier, expected)
+          if (request !== '') optimized.push({ type: 'stdout', content: request })
+        }
       }
       optimized.push(this.altScreenParkPatch);
     }
@@ -1457,6 +1478,7 @@ export default class Ink {
    */
   setAltScreenActive(active: boolean, mouseTracking = false): void {
     if (this.altScreenActive === active) return;
+    if (!active) this.sixelCursorHeal.reset()
     const resetOldPointerContext = (): void => {
       // Fire leave handlers before dropping the set — a bare clear strands
       // old rows with hovered=true. resetPointerState also emits dragend for
@@ -1470,7 +1492,7 @@ export default class Ink {
     if (!active) {
       resetOldPointerContext();
       const deleteImages = this.kittyGraphicsManager.deleteAll() + this.sixelGraphicsManager.clear();
-      if (deleteImages !== '') this.options.stdout.write(deleteImages);
+      if (deleteImages !== '' && this.shutdownInput.ownsInput()) this.options.stdout.write(deleteImages);
     }
     this.altScreenActive = active;
     this.nativeCursorVisible = null;
@@ -1604,6 +1626,7 @@ export default class Ink {
    */
   detachForShutdown(): void | Promise<void> {
     if (this.isUnmounted) return this.shutdownCleanup;
+    this.sixelCursorHeal.dispose()
     this.isDetachedForShutdown = true;
     this.isUnmounted = true;
     this.resetCursorIdle();
@@ -1623,7 +1646,7 @@ export default class Ink {
     // the renderer's own ordered stream, matching the rest of this shutdown
     // path and leaving unmount's synchronous cleanup safely idempotent.
     const deleteImages = this.kittyGraphicsManager.deleteAll() + this.sixelGraphicsManager.dispose();
-    if (deleteImages !== '' && this.options.stdout.isTTY) {
+    if (deleteImages !== '' && this.options.stdout.isTTY && this.shutdownInput.ownsInput()) {
       this.options.stdout.write(deleteImages);
     }
     this.app?.detachForShutdown();
@@ -1637,7 +1660,7 @@ export default class Ink {
     // never runs — a detached instance would stay in the map and a later
     // instances.get(stdout) lookup (Chat's reanchorViewport plumbing) could
     // hand out a dead renderer. Remove the mapping here too.
-    instances.delete(this.options.stdout);
+    if (instances.get(this.options.stdout) === this) instances.delete(this.options.stdout);
     // `detachForShutdown()` deliberately makes later `unmount()` calls a
     // no-op, so release process-level output patches here rather than relying
     // on unmount() to do it. The shutdown continuation may run an updater
@@ -1656,7 +1679,7 @@ export default class Ink {
       setRawMode?: (m: boolean) => void;
     };
     this.drainStdin();
-    if (stdin.isTTY && stdin.isRaw && stdin.setRawMode) {
+    if (this.shutdownInput.ownsInput() && stdin.isTTY && stdin.isRaw && stdin.setRawMode) {
       try {
         stdin.setRawMode(false);
       } catch {
@@ -1697,6 +1720,7 @@ export default class Ink {
    * the listeners and pause the pump so the child is the sole reader.
    */
   detachStdinForHandoff(): void {
+    if (!this.shutdownInput.ownsInput()) return
     const stdin = this.options.stdin as NodeJS.ReadStream;
     try {
       this.drainStdin();
@@ -1712,7 +1736,7 @@ export default class Ink {
 
   /** @see drainStdin */
   drainStdin(): void {
-    drainStdin(this.options.stdin);
+    this.shutdownInput.drain()
   }
 
   /**
@@ -1967,6 +1991,10 @@ export default class Ink {
           // A permanently set display mode cannot place a preview at CUP.
           if (mode?.status === 3) return;
           this.sixelGraphicsManager.setDisplayMode(mode?.status === 1);
+          // Restrict the expected cursor semantics to Windows Terminal/ConPTY,
+          // with a confirmed controllable sixel display mode and measured cells.
+          this.sixelCursorCheckSupported = (!!process.env.WT_SESSION || /Windows ?Terminal|ConPTY/iu.test(identity?.name ?? '')) &&
+            (mode?.status === 1 || mode?.status === 2)
         }
         // Ghostty 1.3.1 can segfault while inflating a valid RGBA upload.
         // Resolve identity in this batch (also over SSH) before images go live.
@@ -2767,7 +2795,7 @@ export default class Ink {
   // After detachForShutdown the exit funnel owns the terminal restore: a late
   // commit (e.g. <AlternateScreen>'s cleanup) must not write control sequences.
   private writeRaw(data: string): void {
-    if (this.isDetachedForShutdown) {
+    if (this.isDetachedForShutdown || !this.shutdownInput.ownsInput()) {
       // Length only: a dropped write may carry clipboard (OSC 52) content.
       logMouseDebug('stdout: raw write after shutdown detach dropped', { len: data.length });
       return;
@@ -2800,7 +2828,7 @@ export default class Ink {
   };
   render(node: ReactNode): void {
     this.currentNode = node;
-    const tree = <App ref={this.setAppRef} stdin={this.options.stdin} stdout={this.options.stdout} stderr={this.options.stderr} exitOnCtrlC={this.options.exitOnCtrlC} onExit={this.unmount} terminalColumns={this.terminalColumns} terminalRows={this.terminalRows} selection={this.selection} onSelectionChange={this.notifySelectionChange} onClickAt={this.dispatchClick} onContextMenuAt={this.dispatchContextMenu} onHoverAt={this.dispatchHover} onWheelAt={this.dispatchWheelAt} getHyperlinkAt={this.getHyperlinkAt} onOpenHyperlink={this.openHyperlink} onMultiClick={this.handleMultiClick} onSelectionStart={this.handleSelectionStart} onSelectionDrag={this.handleSelectionDrag} onDragTargetAt={this.findDragTargetAt} onDragDispatch={this.dispatchDrag} onPointerGestureChange={this.setPointerGestureActive} onProtocolCandidateChange={this.setProtocolCandidateActive} onReleaseTail={this.drainReleaseTail} onClickProbe={this.clickProbeAtBatchTail} onStdinResume={this.reassertTerminalModes} onTerminalFocus={this.handleTerminalFocusProbe} onCursorDeclaration={this.setCursorDeclaration} dispatchKeyboardEvent={this.dispatchKeyboardEvent}>
+    const tree = <App ref={this.setAppRef} stdin={this.options.stdin} ownsStdin={this.shutdownInput.ownsInput} stdout={this.options.stdout} stderr={this.options.stderr} exitOnCtrlC={this.options.exitOnCtrlC} onExit={this.unmount} terminalColumns={this.terminalColumns} terminalRows={this.terminalRows} selection={this.selection} onSelectionChange={this.notifySelectionChange} onClickAt={this.dispatchClick} onContextMenuAt={this.dispatchContextMenu} onHoverAt={this.dispatchHover} onWheelAt={this.dispatchWheelAt} getHyperlinkAt={this.getHyperlinkAt} onOpenHyperlink={this.openHyperlink} onMultiClick={this.handleMultiClick} onSelectionStart={this.handleSelectionStart} onSelectionDrag={this.handleSelectionDrag} onDragTargetAt={this.findDragTargetAt} onDragDispatch={this.dispatchDrag} onPointerGestureChange={this.setPointerGestureActive} onProtocolCandidateChange={this.setProtocolCandidateActive} onReleaseTail={this.drainReleaseTail} onClickProbe={this.clickProbeAtBatchTail} onStdinResume={this.reassertTerminalModes} onTerminalFocus={this.handleTerminalFocusProbe} onCursorDeclaration={this.setCursorDeclaration} dispatchKeyboardEvent={this.dispatchKeyboardEvent}>
         <TerminalWriteProvider value={this.writeRaw}>
           <TerminalImagesContext.Provider value={this.terminalImages}>
             {node}
@@ -2816,6 +2844,15 @@ export default class Ink {
   unmount(error?: Error | number | null): void {
     if (this.isUnmounted) {
       return;
+    }
+    if (!this.shutdownInput.ownsInput()) {
+      // Release this tree without resetting terminal modes now owned elsewhere.
+      const cleanup = this.detachForShutdown()
+      void Promise.resolve(cleanup).then(() => {
+        if (error instanceof Error) this.rejectExitPromise(error)
+        else this.resolveExitPromise()
+      }, cleanupError => this.rejectExitPromise(error instanceof Error ? error : cleanupError))
+      return
     }
     // The final frame render is best-effort: a mid-state React commit can
     // throw (agent still working at the exact exit moment). It must NOT
@@ -2844,6 +2881,7 @@ export default class Ink {
       const diff = this.log.renderPreviousOutput_DEPRECATED(this.frontFrame);
       lastFrame = serializeDiff(this.terminal, optimize(diff));
     } catch { /* a failed final diff must not skip terminal cleanup */ }
+    this.sixelCursorHeal.dispose()
     const sixelCleanup = this.sixelGraphicsManager.dispose();
 
     // Clean up terminal modes synchronously before process exit.
@@ -2925,7 +2963,7 @@ export default class Ink {
     reconciler.updateContainerSync(null, this.container, null, noop);
     // @ts-ignore -- runtime/type-definition mismatch: flushSyncWork exists in react-reconciler but not in @types/react-reconciler
     reconciler.flushSyncWork();
-    instances.delete(this.options.stdout);
+    if (instances.get(this.options.stdout) === this) instances.delete(this.options.stdout);
 
     // Free the root yoga node, then clear its reference. Children are already
     // freed by the reconciler's removeChildFromContainer; using .free() (not
@@ -3099,7 +3137,9 @@ export function drainStdin(stdin: NodeJS.ReadStream = process.stdin): void {
   }
   // No /dev/tty on Windows; CONIN$ doesn't support O_NONBLOCK semantics.
   // Windows Terminal also doesn't buffer mouse reports the same way.
-  if (process.platform === 'win32') return;
+  // A custom input may name another PTY; only its explicit device hook
+  // may drain beyond the Node buffer. Never fall back to an unrelated TTY.
+  if (process.platform === 'win32' || stdin !== process.stdin) return;
   // termios is per-device: flip stdin to raw so canonical-mode line
   // buffering doesn't hide partial input from the non-blocking read.
   // Restored in the finally block.
@@ -3112,11 +3152,12 @@ export function drainStdin(stdin: NodeJS.ReadStream = process.stdin): void {
   // reads (64KB) — a real mouse burst is a few hundred bytes; the cap
   // guards against a terminal that ignores O_NONBLOCK.
   let fd = -1;
+  let changedRaw = false
   try {
     // setRawMode inside try: on revoked TTY (SIGHUP/SSH disconnect) the
     // ioctl throws EBADF — same recovery path as openSync/readSync below.
-    if (!wasRaw) tty.setRawMode?.(true);
     fd = openSync('/dev/tty', fsConstants.O_RDONLY | fsConstants.O_NONBLOCK);
+    if (!wasRaw && tty.setRawMode) { tty.setRawMode(true); changedRaw = true }
     const buf = Buffer.alloc(1024);
     for (let i = 0; i < 64; i++) {
       if (readSync(fd, buf, 0, buf.length, null) <= 0) break;
@@ -3132,7 +3173,7 @@ export function drainStdin(stdin: NodeJS.ReadStream = process.stdin): void {
         /* ignore */
       }
     }
-    if (!wasRaw) {
+    if (changedRaw) {
       try {
         tty.setRawMode?.(false);
       } catch {

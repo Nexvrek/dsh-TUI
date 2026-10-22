@@ -434,6 +434,9 @@ TUI 只负责交互与呈现：会话日志是唯一事实源，模型、工具�
 - 注入的插件上下文没有独立展示，计入上下文分段。
 - `/model` 在同一会话内更换下一次请求的模型，保留历史与 session ID；实际使用的路由在下一次请求开始时记录。DSH 低于 `0.1.2-alpha.3` 时会拒绝切换并提示升级，因为旧版子代理仍继承创建时的路由。
 - `Ctrl+V` 需要平台剪贴板工具；不支持的位图格式直接拒绝。
+- Windows Terminal/ConPTY 的 sixel 帧在停放光标前检查最后传输图像的光标，预期位置由实测单元格尺寸及编码带控制推导。发现漂移后复用 `Ctrl+L` 的物理清屏和重画。最多一个在途回复（500ms），resize/交接期间跳过；无回复或 10 秒内恢复三次后暂停 60 秒。设置 `DSH_TUI_SIXEL_CURSOR_HEAL=0` 可关闭；`DSH_TUI_DEBUG` 记录探测及恢复决策。此有界缓解不能检测所有像素污染，也不是对 ConPTY 本身的修复。
+
+- 退出在终端清理并等待 150ms 后，仅排空实际渲染器拥有的输入。只保留 `unmount` 的嵌入句柄仍保留输入租约；替换该方法的包装器须向 `finishExit` 传入渲染器的 `shutdownInput` 租约。自定义输入只排空自身缓冲；设备内核排空可通过 `render({ drainStdin })` 提供有界同步回调。已撤销、被替换的拥有者及非 TTY 输入不排空；等待窗不保证任意 SSH 延迟。
 - Windows 本地复制使用 PowerShell 显式读取 UTF-8 stdin，连续复制按顺序执行；依次尝试 Windows PowerShell 与 PowerShell 7，每次超时两秒。两者均失败时回退到 OSC 52，需要终端支持；SSH 不会写入远端原生剪贴板。
 - 可捕获的退出会在终端清理中显式关闭同步输出（DEC 2026），不依赖最后一帧。SIGKILL、原生 abort 或 JavaScript 事件循环完全阻塞时无法保证进程内清理，需要终端自身或外部监督者恢复。
 - TUI 持有活动 raw 输入时，在输入间隔/焦点恢复及每五秒健康检查中重申操作系统 raw mode，无须等待按键。外部改回 cooked/ECHO 而 Node 仍报告 `isRaw=true` 时也能恢复；事件循环可运行时最多约一个检查周期。编辑器暂停及退出/移交时停止周期检查，不周期重发显示协议。
@@ -446,6 +449,15 @@ TUI 只负责交互与呈现：会话日志是唯一事实源，模型、工具�
 完整清单见[架构与限制](docs/architecture.md)。
 
 ## 开发
+
+`pnpm dev` 默认保留完整 install/build/pack 检查。显式本地快速迭代可设置
+`DSH_TUI_DEV_FAST=1`，例如 `DSH_TUI_DEV_FAST=1 pnpm dev -- --no-launch`。
+缓存未命中时执行 frozen install、`compile`、不重复 `prepare` 的打包与隔离安装。
+只有源码/配置与编译加载器内容、Node/pnpm/npm/dsh 版本、编译与 vendor 产物、tarball 和已安装包/profile 均匹配时，
+才跳过这四步。若替换 pnpm/npm/dsh 而报告版本不变，须先运行一次普通（非 fast）开发流程。内部文档链接（如 `CLAUDE.md -> AGENTS.md`）参与指纹；树外、被排除、
+悬空或循环链接以及不可读输入会禁用复用并打印原因。工作开始前即作废旧成功标记，
+失败不写新标记。脚本输出阶段耗时与命中状态。发布前仍须正常执行 `pnpm build`
+和聚焦回归；快速模式不改变发布门禁。
 monorepo 开发宿主（`pnpm tui`、`scripts/run.ts`）仅在显式设置
 `DSH_TUI_HEAP_WATCH=1` 时启用堆诊断；不设置或设为 `0` 即关闭。
 每 15 秒采样，堆用量越过 1024、1536、2048、2560、3072 MiB 时各生成一次快照。
@@ -598,3 +610,27 @@ WAL，不手工复制活动数据库与 WAL。缺少此 API 的构建会明确�
 开发环境的 `@deepseek-ai/*` release-age 豁免仅列出当前锁文件的精确包版本（包含旧 SQLite 岛），
 其他版本仍保留 24 小时延迟。有意更新锁文件后运行
 `node scripts/verify-release-age-cohort.mjs --write` 重新生成并审查差异。
+
+### 更新安装的有界等待
+
+`/update` 与 `dsh-tui update` 的每次 profile 安装调用默认有 **30 分钟实际时间上限**。
+可用正整数毫秒数 `DSH_TUI_UPDATE_TIMEOUT_MS` 调整；无效值使用默认值。
+输出不会重置上限，正常静默安装可使用全部时限；只有进程最终退出码表示成功，
+打印 `Done` 不代表成功。Ctrl+C 取消本次拥有的安装进程。
+POSIX 先终止本次独立进程组，2 秒后强制终止剩余后代。Windows 使用专用
+PowerShell/原生 supervisor 与自有 Job Object。安装进程在挂起创建时原子加入 job，
+验证归属后才开始执行。根进程退出后 supervisor 仍持有 job 句柄，取消和超时因此
+也会终止继续持有输出管道的孤立后代；不开放 job breakaway，不按进程名或已退出
+根进程的 PID 杀进程。
+
+Windows 需要 Windows 10 / Server 2016 或更新版本，以及允许 `Add-Type`/原生互操作
+的 Windows PowerShell。启动或 job 归属失败时，不会执行无归属的安装进程。
+无法确认清理结果时会明确报错，不宣称所有写入已停止。超时、取消或清理不确定均
+以非零码结束，并阻止重试、删除旧安装、修复及 TUI 进程替换。安装可能不完整，
+请检查/修复当前 profile 后，再使用开始和失败时打印的恢复命令。
+`~/.dsh-tui/restart.log` 在重启前记录安装类别、PID、结束原因及最后输出时间。
+
+专用 **Windows installer process ownership** workflow 在 `windows-latest` 上运行
+真实原生回归，使用 Node 24，无需安装项目依赖。Windows 本机命令为
+`node scripts/verify-update-process-windows.mjs`，覆盖孤立后代、超时/取消、嵌套 job、
+失败诊断、输入输出、参数及无关进程存活；Linux 运行会明确跳过原生验收。

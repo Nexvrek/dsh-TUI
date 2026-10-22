@@ -511,6 +511,9 @@ Runtime path, module boundaries, performance notes and persistence locations: [A
 - Injected plugin context has no standalone display; it counts into the context segments.
 - `/model` changes the next request’s route in the same session; history and session ID are preserved. The last used route is recorded when the next request starts. DSH versions before `0.1.2-alpha.3` refuse switching and prompt an upgrade because their subagents inherit the original route.
 - `Ctrl+V` needs platform clipboard tools; unsupported bitmap formats are rejected.
+- Windows Terminal/ConPTY sixel frames check the last transmitted raster’s cursor position before parking, using measured cell geometry and encoded band controls. Detected drift uses the same physical clear and redraw as `Ctrl+L`. Probes allow one pending reply (500 ms), skip resize/handoff, and pause for 60 seconds after an unanswered query or three repairs within 10 seconds. Set `DSH_TUI_SIXEL_CURSOR_HEAL=0` to disable; `DSH_TUI_DEBUG` records probe/recovery decisions. This bounded mitigation cannot detect every kind of pixel corruption or repair ConPTY itself.
+
+- Shutdown drains only the actual renderer-owned input after terminal cleanup and a 150-ms settle window. Embedders retaining only `unmount` keep that input lease; wrappers replacing the method must pass the renderer’s `shutdownInput` lease to `finishExit`. Custom input drains its own buffered bytes; a device-specific kernel drain can be supplied as the bounded synchronous `render({ drainStdin })` callback. Revoked/replaced owners and non-TTY input are not drained. The window does not guarantee arbitrary SSH latency.
 - Local Windows copying uses PowerShell with UTF-8 stdin. Copies run in order; each PowerShell attempt has a two-second timeout (Windows PowerShell, then PowerShell 7). If both fail, OSC 52 remains the fallback and requires terminal support. SSH never writes the remote native clipboard.
 - Catchable exits explicitly end synchronized output (DEC 2026) as part of terminal cleanup, even without a final frame. SIGKILL, native aborts and a fully blocked JavaScript event loop cannot guarantee in-process cleanup; recovery then requires the terminal or an external supervisor.
 - While the TUI owns an active raw input, it reasserts OS raw mode on input-gap/focus recovery and every five seconds without waiting for a key. This repairs externally reset cooked/ECHO state even when Node still reports `isRaw=true`; recovery may take one interval while the event loop runs. The periodic check stops during editor pauses and shutdown/handoff and does not resend display protocols.
@@ -523,6 +526,20 @@ Runtime path, module boundaries, performance notes and persistence locations: [A
 Full list: [Architecture and limitations → Known limitations](docs/architecture.en.md#known-limitations).
 
 ## Development
+
+`pnpm dev` keeps the full install/build/pack checks by default. For explicit local
+iteration, set `DSH_TUI_DEV_FAST=1` (for example,
+`DSH_TUI_DEV_FAST=1 pnpm dev -- --no-launch`). A miss runs frozen install,
+`compile`, pack without repeating `prepare`, and isolated profile installation.
+An unchanged hit skips all four stages only while source/config and compiler-loader contents,
+Node/pnpm/npm/dsh versions, compiled and vendor output, the tarball, and the installed
+package/profile match. Replacing pnpm/npm/dsh without changing its reported version
+requires one normal (non-fast) development run.
+Internal document links such as `CLAUDE.md -> AGENTS.md` are fingerprinted;
+external, excluded, dangling or cyclic links and unreadable inputs disable reuse
+with a diagnostic. Failures invalidate the success stamp before work begins.
+The script prints stage durations and cache hits. Run normal `pnpm build` and
+focused regressions before publishing; fast mode does not change release gates.
 The monorepo development host (`pnpm tui`, `scripts/run.ts`) enables heap
 forensics only with `DSH_TUI_HEAP_WATCH=1`; unset it or use `0` to disable it.
 It samples every 15 seconds and takes one snapshot at each heap threshold of
@@ -699,3 +716,34 @@ Development `@deepseek-ai/*` release-age exceptions list only exact package vers
 lockfile (including the legacy SQLite island); all other versions retain the
 24-hour delay. Regenerate with `node scripts/verify-release-age-cohort.mjs --write`
 after an intentional lockfile update, then review the cohort diff.
+
+### Bounded update installation
+
+`/update` and `dsh-tui update` give each profile installer invocation a **30-minute
+wall-clock limit**. Set `DSH_TUI_UPDATE_TIMEOUT_MS` to a positive integer in
+milliseconds to change it (invalid values use the default). Output activity does
+not reset this deadline; a quiet but healthy installation can use the full limit.
+Only the final process exit code establishes success: a printed `Done` does not.
+Ctrl+C cancels the owned installer. On POSIX, cancellation terminates its own
+process group, then force-kills remaining descendants after two seconds. Windows
+uses a dedicated PowerShell/native supervisor with a private Job Object. The
+installer joins that job atomically while suspended; verified membership is required
+before it runs. The supervisor retains the job handle after the root exits, so
+cancellation and timeout also terminate orphaned descendants holding output pipes.
+It does not enable job breakaway or kill processes by name or an exited root PID.
+
+Windows requires Windows 10 / Server 2016 or later and Windows PowerShell with
+`Add-Type`/native interop available. Startup or job-membership failures stop the
+installation before running an unowned installer. A cleanup failure is reported as
+unconfirmed, never as proof that all writes stopped. Timeout, cancellation, or
+unconfirmed cleanup returns nonzero and prevents retries, stale-file removal,
+repair, and TUI replacement. A partial installation may remain: check/repair that
+profile before using the recovery command printed at update start and on failure.
+`~/.dsh-tui/restart.log` records installer category, PID, termination reason and last
+output timestamp before any restart.
+
+The focused **Windows installer process ownership** workflow runs the real native
+regression on `windows-latest`, with Node 24 and no dependency installation. To run
+it locally on Windows: `node scripts/verify-update-process-windows.mjs`. It checks
+orphan descendants, timeout/cancellation, nested jobs, failure diagnostics, streams,
+arguments and an unrelated process; a Linux run explicitly skips native acceptance.
