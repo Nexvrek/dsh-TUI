@@ -191,7 +191,7 @@ const supportsNode = (version, range) => {
     return atLeast && (operator !== '^' || current.major === floor[0])
   })
 }
-const nodeRange = ownPackage?.engines?.node
+const nodeRange = ownPackage?.name === PACKAGE ? ownPackage.engines?.node : undefined
 const nodeSupported = supportsNode(process.versions.node, nodeRange)
 
 const lang = process.env.DSH_TUI_LANG === 'en' ? 'en' : 'zh'

@@ -5,15 +5,15 @@ import { spawnSync } from 'node:child_process'
 import { chmodSync, copyFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { delimiter, dirname, join } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)))
-const fixture = mkdtempSync(join(tmpdir(), 'dsh-node-runtime-'))
+const fixture = mkdtempSync(join(tmpdir(), 'dsh-node-runtime #-'))
 try {
   mkdirSync(join(fixture, 'bin'))
   copyFileSync(join(root, 'bin/dsh-tui.js'), join(fixture, 'bin/dsh-tui.js'))
-  const manifest = range => writeFileSync(join(fixture, 'package.json'), JSON.stringify({
-    name: '@deepseek-harness-tui/dsh-tui', version: '0.0.0', type: 'module', engines: { node: range },
+  const manifest = (range, name = '@deepseek-harness-tui/dsh-tui') => writeFileSync(join(fixture, 'package.json'), JSON.stringify({
+    name, version: '0.0.0', type: 'module', engines: { node: range },
   }))
   for (const command of ['dsh', 'pnpm']) {
     const path = join(fixture, 'bin', command)
@@ -25,7 +25,7 @@ try {
     // Simulates the diagnostic inputs only; this does not run a Node 23 binary.
     const preload = join(fixture, 'version.mjs')
     writeFileSync(preload, `Object.defineProperty(process.versions, 'node', {value: ${JSON.stringify(version)}})\nObject.defineProperty(process, 'version', {value: ${JSON.stringify(`v${version}`)}})\n`)
-    return spawnSync(process.execPath, ['--import', preload, join(fixture, 'bin/dsh-tui.js'), command], {
+    return spawnSync(process.execPath, ['--import', pathToFileURL(preload).href, join(fixture, 'bin/dsh-tui.js'), command], {
       encoding: 'utf8', timeout: 10000,
       env: { ...process.env, HOME: fixture, USERPROFILE: fixture, DSH_HOME: join(fixture, 'home'), DSH_TUI_LANG: 'en',
         PATH: [join(fixture, 'bin'), ...(process.platform === 'win32' ? [join(process.env.SystemRoot ?? 'C:\\Windows', 'System32')] : [])].join(delimiter) },
@@ -58,6 +58,11 @@ try {
     assert.equal(doctor.status, 1)
     assert.match(doctor.stdout, /Cannot determine Node/u)
     assert.doesNotMatch(doctor.stdout, /is unsupported/u)
+  }
+  for (const range of ['>=24', '>=1']) {
+    manifest(range, 'unrelated-package')
+    assert.equal(run('22.19.0', 'cli').status, 3, 'foreign manifest must not block launch')
+    assert.match(run('22.19.0', 'doctor').stdout, /Cannot determine Node/u)
   }
   // A supported runtime must preserve the real loader's Error.cause chain.
   manifest('^22.19 || >=24')
