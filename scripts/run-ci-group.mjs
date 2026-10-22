@@ -444,6 +444,7 @@ const GROUPS = {
     ["verify-reload", ['node', '--import', 'tsx/esm', 'scripts/verify-reload.ts']],
 // 直达启动器回归（issue #108）：参数透传、残骸 profile 重装、
 // 版本不一致提示、双语消息、shellQuote 转义规则。
+    ['verify-node-runtime', ['node', 'scripts/verify-node-runtime.mjs']],
     ["verify-launcher", ['node', 'scripts/verify-launcher.mjs']],
 // 包入口与启动器不继承工作区的 React 开发模式；专用调试开关仍可启用。
     ['verify-production-react', ['node', 'scripts/verify-production-react.mjs']],
