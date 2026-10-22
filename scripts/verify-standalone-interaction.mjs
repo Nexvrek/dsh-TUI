@@ -7,7 +7,6 @@
  * this checks local interaction, not a paid provider request or account login.
  */
 import assert from 'node:assert/strict'
-import { spawnSync } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
@@ -15,6 +14,7 @@ import { delimiter, dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import xterm from '@xterm/headless'
 import { settled, viewportLines, writeParsed } from './lib/term-test.mjs'
+import { runStandaloneProcess, terminateStandaloneTree } from './lib/standalone-test-process.mjs'
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const option = name => {
@@ -65,11 +65,12 @@ try {
   // below still starts from an empty cache and uninitialized profile.
   const driverHome = join(scratch, 'driver home')
   mkdirSync(driverHome)
-  const driver = spawnSync(binary, ['--self-test'], {
-    cwd: driverHome, env: environment(driverHome), encoding: 'utf8', timeout: 120_000,
+  const driver = await runStandaloneProcess(binary, ['--self-test'], {
+    cwd: driverHome, env: environment(driverHome), timeoutMs: 120_000,
     maxBuffer: 4 * 1024 * 1024,
   })
   writeFileSync(join(out, 'driver-self-test.log'), `${driver.stdout ?? ''}${driver.stderr ?? ''}`)
+  if (driver.cleanup) writeFileSync(join(out, 'driver-cleanup.json'), `${JSON.stringify(driver.cleanup, null, 2)}\n`)
   assert.equal(driver.error, undefined, `Driver extraction failed: ${driver.error?.message}`)
   assert.equal(driver.status, 0, 'Driver extraction failed; see driver-self-test.log')
   const driverRuntime = join(driverHome, 'runtime cache', bundleId)
@@ -151,7 +152,12 @@ try {
       console.log(`PASS: ${mode} standalone ${process.platform === 'win32' ? 'ConPTY' : 'PTY'}: local /help, /quit exited 0 (${startupMs}ms to prompt)`)
     } finally {
       if (!exited) {
-        child.kill()
+        if (process.platform === 'win32') {
+          const cleanup = terminateStandaloneTree(child.pid)
+          writeFileSync(join(out, `${mode}-cleanup.json`), `${JSON.stringify(cleanup, null, 2)}\n`)
+        }
+        try { child.kill() }
+        catch (error) { writeFileSync(join(out, `${mode}-pty-cleanup-error.log`), `${error.stack ?? error}\n`) }
         await settled(() => exited !== undefined, { timeoutMs: 5000 })
       }
       writeFileSync(join(out, `${mode}-terminal.log`), output)

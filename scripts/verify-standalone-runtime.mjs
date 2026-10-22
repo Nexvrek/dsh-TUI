@@ -6,11 +6,11 @@
  * This verifies module loading; the Windows terminal smoke covers interaction.
  */
 import assert from 'node:assert/strict'
-import { spawnSync } from 'node:child_process'
 import { existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { runStandaloneProcess } from './lib/standalone-test-process.mjs'
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const expected = {
@@ -59,9 +59,9 @@ try {
   let firstMarkerTime
   for (const mode of ['cold', 'warm']) {
     const start = performance.now()
-    const result = spawnSync(binary ?? process.execPath,
+    const result = await runStandaloneProcess(binary ?? process.execPath,
       [...(binary ? [] : [join(root, 'standalone/entry.mjs')]), '--self-test'],
-      { cwd: workspace, env, encoding: 'utf8', timeout: timeoutMs, maxBuffer: 4 * 1024 * 1024 })
+      { cwd: workspace, env, timeoutMs, maxBuffer: 4 * 1024 * 1024 })
     // Capture output before asserting result.error: a timeout may have useful
     // extraction progress even though the child never reached its OK marker.
     const stdout = result.stdout ?? ''
@@ -70,6 +70,7 @@ try {
       mode, timeoutMs, elapsedMs: Math.round(performance.now() - start), scratch,
       status: result.status, signal: result.signal,
       error: result.error ? { code: result.error.code, message: result.error.message } : null,
+      cleanup: result.cleanup,
       cache: cacheState(),
     }
     writeFileSync(join(out, `${mode}.stdout.log`), stdout)

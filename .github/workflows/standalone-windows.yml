@@ -6,7 +6,7 @@ on:
       - 'standalone/**'
       - 'scripts/make-standalone-bundle.mjs'
       - 'scripts/verify-standalone-*.mjs'
-      - 'scripts/diagnose-standalone-windows-extraction.mjs'
+      - 'scripts/lib/standalone-test-process.mjs'
       - 'src/dsh-adapter/contract.ts'
       - 'package.json'
       - 'pnpm-lock.yaml'
@@ -104,16 +104,9 @@ jobs:
           $context | ConvertTo-Json -Depth 3 | Tee-Object -FilePath portable-platform-context.json
           exit 0
       - name: Cold and warm runtime loading
-        id: runtime
         shell: pwsh
         run: |
           node scripts/verify-standalone-runtime.mjs --binary 'portable 用户 download/dsh-tui.exe' --out portable-runtime-evidence 2>&1 | Tee-Object portable-self-test.log
-          exit $LASTEXITCODE
-      - name: Compare native extraction after a runtime failure
-        if: ${{ failure() && steps.runtime.outcome == 'failure' }}
-        shell: pwsh
-        run: |
-          node scripts/diagnose-standalone-windows-extraction.mjs --diagnostic portable-runtime-evidence/cold.result.json --out portable-native-extract-evidence
           exit $LASTEXITCODE
       - name: First screen, local interaction and clean exit in ConPTY
         shell: pwsh
@@ -129,7 +122,6 @@ jobs:
             portable-platform-context.json
             portable-self-test.log
             portable-runtime-evidence/
-            portable-native-extract-evidence/
             portable-evidence/
           if-no-files-found: warn
           retention-days: 14

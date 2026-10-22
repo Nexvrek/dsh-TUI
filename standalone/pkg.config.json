@@ -1,6 +1,7 @@
 {
   "scripts": [
-    "cacheGuard.cjs"
+    "cacheGuard.cjs",
+    "extractRuntime.mjs"
   ],
   "assets": [
     "runtime.tar.gz"

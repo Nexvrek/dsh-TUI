@@ -37,7 +37,7 @@ import { createRequire } from 'node:module'
 import { homedir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
-import { x as extractTar } from 'tar'
+import { extractRuntime } from './extractRuntime.mjs'
 
 const require = createRequire(import.meta.url)
 const fs = require('node:fs')
@@ -89,6 +89,13 @@ async function ensureRuntimeReady() {
   const progressStart = performance.now()
   let lastProgressAt = progressStart
   let progressVisible = false
+  const updateProgress = showProgress ? () => {
+    const now = performance.now()
+    if (progressVisible && now - lastProgressAt < 1000) return
+    lastProgressAt = now
+    progressVisible = true
+    process.stderr.write(`\r[dsh-tui] 正在准备运行环境，已用 ${Math.floor((now - progressStart) / 1000)} 秒`)
+  } : undefined
   await ensureRuntime({
     cacheBase,
     runtimeRoot,
@@ -97,30 +104,14 @@ async function ensureRuntimeReady() {
     extract: async options => {
       // cacheGuard has finished copying the embedded archive before calling
       // this extractor. Diagnostics count reads; interactive progress reports time.
-      traceStage('extract-start', { synchronous: windowsExtraction })
       let entries = 0
-      await extractTar({
-        ...options,
-        // node-tar serializes asynchronous filesystem operations on Windows.
-        // Its synchronous extractor keeps the same path checks while avoiding
-        // a thread-pool round trip for each operation in the bundled tree.
-        sync: windowsExtraction,
-        // POSIX command aliases are not Windows .cmd shims. The launcher loads
-        // their original package files, without requiring symlink privileges.
-        // Keep real files, hardlinks and every other symlink under tar's checks.
-        filter: (path, entry) => !(windowsExtraction && entry.type === 'SymbolicLink'
-          && /(?:^|\/)node_modules\/\.bin\/[^/]+$/.test(path)),
+      await extractRuntime(options, {
+        windows: windowsExtraction, trace: traceStage, onProgress: updateProgress,
         ...(selfTest || showProgress ? { onReadEntry() {
           if (selfTest) {
             entries++
             if (entries % 2000 === 0) traceStage('extract-progress', { entries })
-          } else {
-            const now = performance.now()
-            if (progressVisible && now - lastProgressAt < 1000) return
-            lastProgressAt = now
-            progressVisible = true
-            process.stderr.write(`\r[dsh-tui] 正在准备运行环境，已用 ${Math.floor((now - progressStart) / 1000)} 秒`)
-          }
+          } else updateProgress()
         } } : {}),
       })
       traceStage('extract-done', { entries })
@@ -134,6 +125,7 @@ async function ensureRuntimeReady() {
     log: text => {
       traceStage('archive-copy-start')
       process.stderr.write(text)
+      updateProgress?.()
     },
   }).finally(() => {
     if (progressVisible) process.stderr.write('\n')

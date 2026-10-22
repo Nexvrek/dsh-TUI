@@ -5,11 +5,12 @@
  */
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { copyFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { Header, PackSync, ReadEntry } from 'tar'
+import { terminateStandaloneTree } from './lib/standalone-test-process.mjs'
 
 const source = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const fixture = mkdtempSync(join(tmpdir(), 'standalone-bundle-'))
@@ -24,6 +25,14 @@ const primary = readFileSync(join(source, 'src/dsh-adapter/contract.ts'), 'utf8'
   .match(/^export const UPSTREAM_VALIDATED_VERSION\s*=\s*'([^']+)'/m)[1]
 const sync = () => spawnSync(process.execPath, [join(fixture, 'scripts/make-standalone-bundle.mjs'), '--sync-versions-only'], { encoding: 'utf8' })
 const retainedScratch = new Set()
+const timeoutProcessTree = join(fixture, 'timeout-process-tree.json')
+const processExists = pid => {
+  try { process.kill(pid, 0); return true }
+  catch (error) {
+    if (error.code === 'ESRCH') return false
+    throw error
+  }
+}
 let probeNumber = 0
 const probe = () => {
   const evidence = join(fixture, `probe-${probeNumber++}`)
@@ -37,7 +46,7 @@ const probe = () => {
 const ok = (result, label) => assert.equal(result.status, 0, `${label}: ${result.stdout}\n${result.stderr}`)
 
 try {
-  for (const path of ['scripts/make-standalone-bundle.mjs', 'scripts/verify-standalone-runtime.mjs', 'standalone/entry.mjs', 'standalone/cacheGuard.cjs', 'standalone/package.json']) {
+  for (const path of ['scripts/make-standalone-bundle.mjs', 'scripts/verify-standalone-runtime.mjs', 'scripts/lib/standalone-test-process.mjs', 'standalone/entry.mjs', 'standalone/extractRuntime.mjs', 'standalone/cacheGuard.cjs', 'standalone/package.json']) {
     mkdirSync(dirname(join(fixture, path)), { recursive: true })
     copyFileSync(join(source, path), join(fixture, path))
   }
@@ -116,10 +125,15 @@ try {
   assert.doesNotMatch(coldTrace + warmTrace, /正在准备运行环境，已用/)
   console.log('PASS: real entry extracts and imports a compatible runtime without launching a profile')
 
-  // Exercise Windows' synchronous extractor through the same copied launcher
-  // on every host. The normal-launch check below must use that path too.
+  // Exercise the missing-system-tar fallback through the copied launcher on
+  // every host. The normal-launch check below must use that path too.
   const entryPath = join(fixture, 'standalone/entry.mjs')
   const entryText = readFileSync(entryPath, 'utf8')
+  const extractorPath = join(fixture, 'standalone/extractRuntime.mjs')
+  const extractorText = readFileSync(extractorPath, 'utf8')
+  const fallbackExtractor = extractorText.replace("const nativeTar = windows && systemRoot ? join(systemRoot, 'System32', 'tar.exe') : undefined", 'const nativeTar = undefined')
+  assert.notEqual(fallbackExtractor, extractorText)
+  write(extractorPath, fallbackExtractor)
   const synchronousEntry = entryText.replace("const windowsExtraction = process.platform === 'win32'", 'const windowsExtraction = true')
   assert.notEqual(synchronousEntry, entryText, 'The launcher must select its Windows extractor')
   const deniedEntry = synchronousEntry.replace("traceStage('runtime-check')",
@@ -132,15 +146,16 @@ try {
     { path: 'node_modules/.bin/tool-hardlink', linkpath: 'node_modules/.bin/tool.cmd', type: 'Link' },
   ]
   await archive(binLinks)
-  const unfilteredEntry = deniedEntry.replace('filter: (path, entry) => !(windowsExtraction', 'filter: (path, entry) => !(false')
-  assert.notEqual(unfilteredEntry, deniedEntry)
-  write(entryPath, unfilteredEntry)
+  const unfilteredExtractor = fallbackExtractor.replace('filter: (path, entry) => !(windows && isBinLink', 'filter: (path, entry) => !(false && isBinLink')
+  assert.notEqual(unfilteredExtractor, fallbackExtractor)
+  write(entryPath, deniedEntry)
+  write(extractorPath, unfilteredExtractor)
   const deniedLink = probe()
   assert.notEqual(deniedLink.status, 0)
   assert.match(deniedLink.stderr, /FIXTURE_SYMLINK_PRIVILEGE_REQUIRED/)
-  write(entryPath, deniedEntry)
+  write(extractorPath, fallbackExtractor)
   ok(probe(), 'synchronous cold and warm compatible runtime')
-  console.log('PASS: Windows extraction works without POSIX bin-link privileges and reuses its complete cache')
+  console.log('PASS: Windows fallback extraction works without POSIX bin-link privileges and reuses its complete cache')
 
   const launchHome = join(fixture, 'normal launch home')
   const launchEnv = Object.fromEntries(Object.entries(process.env)
@@ -159,8 +174,8 @@ try {
   assert.equal(invocations.length, 1, 'The imported DSH public entry must be invoked exactly once')
   assert.deepEqual(JSON.parse(invocations[0].slice('DSH_TUI_BOOT_CALLED '.length)), ['--profile', 'dsh-tui', '--resume', 'example-session'])
   const launchedRuntime = join(launchEnv.DSH_TUI_STANDALONE_CACHE, `tui-${tuiVersion}-dsh-${primary}`)
-  assert.ok(!existsSync(join(launchedRuntime, binLinks[0].path)))
-  assert.ok(!existsSync(join(launchedRuntime, binLinks[1].path)))
+  assert.throws(() => lstatSync(join(launchedRuntime, binLinks[0].path)), { code: 'ENOENT' })
+  assert.throws(() => lstatSync(join(launchedRuntime, binLinks[1].path)), { code: 'ENOENT' })
   for (const name of ['tool.cmd', 'tool-hardlink']) {
     assert.equal(readFileSync(join(launchedRuntime, 'node_modules/.bin', name), 'utf8'), '@echo fixture command\r\n')
   }
@@ -187,6 +202,80 @@ try {
   assert.doesNotMatch(readFileSync(join(corruptArchive.evidence, 'cold.stderr.log'), 'utf8'), /"stage":"runtime-ready"/)
   console.log('PASS: synchronous extraction errors leave no complete marker or temporary cache tree')
   write(entryPath, entryText)
+  write(extractorPath, extractorText)
+
+  if (process.platform === 'win32') {
+    // Use the real System32 tar against a real tiny archive. These files catch
+    // unanchored excludes that could hide a suffix match or ordinary .cmd file.
+    write(join(staging, 'node_modules/.bin/dsh.cmd'), '@echo native command\r\n')
+    write(join(staging, 'node_modules/.bin/tool1'), 'keep glob neighbor\n')
+    write(join(staging, 'node_modules/example/node_modules/.bin/dsh'), 'keep nested regular file\n')
+    const nativeLinks = [...binLinks, { path: 'node_modules/.bin/tool[1]', linkpath: 'tool.cmd', type: 'SymbolicLink' }]
+    await archive(nativeLinks)
+    const nativeHome = join(fixture, '原生 解压 home')
+    const nativeEnv = { ...launchEnv,
+      HOME: nativeHome, USERPROFILE: nativeHome,
+      DSH_TUI_STANDALONE_HOME: join(nativeHome, 'profiles home'),
+      DSH_TUI_STANDALONE_CACHE: join(nativeHome, 'runtime cache'),
+    }
+    const nativeLaunch = spawnSync(process.execPath, [entryPath, '--self-test'], {
+      env: nativeEnv, encoding: 'utf8', timeout: 30_000,
+    })
+    ok(nativeLaunch, 'real Windows native extraction')
+    assert.match(nativeLaunch.stderr, /"method":"windows-tar"/)
+    assert.match(nativeLaunch.stderr, /"excludedBinLinks":3/)
+    const nativeRuntime = join(nativeEnv.DSH_TUI_STANDALONE_CACHE, `tui-${tuiVersion}-dsh-${primary}`)
+    for (const link of nativeLinks.filter(entry => entry.type === 'SymbolicLink')) {
+      assert.throws(() => lstatSync(join(nativeRuntime, link.path)), { code: 'ENOENT' })
+    }
+    assert.equal(readFileSync(join(nativeRuntime, 'node_modules/.bin/dsh.cmd'), 'utf8'), '@echo native command\r\n')
+    assert.equal(readFileSync(join(nativeRuntime, 'node_modules/.bin/tool-hardlink'), 'utf8'), '@echo fixture command\r\n')
+    assert.equal(readFileSync(join(nativeRuntime, 'node_modules/.bin/tool1'), 'utf8'), 'keep glob neighbor\n')
+    assert.equal(readFileSync(join(nativeRuntime, 'node_modules/example/node_modules/.bin/dsh'), 'utf8'), 'keep nested regular file\n')
+    console.log('PASS: real Windows tar excludes only the exact POSIX aliases and keeps .cmd, hardlinks and suffix matches')
+
+    write(join(staging, 'node_modules/.bin/dsh'), 'must not be silently excluded\n')
+    await archive(binLinks)
+    const duplicatePath = probe()
+    assert.notEqual(duplicatePath.status, 0)
+    assert.match(duplicatePath.stderr, /Duplicate Windows runtime path/)
+    const duplicateReport = readJson(join(duplicatePath.evidence, 'cold.result.json'))
+    assert.equal(duplicateReport.cache.completeMarkerPresent, false)
+    assert.deepEqual(duplicateReport.cache.entries, [])
+    assert.doesNotMatch(readFileSync(join(duplicatePath.evidence, 'cold.stderr.log'), 'utf8'), /"stage":"extract-native-start"/)
+    rmSync(join(staging, 'node_modules/.bin/dsh'))
+    await archive([...binLinks, { path: './node_modules/.bin/alias', linkpath: '../@deepseek-ai/dsh/lib/bin.js', type: 'SymbolicLink' }])
+    const aliasedPath = probe()
+    assert.notEqual(aliasedPath.status, 0)
+    assert.match(aliasedPath.stderr, /Non-canonical Windows runtime path/)
+    const aliasReport = readJson(join(aliasedPath.evidence, 'cold.result.json'))
+    assert.equal(aliasReport.cache.completeMarkerPresent, false)
+    assert.deepEqual(aliasReport.cache.entries, [])
+    await archive([...binLinks,
+      { path: 'node_modules/.bin/ignored', type: 'SolarisACL' },
+      { path: 'node_modules/.bin/ignored', linkpath: 'tool.cmd', type: 'SymbolicLink' },
+    ])
+    const ignoredType = probe()
+    assert.notEqual(ignoredType.status, 0)
+    assert.match(ignoredType.stderr, /Unsupported Windows runtime entry: SolarisACL/)
+    const ignoredReport = readJson(join(ignoredType.evidence, 'cold.result.json'))
+    assert.equal(ignoredReport.cache.completeMarkerPresent, false)
+    assert.deepEqual(ignoredReport.cache.entries, [])
+    assert.doesNotMatch(readFileSync(join(ignoredType.evidence, 'cold.stderr.log'), 'utf8'), /"stage":"extract-native-start"/)
+    console.log('PASS: native extraction rejects typed collisions, path aliases and ignored headers before writing the archive')
+
+    await archive([...binLinks, { path: 'node_modules/.bin/missing-hardlink', linkpath: 'node_modules/does-not-exist', type: 'Link' }])
+    const nativeFailure = probe()
+    assert.notEqual(nativeFailure.status, 0)
+    assert.match(nativeFailure.stderr, /Windows runtime extraction failed/)
+    const nativeFailureTrace = readFileSync(join(nativeFailure.evidence, 'cold.stderr.log'), 'utf8')
+    assert.match(nativeFailureTrace, /"stage":"extract-native-start"/)
+    assert.doesNotMatch(nativeFailureTrace, /"method":"node-tar"/)
+    const nativeFailureReport = readJson(join(nativeFailure.evidence, 'cold.result.json'))
+    assert.equal(nativeFailureReport.cache.completeMarkerPresent, false)
+    assert.deepEqual(nativeFailureReport.cache.entries, [])
+    console.log('PASS: a real native tar failure removes its partial cache without retrying another extractor')
+  }
 
   json(join(dsh, 'package.json'), { name: '@deepseek-ai/dsh', version: '0.1.1-rc.2', type: 'module' })
   await archive()
@@ -217,7 +306,27 @@ try {
   // collected before termination. Shorten only this copied test verifier;
   // the production acceptance budget remains 120 seconds.
   rmSync(duplicate, { recursive: true, force: true })
-  write(join(tui, 'lib/types/dsh-adapter/plugin.js'), "console.error('FIXTURE_IMPORT_STALLED'); setInterval(() => {}, 1000); await new Promise(() => {}); export function apply() {}\n")
+  write(join(tui, 'lib/types/dsh-adapter/plugin.js'), `
+import { spawn } from 'node:child_process'
+import { existsSync, writeFileSync } from 'node:fs'
+import { join } from 'node:path'
+console.error('FIXTURE_IMPORT_STALLED')
+if (process.platform === 'win32') {
+  const heartbeat = join(process.env.TEMP, 'fixture-descendant-heartbeat.log')
+  const code = "const fs = require('node:fs'); const beat = () => fs.appendFileSync(" + JSON.stringify(heartbeat) + ", '.'); beat(); setInterval(beat, 50)"
+  // Break away from Node's default job: only explicit tree termination should
+  // stop this owned descendant when the root's import reaches its timeout.
+  const child = spawn(process.execPath, ['-e', code], { detached: true, stdio: 'ignore', windowsHide: true })
+  child.on('error', error => { throw error })
+  child.unref()
+  writeFileSync(${JSON.stringify(timeoutProcessTree)}, JSON.stringify({ root: process.pid, descendant: child.pid, heartbeat }))
+  while (!existsSync(heartbeat)) await new Promise(resolve => setTimeout(resolve, 10))
+  console.error('FIXTURE_DESCENDANT_RUNNING')
+}
+setInterval(() => {}, 1000)
+await new Promise(() => {})
+export function apply() {}
+`)
   await archive()
   const verifier = join(fixture, 'scripts/verify-standalone-runtime.mjs')
   const verifierText = readFileSync(verifier, 'utf8')
@@ -232,8 +341,32 @@ try {
   assert.equal(timedOutReport.cache.completeMarkerPresent, true)
   assert.ok(existsSync(timedOutReport.scratch), 'A failed probe must preserve its isolated runtime')
   assert.match(readFileSync(join(timedOut.evidence, 'cold.stderr.log'), 'utf8'), /"stage":"lazy-import-start"/)
+  if (process.platform === 'win32') {
+    assert.match(timedOut.stderr, /FIXTURE_DESCENDANT_RUNNING/, 'The detached descendant must run before the timeout')
+    const tree = readJson(timeoutProcessTree)
+    assert.ok(Number.isInteger(tree.root) && Number.isInteger(tree.descendant))
+    // Append-only bytes remain valid if taskkill interrupts a heartbeat write.
+    const heartbeat = readFileSync(tree.heartbeat, 'utf8')
+    assert.ok(heartbeat.length > 0)
+    for (const [label, pid] of [['root', tree.root], ['detached descendant', tree.descendant]]) {
+      // taskkill waits for termination; allow a short observation window for
+      // Windows to finish reporting exit, without extending the test budget.
+      for (let attempt = 0; attempt < 20 && processExists(pid); attempt++) await new Promise(resolve => setTimeout(resolve, 50))
+      assert.equal(processExists(pid), false, `Timed-out ${label} ${pid} must not remain alive`)
+    }
+    await new Promise(resolve => setTimeout(resolve, 100))
+    assert.equal(readFileSync(tree.heartbeat, 'utf8'), heartbeat, 'The detached descendant must stop writing after cleanup')
+    console.log('PASS: Windows timeout terminates the root and its detached descendant without losing output')
+  }
   console.log('PASS: a timed-out import retains child output, extraction stages, cache state and isolated runtime')
 } finally {
+  // A failing cleanup assertion must not itself leave the fixture running.
+  if (existsSync(timeoutProcessTree)) {
+    const tree = readJson(timeoutProcessTree)
+    for (const pid of [tree.root, tree.descendant]) {
+      if (Number.isInteger(pid) && processExists(pid)) await terminateStandaloneTree(pid)
+    }
+  }
   for (const scratch of retainedScratch) rmSync(scratch, { recursive: true, force: true })
   rmSync(fixture, { recursive: true, force: true })
 }
