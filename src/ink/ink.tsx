@@ -1461,6 +1461,7 @@ export default class Ink {
    */
   setAltScreenActive(active: boolean, mouseTracking = false): void {
     if (this.altScreenActive === active) return;
+    if (!active) this.sixelCursorHeal.reset()
     const resetOldPointerContext = (): void => {
       // Fire leave handlers before dropping the set — a bare clear strands
       // old rows with hovered=true. resetPointerState also emits dragend for

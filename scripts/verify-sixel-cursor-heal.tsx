@@ -153,6 +153,37 @@ for (const scenario of ['healthy', 'drift', 'delayed', 'disabled', 'unsupported'
   console.log(`PASS actual renderer: ${scenario}`)
 }
 
+// Bind the real healer/query to a live renderer without graphics discovery's DA1
+// sentinel: otherwise that sentinel can already reject the probe before exit.
+for (const alreadyResolved of [false, true]) {
+  const input = new Input(), output = new Output(input)
+  output.answer = false
+  const handle = await render(<AlternateScreen><Text>main-screen guard</Text></AlternateScreen>, {
+    stdin: input as unknown as NodeJS.ReadStream, stdout: output as unknown as NodeJS.WriteStream,
+    patchConsole: false, terminalImages: false,
+  })
+  const ink = instances.get(output as unknown as NodeJS.WriteStream)!
+  const runtime = ink as unknown as { sixelCursorHeal: SixelCursorHeal; app: { querier: TerminalQuerier } }
+  const querier = runtime.app.querier
+  let recoveries = 0
+  const redraw = ink.forceRedraw.bind(ink)
+  ink.forceRedraw = () => { recoveries++; redraw() }
+  output.write(runtime.sixelCursorHeal.prepare(querier, { row: 2, col: 2 }))
+  assert.ok(querier.pendingResponseTypes.has('cursorPosition'), 'the transition test has a live CPR probe')
+  const reply = () => {
+    const [events] = parseMultipleKeypresses(INITIAL_STATE, '\x1b[?23;17;1R')
+    for (const event of events) if (event.kind === 'response') querier.onResponse(event.response)
+  }
+  if (alreadyResolved) reply()
+  ink.setAltScreenActive(false)
+  if (!alreadyResolved) reply()
+  await Promise.resolve()
+  assert.equal(recoveries, 0, `alt exit cancels ${alreadyResolved ? 'resolved callback' : 'pending query'}`)
+  await handle.detachForShutdown()
+  input.destroy()
+  console.log(`PASS screen transition: ${alreadyResolved ? 'resolved callback' : 'pending query'}`)
+}
+
 // Exact timing/budget checks use the production controller with a controlled
 // clock; the query queue and parser are real, not replicas of the policy.
 {
