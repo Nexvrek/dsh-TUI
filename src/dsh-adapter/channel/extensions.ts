@@ -31,7 +31,7 @@ import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import type { DshNative } from '../../agent/capabilities.js'
 import type { AgentSession } from '../../agent/session.js'
 import { channelCapabilities } from '../../channel/capabilities.js'
-import { isCommandCompletionToken, LOCAL_COMMANDS, parseQualifiedCommandName, type LocalCommand } from '../../commands.js'
+import { isCommandCompletionToken, LOCAL_COMMANDS, type LocalCommand } from '../../commands.js'
 import { touchSession } from '../../sessionHistory.js'
 import { snapshotLiveSessionEvents } from '../compat/liveSession.js'
 import { DEFAULT_SESSION_MODES, resolveSessionModes } from '../../sessionModes.js'
@@ -102,6 +102,17 @@ async function listSessionsSnapshot(ctx: Context): Promise<readonly SessionSumma
   const persistence = ctx.get('sessionPersistence') as SessionSource | undefined
   if (!persistence) return []
   return listSummaries(persistence)
+}
+
+/**
+ * Whether running this command name is the user switching the host's
+ * permission mode. Only the bare `/permission`: a qualified
+ * `/<pluginId>:permission` exists only for a plugin's OWN attributed command
+ * (the host's `/permission` has no owner, so no qualified form), and that
+ * plugin command must never teach the host its permission preference.
+ */
+export function tracksUserPermissionSwitch(name: string): boolean {
+  return name === 'permission'
 }
 
 /**
@@ -608,9 +619,8 @@ export function attachDshExtensions(
   })
   // A `/permission` the user ran is a TUI-driven switch: the preference may
   // learn it even when it leaves `auto` (see trackUserPermissionSwitch).
-  // `/<owner>:permission` is the same registry command as `/permission`.
   const trackPermissionCommand = <T>(name: string, rawInput: string, run: () => Promise<T>): Promise<T> =>
-    (parseQualifiedCommandName(name)?.name ?? name) === 'permission' ? modeActions.trackUserPermissionSwitch(rawInput, run) : run()
+    tracksUserPermissionSwitch(name) ? modeActions.trackUserPermissionSwitch(rawInput, run) : run()
 
   // Event subscription routing is a distinct binding owner. Its hooks run in
   // every core bind: owner-level child listeners once, then the activity seed,

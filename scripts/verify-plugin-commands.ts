@@ -385,6 +385,16 @@ const check1 = (name: string, ok: boolean, detail?: string) => {
   const { t } = await import('../src/i18n.js')
   type Entry = import('../src/commands.js').LocalCommand
 
+  // I0. 只有裸 /permission 是用户切换宿主权限：/<pluginId>:permission 只能是插件
+  //     自己的归属命令（宿主的 /permission 没有 owner，没有限定名），绝不能把插件
+  //     命令的参数当成宿主权限偏好记下来。
+  {
+    const { tracksUserPermissionSwitch } = await import('../src/dsh-adapter/channel/extensions.js')
+    check1('the bare /permission is a user permission switch', tracksUserPermissionSwitch('permission'))
+    check1('a qualified /<pluginId>:permission is the plugin\'s own command, never tracked',
+      !tracksUserPermissionSwitch('com.example.echo:permission') && !tracksUserPermissionSwitch('dsh-context:permission'))
+  }
+
   // I1. 语法：冒号只在目录能解析到插件命令时才是命令；其余冒号行照旧是文本。
   check1('qualified name splits into owner + registry name',
     JSON.stringify(parseQualifiedCommandName('dsh-context:context')) === JSON.stringify({ owner: 'dsh-context', name: 'context' }))
