@@ -412,6 +412,8 @@ try {
     cachedSnapshot(header: { id: string }, keys?: readonly string[]) {
       cacheReads.push(header.id)
       if (header.id === 'cold-1') return { asOfSeq: 3, values: { title: 'Cold title', contextHeaders: { cold: true }, unrelated: 1 } }
+      // A partial snapshot: a requested key answered, no title of its own.
+      if (header.id === 'child-1') return { asOfSeq: 2, values: { contextHeaders: { child: true } } }
       return undefined
     },
     cachedPredecessorTitle(header: { id: string }) {
@@ -445,11 +447,11 @@ try {
   assert.deepEqual(coldRow.projections, { contextHeaders: { cold: true } }, 'from the persisted projection cache')
   const childRow = byId.get('child-1') as TuiSessionListRow
   assert.equal(childRow.parentId, 'cold-1')
-  assert.equal(childRow.title, 'Child (predecessor)', 'the predecessor title hint')
-  assert.deepEqual(childRow.projections, {}, 'a key no cache answers is absent')
-  assert.ok(!Object.hasOwn(childRow.projections, 'contextHeaders'))
+  assert.equal(childRow.title, 'Child (predecessor)', 'a partial snapshot still takes the predecessor title')
+  assert.deepEqual(childRow.projections, { contextHeaders: { child: true } }, 'the partial snapshot answers its keys')
   const noCwd = byId.get('live-2') as TuiSessionListRow
   assert.equal(noCwd.title, 'live-2', 'id fallback without title or workspace')
+  assert.deepEqual(noCwd.projections, {}, 'a key no source answers is absent')
   assert.ok(!cacheReads.includes('live-1') && !cacheReads.includes('live-2'), 'attached sessions never read the persisted cache')
   assert.ok(Object.isFrozen(rows) && Object.isFrozen(liveRow), 'rows are frozen')
   assert.equal(list.read(), rows, 'the array reference is stable until the next read')

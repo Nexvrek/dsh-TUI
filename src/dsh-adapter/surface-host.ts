@@ -208,8 +208,20 @@ export function panelParamsKey(panelId: string): string {
   return 'panel\u0000' + panelId
 }
 
-export function sceneParamsKey(sceneId: string): string {
-  return 'scene\u0000' + sceneId
+/** One number per scene registry: scene ids are per composition (each
+ *  TuiSceneRuntime keeps its own), unlike panel ids, whose store is
+ *  process-wide — so scene params are keyed by the registry too. */
+const sceneScopeIds = new WeakMap<object, number>()
+let nextSceneScopeId = 0
+
+export function sceneParamsKey(scope: object, sceneId: string): string {
+  let scopeId = sceneScopeIds.get(scope)
+  if (scopeId === undefined) {
+    nextSceneScopeId += 1
+    scopeId = nextSceneScopeId
+    sceneScopeIds.set(scope, scopeId)
+  }
+  return 'scene\u0000' + scopeId + '\u0000' + sceneId
 }
 
 export function getSurfaceParams(key: string): TuiJsonValue | undefined {
@@ -341,7 +353,9 @@ export function resolveSurfaceFileRequest(
       line = raw
     }
   }
-  const resolved = resolveTargetPath(path.trim(), cwd !== undefined && cwd !== '' ? cwd : process.cwd())
+  // The validated path as given: a filename may legitimately start or end
+  // with spaces, and trimming would preview a different file.
+  const resolved = resolveTargetPath(path, cwd !== undefined && cwd !== '' ? cwd : process.cwd())
   return line === undefined ? { path: resolved } : { path: resolved, line }
 }
 

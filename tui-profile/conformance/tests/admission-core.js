@@ -234,6 +234,11 @@ export function admissionDecision(input, host, grants = []) {
     decision: 'rejected', reasonCode: 'FACET_API_VERSION_UNAVAILABLE',
     facetApiVersion: parsed.facets.host.apiVersion,
   }
+  // The same command/permission closure parseAndValidateManifest enforces:
+  // a manifest admission refuses must not negotiate to compatible here.
+  try { validateCommandPermissions(parsed) } catch (error) {
+    return { decision: 'rejected', reasonCode: 'INVALID_MANIFEST', message: error.message }
+  }
   const projected = projectManifest(parsed)
   const facet = projected.spec.facets[0]
   const supportKeys = new Set(host.contracts.map(coordinateKey))

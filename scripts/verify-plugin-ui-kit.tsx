@@ -150,6 +150,12 @@ check('allocateCells: largest remainder, ties to the earlier index', () => {
   assert.deepEqual(allocateCells([100, 1, 1], 3), [3, 0, 0], 'without keepVisible small values vanish')
 })
 
+check('allocateCells: finite values whose sum overflows still fill the budget', () => {
+  assert.deepEqual(allocateCells([Number.MAX_VALUE, Number.MAX_VALUE], 10), [5, 5])
+  assert.deepEqual(allocateCells([Number.MAX_VALUE, Number.MAX_VALUE / 4], 10), [8, 2])
+  assert.equal(sum(allocateCells([Number.MAX_VALUE, Number.MAX_VALUE, 1], 7, { keepVisible: true })), 7)
+})
+
 check('allocateCells keepVisible: ≥1 cell each while it fits, else the smallest are dropped', () => {
   assert.deepEqual(allocateCells([100, 1, 1], 3, { keepVisible: true }), [1, 1, 1])
   assert.deepEqual(allocateCells([100, 1, 1], 10, { keepVisible: true }), [8, 1, 1])
@@ -725,6 +731,12 @@ check('format helpers', () => {
   assert.equal(f.cells('\u001B[31mab\u001B[0m'), 2)
   assert.equal(f.truncate(CJK, 5), '上下…')
   assert.equal(f.truncate('a\u001B[31mb\nc', 10), 'ab c')
+})
+
+check('format.tokens promotes at rounding boundaries (never 10.0k / 1000k / 10.0M)', () => {
+  const f = chartFormat
+  assert.deepEqual([9_949, 9_950, 9_960, 999_499, 999_500, 999_600, 9_949_999, 9_950_000, 9_960_000].map(f.tokens),
+    ['9.9k', '10k', '10k', '999k', '1.0M', '1.0M', '9.9M', '10M', '10M'])
 })
 
 check('format.tokens prints what the footer context bar prints (one formatter, both ladders pinned)', () => {

@@ -264,6 +264,9 @@ const negotiation = {
   unknown: admissionDecision('conformance/fixtures/unknown-version-plugin.json', host),
   compoundUnknown: admissionDecision('conformance/fixtures/plugin-compound-unknown.json', minimalHost),
   facetMismatch: admissionDecision('conformance/fixtures/valid-plugin.json', load('conformance/fixtures/invalid-host-facet-version.json')),
+  commandWildcardForeign: admissionDecision('conformance/fixtures/invalid-plugin-command-wildcard-foreign.json', host),
+  commandWildcardBare: admissionDecision('conformance/fixtures/invalid-plugin-command-wildcard-bare.json', host),
+  commandUncovered: admissionDecision('conformance/fixtures/invalid-plugin-command-uncovered.json', host),
 }
 assert.equal(negotiation.compatible.decision, 'compatible')
 assert.equal(negotiation.multiCommand.decision, 'compatible')
@@ -275,5 +278,10 @@ assert.equal(negotiation.degraded.decision, 'compatible_degraded')
 assert.equal(negotiation.unknown.decision, 'unknown')
 assert.equal(negotiation.compoundUnknown.decision, 'unknown')
 assert.equal(negotiation.facetMismatch.reasonCode, 'FACET_API_VERSION_UNAVAILABLE')
+// Negotiation refuses what admission refuses: the command/permission closure.
+for (const key of ['commandWildcardForeign', 'commandWildcardBare', 'commandUncovered']) {
+  assert.equal(negotiation[key].decision, 'rejected', key)
+  assert.equal(negotiation[key].reasonCode, 'INVALID_MANIFEST', key)
+}
 
 console.log(JSON.stringify({ suite: 'dsh-tui-admission-v0.15', std: profile.std, cases, negotiation }, null, 2))

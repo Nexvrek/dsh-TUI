@@ -11,6 +11,7 @@ import {
   HOST_FILE_PREVIEW_SCENE_ID,
   openHostFilePreview,
   sceneOwnerRecordOf,
+  sceneParamsKeyOf,
   type SceneOwnerRecord,
   type TuiSceneDescriptor,
   type TuiSceneHostApi,
@@ -20,7 +21,6 @@ import {
 } from './scenes.js'
 import {
   resolveSurfaceFileRequest,
-  sceneParamsKey,
   surfaceCopy,
   surfaceOpenSession,
   useSurfaceParams,
@@ -97,6 +97,8 @@ function PluginSceneHost({ scene, channel, context }: PluginSceneHostProps): Rea
   const approvals = context?.attention?.approvals ?? 0
   const questions = context?.attention?.questions ?? 0
   const close = React.useCallback(() => { channel.closePluginScene() }, [channel])
+  // The scene's params slot in ITS registry (scene ids are per composition).
+  const paramsKey = React.useMemo(() => sceneParamsKeyOf(scene), [scene])
   const host = React.useMemo<TuiSceneHostApi>(() => {
     const warn = warnFor(record)
     return {
@@ -137,7 +139,7 @@ function PluginSceneHost({ scene, channel, context }: PluginSceneHostProps): Rea
           return false
         }
       },
-      useParams: () => useSurfaceParams(sceneParamsKey(scene.id)),
+      useParams: () => useSurfaceParams(paramsKey),
       toast: text => {
         const toast = callerService<{ show(text: string): boolean }>(record, 'tuiToast')
         if (toast === undefined || typeof toast.show !== 'function') return false
@@ -148,7 +150,7 @@ function PluginSceneHost({ scene, channel, context }: PluginSceneHostProps): Rea
         }
       },
     }
-  }, [scene, record, channel, activity, approvals, questions, writeRaw])
+  }, [scene, paramsKey, record, channel, activity, approvals, questions, writeRaw])
   const component = HOST_SCENE_COMPONENTS.get(scene.id) ?? scene.component
   return React.createElement(component, { React, ui: SCENE_UI, channel, close, host })
 }

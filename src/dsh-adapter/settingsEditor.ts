@@ -110,9 +110,11 @@ function defaultParse(field: TuiSettingsField, text: string): TuiSettingsFieldWr
   }
 }
 
-/** Key addressing one field inside a form: its path joined. */
+/** Key addressing one field inside a form: its path as a serialized array.
+ *  Not `path.join('.')` — a literal key `a.b` and the nested path `a` → `b`
+ *  would share a draft, and saving one would write both. */
 function fieldKey(field: TuiSettingsField): string {
-  return field.path.join('.')
+  return JSON.stringify(field.path)
 }
 
 interface StagedEdit {

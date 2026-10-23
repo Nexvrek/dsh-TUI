@@ -45,11 +45,19 @@ export function largestRemainder(values: readonly number[], cells: number): numb
   if (cells <= 0) return out
   let total = 0
   for (const value of values) total += value
+  // Finite values can still sum past Number.MAX_VALUE; every share would then
+  // read as 0. Rescale by the largest value only in that case, so ordinary
+  // inputs keep exactly the arithmetic (and tie-breaks) they always had.
+  let scale = 1
+  if (!Number.isFinite(total)) {
+    scale = values.reduce((peak, value) => Math.max(peak, value), 0)
+    total = values.reduce((sum, value) => sum + value / scale, 0)
+  }
   if (total <= 0) return out
   const remainders: { index: number; remainder: number }[] = []
   let used = 0
   for (let index = 0; index < values.length; index += 1) {
-    const exact = (values[index]! / total) * cells
+    const exact = (values[index]! / scale / total) * cells
     const whole = Math.floor(exact)
     out[index] = whole
     used += whole

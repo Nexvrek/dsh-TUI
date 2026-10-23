@@ -197,7 +197,14 @@ async function listHeaders(sources: SessionListSources, signal: AbortSignal): Pr
 function projectionHints(sources: SessionListSources, entry: ListedSession, live: unknown, keys: readonly string[]): Readonly<Record<string, unknown>> | undefined {
   if (live !== undefined) return sources.projections?.cachedSnapshot?.(live, keys)?.values
   const cache = sources.projectionCache
-  return (cache?.cachedSnapshot?.(entry.raw, keys) ?? cache?.cachedPredecessorTitle?.(entry.raw))?.values
+  const primary = cache?.cachedSnapshot?.(entry.raw, keys)?.values
+  // A partial snapshot (some requested keys answered, `title` not) still
+  // takes the predecessor's title, like an absent snapshot does.
+  if (primary !== undefined && Object.hasOwn(primary, 'title')) return primary
+  const predecessor = cache?.cachedPredecessorTitle?.(entry.raw)?.values
+  if (primary === undefined) return predecessor
+  if (predecessor === undefined || !Object.hasOwn(predecessor, 'title')) return primary
+  return { ...primary, title: predecessor.title }
 }
 
 function lastPromptAt(value: unknown): number | undefined {

@@ -976,7 +976,7 @@ check('wp3 own-only: host.openScene refuses a foreign scene', probeHost.openScen
 const disposeOwnScene = scenesC.register({ id: 'c-scene', component: () => null })
 check('wp3 own-only: host.openScene opens an own scene with params',
   probeHost.openScene('c-scene', { focus: 'files' }) === true && sceneHost.active?.id === 'c-scene'
-  && JSON.stringify(surface.getSurfaceParams(surface.sceneParamsKey('c-scene'))) === '{"focus":"files"}')
+  && JSON.stringify(surface.getSurfaceParams(scenesMod.sceneParamsKeyFor(scenesC, 'c-scene'))) === '{"focus":"files"}')
 check('wp3 own-only: tuiScenes.open refuses invalid params', scenesC.open('c-scene', { n: Number.POSITIVE_INFINITY }) === false)
 sceneHost.close()
 
@@ -986,7 +986,7 @@ check('wp3 openFile: NUL in path refused', probeHost.openFile('a\u0000b') === fa
 check('wp3 openFile: non-integer line refused', probeHost.openFile('fixture.txt', { line: 1.5 }) === false && probeHost.openFile('fixture.txt', { line: 0 }) === false)
 check('wp3 openFile: opens the host preview scene', probeHost.openFile('fixture.txt', { line: 2 }) === true && sceneHost.active?.id === scenesMod.HOST_FILE_PREVIEW_SCENE_ID)
 check('wp3 openFile: relative path resolved against the session cwd',
-  JSON.stringify(surface.getSurfaceParams(surface.sceneParamsKey(scenesMod.HOST_FILE_PREVIEW_SCENE_ID))) === JSON.stringify({ path: join(fixtureDir, 'fixture.txt'), line: 2 }))
+  JSON.stringify(surface.getSurfaceParams(scenesMod.sceneParamsKeyFor(scenesC, scenesMod.HOST_FILE_PREVIEW_SCENE_ID))) === JSON.stringify({ path: join(fixtureDir, 'fixture.txt'), line: 2 }))
 check('wp3 openFile: the preview is not a listed plugin scene', !sceneHost.list().some(scene => scene.id === scenesMod.HOST_FILE_PREVIEW_SCENE_ID))
 sceneHost.close()
 check('wp3 openFile: closing the preview from chat lands on chat', sceneHost.active === undefined)

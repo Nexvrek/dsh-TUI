@@ -127,6 +127,29 @@ if (process.platform !== 'win32') {
   }
 }
 
+// A valid filename may start or end with spaces: the request keeps it as given.
+{
+  const spaced = surface.resolveSurfaceFileRequest('/w', ' report.txt ', undefined, () => {})
+  check('openFile: leading/trailing spaces in a valid filename are kept', spaced?.path === '/w/ report.txt ', JSON.stringify(spaced))
+}
+
+// Scene params belong to their composition: two scene registries in one
+// process (the host preview shares its id in both) never see each other's.
+{
+  const rootA = new Context()
+  const rootB = new Context()
+  await rootA.plugin(scenesMod.TuiSceneRuntime)
+  await rootB.plugin(scenesMod.TuiSceneRuntime)
+  const scenesA = rootA.get('tuiScenes') as InstanceType<typeof scenesMod.TuiSceneRuntime>
+  const scenesB = rootB.get('tuiScenes') as InstanceType<typeof scenesMod.TuiSceneRuntime>
+  scenesMod.openHostFilePreview(scenesA, { path: '/a/one.txt' })
+  check('params: the host preview in one composition does not reach another',
+    JSON.stringify(surface.getSurfaceParams(scenesMod.sceneParamsKeyFor(scenesA, scenesMod.HOST_FILE_PREVIEW_SCENE_ID))) === '{"path":"/a/one.txt"}'
+      && surface.getSurfaceParams(scenesMod.sceneParamsKeyFor(scenesB, scenesMod.HOST_FILE_PREVIEW_SCENE_ID)) === undefined)
+  rootA.registry.delete(scenesMod.TuiSceneRuntime as never)
+  rootB.registry.delete(scenesMod.TuiSceneRuntime as never)
+}
+
 // ── scene host through the outlet ─────────────────────────────────────────
 const root = new Context()
 await root.plugin(scenesMod.TuiSceneRuntime)
@@ -306,7 +329,7 @@ await settled(() => sceneHost.active?.id === scenesMod.HOST_FILE_PREVIEW_SCENE_I
 disposeProbe()
 sceneHost.close()
 check('preview: a disposed covered scene → close lands on chat', await settled(() => sceneHost.active === undefined && lines().some(line => line.includes('chat-screen'))))
-check('scene: params cleared on dispose', surface.getSurfaceParams(surface.sceneParamsKey('probe')) === undefined)
+check('scene: params cleared on dispose', surface.getSurfaceParams(scenesMod.sceneParamsKeyFor(scenes, 'probe')) === undefined)
 
 // A plugin's explicit open replaces the preview's return target.
 const disposeProbe2 = scenes.register({ id: 'probe', component: ProbeScene })

@@ -106,11 +106,15 @@ export interface TuiSceneHost {
  */
 export const HOST_FILE_PREVIEW_SCENE_ID = 'dsh-tui:file-preview'
 
-const hostFilePreviewScene: TuiSceneDescriptor = Object.freeze({
-  id: HOST_FILE_PREVIEW_SCENE_ID,
-  title: 'File preview',
-  component: () => null,
-})
+/** Each registry gets its own preview descriptor, so the preview's params
+ *  belong to that composition (see {@link sceneParamsKeyOf}). */
+function hostFilePreviewDescriptor(): TuiSceneDescriptor {
+  return Object.freeze({
+    id: HOST_FILE_PREVIEW_SCENE_ID,
+    title: 'File preview',
+    component: () => null,
+  })
+}
 
 /** Who registered a plugin scene: what the rendered scene's host API acts as. */
 export interface SceneOwnerRecord {
@@ -155,6 +159,7 @@ export class TuiSceneRuntime extends Service {
       listeners: new Set(),
       current: undefined,
       returnTo: undefined,
+      filePreview: hostFilePreviewDescriptor(),
       host: undefined,
       logger: ctx.logger,
       runtime: adapterRuntimeFor(ctx),
@@ -170,11 +175,12 @@ export class TuiSceneRuntime extends Service {
         if (state.scenes.has(id)) throw new Error(`TUI scene "${id}" is already registered`)
         const normalized = Object.freeze({ ...descriptor, id })
         state.scenes.set(id, normalized)
+        sceneScopes.set(normalized, state)
         return () => {
           if (state.scenes.get(id) !== normalized) return
           state.scenes.delete(id)
           state.owners.delete(id)
-          clearSurfaceParams(sceneParamsKey(id))
+          clearSurfaceParams(sceneParamsKey(state, id))
           if (state.returnTo === normalized) state.returnTo = undefined
           if (state.current === normalized) {
             state.current = undefined
@@ -196,6 +202,7 @@ export class TuiSceneRuntime extends Service {
       },
     })
     sceneStates.set(this, state)
+    sceneScopes.set(state.filePreview, state)
   }
 
   /**
@@ -236,6 +243,7 @@ export class TuiSceneRuntime extends Service {
     }
     const normalized = Object.freeze({ ...descriptor, id })
     state.scenes.set(id, normalized)
+    sceneScopes.set(normalized, state)
     state.owners.set(id, activationOwner)
     sceneOwnerRecords.set(normalized, { caller, owner: activationOwner })
     caller.get('tuiEffectLedger')?.record(
@@ -246,7 +254,7 @@ export class TuiSceneRuntime extends Service {
       if (state.scenes.get(id) !== normalized) return
       state.scenes.delete(id)
       state.owners.delete(id)
-      clearSurfaceParams(sceneParamsKey(id))
+      clearSurfaceParams(sceneParamsKey(state, id))
       if (state.returnTo === normalized) state.returnTo = undefined
       caller.get('tuiEffectLedger')?.record(
         { operation: 'release', resource: { kind: 'scene', id }, result: 'applied' },
@@ -316,11 +324,26 @@ interface SceneState {
   /** The plugin scene the host file preview covers; closing the preview
    *  lands back on it while it is still registered. */
   returnTo: TuiSceneDescriptor | undefined
+  /** This registry's host file preview descriptor. */
+  readonly filePreview: TuiSceneDescriptor
   host: TuiSceneHost | undefined
   readonly logger: Context['logger']
 }
 
 const sceneStates = new WeakMap<TuiSceneRuntime, SceneState>()
+/** Which registry a registered descriptor belongs to (scene params scope). */
+const sceneScopes = new WeakMap<TuiSceneDescriptor, SceneState>()
+
+/** The params slot of a scene in this runtime's registry. */
+export function sceneParamsKeyFor(runtime: TuiSceneRuntime, sceneId: string): string {
+  return sceneParamsKey(sceneStateFor(runtime), sceneId)
+}
+
+/** The params slot of an active scene descriptor (registered or the host
+ *  preview); a descriptor no registry knows reads its own, always empty slot. */
+export function sceneParamsKeyOf(scene: TuiSceneDescriptor): string {
+  return sceneParamsKey(sceneScopes.get(scene) ?? scene, scene.id)
+}
 
 function sceneStateFor(runtime: TuiSceneRuntime): SceneState {
   const state = sceneStates.get(concreteService(runtime))
@@ -345,7 +368,7 @@ function openScene(runtime: TuiSceneRuntime, id: string, caller?: Context, owner
     return false
   }
   // Params land before the screen swaps, so the scene's first render reads them.
-  setSurfaceParams(sceneParamsKey(scene.id), frozen.value)
+  setSurfaceParams(sceneParamsKey(state, scene.id), frozen.value)
   if (scene === state.current) return true
   const previousOwner = state.current === undefined ? undefined : state.owners.get(state.current.id)
   state.current = scene
@@ -364,7 +387,7 @@ function closeScene(runtime: TuiSceneRuntime, caller?: Context, owner?: object):
   }
   const previousOwner = state.owners.get(state.current.id)
   // Closing the host file preview lands back on the scene that opened it.
-  const returnTo = state.current === hostFilePreviewScene && state.returnTo !== undefined
+  const returnTo = state.current === state.filePreview && state.returnTo !== undefined
     && state.scenes.get(state.returnTo.id) === state.returnTo
     ? state.returnTo
     : undefined
@@ -392,11 +415,11 @@ export function openHostFilePreview(service: TuiSceneRuntime | undefined, reques
   const params: TuiJsonValue = request.line === undefined
     ? Object.freeze({ path: request.path })
     : Object.freeze({ path: request.path, line: request.line })
-  setSurfaceParams(sceneParamsKey(HOST_FILE_PREVIEW_SCENE_ID), params)
-  if (state.current === hostFilePreviewScene) return true
+  setSurfaceParams(sceneParamsKey(state, HOST_FILE_PREVIEW_SCENE_ID), params)
+  if (state.current === state.filePreview) return true
   const previousOwner = state.current === undefined ? undefined : state.owners.get(state.current.id)
   state.returnTo = state.current
-  state.current = hostFilePreviewScene
+  state.current = state.filePreview
   notifyScenes(state, previousOwner)
   return true
 }

@@ -68,6 +68,26 @@ const fieldAt = (section: TuiSettingsSection | undefined, path: string): TuiSett
   return field
 }
 
+// ── A literal dotted key and the nested path it spells never share a draft ─
+{
+  const writes: unknown[] = []
+  const host = {
+    listNamespaces: () => [],
+    write: async (_ns: string, ops: readonly unknown[]) => { writes.push(...ops) },
+    credentialConfigured: async () => false,
+    writeCredential: async () => {},
+  }
+  const view = { ns: 'collide', value: { 'a.b': 1, a: { b: 2 } }, base: {}, user: {}, revision: 1 }
+  const literal: TuiSettingsField = { path: ['a.b'], label: 'literal', kind: 'number' }
+  const nested: TuiSettingsField = { path: ['a', 'b'], label: 'nested', kind: 'number' }
+  const form = new SettingsForm(host as never, view as never, [literal, nested])
+  form.edit(literal, '5')
+  check(form.field(nested).text === '2', 'editing the literal `a.b` key leaves the nested a → b row untouched')
+  check(await form.save(), 'the collision form saves')
+  check(JSON.stringify(writes) === JSON.stringify([{ op: 'set', path: ['a.b'], value: 5 }]),
+    `only the edited path is written: ${JSON.stringify(writes)}`)
+}
+
 // ── Pure mapping over real schemastery envelopes ──────────────────────────
 {
   check(escapeText('a\nb\\c\t\u001b[31m\u202e') === 'a\\nb\\\\c\\t\\u001b[31m\\u202e', 'escaped strings are one printable line')
@@ -421,6 +441,15 @@ try {
       const before = valueOf('showTokens')
       stdin.write('\r')
       check(await settled(() => valueOf('showTokens') === !before), `${layout}: Enter toggles through the real settings service`)
+      // A write from outside the open screen (another surface, a reload)
+      // must refresh a clean form: the focused row shows the new value with
+      // no key pressed.
+      const shownAfterToggle = focusedLine()
+      const external = formFor()
+      external.edit(fieldAt(section, 'showTokens'), String(before))
+      check(await external.save(), `${layout}: an external write lands`)
+      check(await settled(() => valueOf('showTokens') === before && focusedLine() !== shownAfterToggle),
+        `${layout}: the open screen re-reads the namespace after an external write\n${screen()}`)
       check(await focus('tags'), `${layout}: reach a read-only row\n${screen()}`)
       const writes = profileWrites.length
       stdin.write('\r')

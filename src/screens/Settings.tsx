@@ -800,7 +800,12 @@ export function Settings({
 
   React.useEffect(() => channel.subscribeSettingsSections(() => {
     setSections(channel.settingsSections())
-  }), [channel])
+    // An invalidation can also move an existing namespace's values or
+    // revision (a settings document update, a plugin reload): re-read the
+    // views too, or a clean form keeps rendering the old values. Dirty forms
+    // are still kept below, so no draft is lost.
+    setNamespaces(host?.listNamespaces() ?? [])
+  }), [channel, host])
   // A section can appear while the screen is open (a plugin loading, or a
   // generated plugin page once the host serves its form): re-read the
   // namespace views when the set of section namespaces moves, so the new

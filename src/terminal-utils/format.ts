@@ -56,10 +56,13 @@ export type TokenCountStyle = 'precise' | 'short'
 /** The width-bounded ladder (see {@link TokenCountStyle}). */
 function shortTokens(count: number): string {
   const value = Number.isFinite(count) ? Math.max(0, Math.round(count)) : 0
+  // Each tier ends where its ROUNDED digits would reach the next one, so a
+  // boundary count promotes (9,960 → `10k`, 999,600 → `1.0M`) instead of
+  // printing `10.0k` / `1000k`.
   if (value < 1000) return String(value)
-  if (value < 10_000) return `${(value / 1000).toFixed(1)}k`
-  if (value < 1_000_000) return `${Math.round(value / 1000)}k`
-  if (value < 10_000_000) return `${(value / 1_000_000).toFixed(1)}M`
+  if (value < 9_950) return `${(value / 1000).toFixed(1)}k`
+  if (value < 999_500) return `${Math.round(value / 1000)}k`
+  if (value < 9_950_000) return `${(value / 1_000_000).toFixed(1)}M`
   return `${Math.round(value / 1_000_000)}M`
 }
 
