@@ -24,7 +24,7 @@ import { modeDisplayName, type SessionModeSpec } from '../../sessionModes.js'
 import { estimateSessionCostSnapshotCny, isDeepSeekOfficialProvider, isPeakHour } from '../../deepseekPricing.js'
 import { formatCacheHitRate, formatCostReport } from '../../screens/StatusLine.js'
 import { contextPressureStep, speedStep } from '../../screens/StatusMetrics.js'
-import { formatProject } from '../../sessions/format.js'
+import { displayWorkingDirectory, formatProject } from '../../sessions/format.js'
 import { homeDir } from '../../utils/paths.js'
 import { Divider } from '../design-system/Divider.js'
 import { useSidePanelChannel } from './SidePanelRuntimeContext.js'
@@ -87,9 +87,10 @@ export function InfoPanel({ width, height, focused, visible }: PanelProps): Reac
 
   const usage = channel.lastUsage
   const used = contextUsedOf(channel)
+  const currentCwd = displayWorkingDirectory(channel)
   const displayCwd = channel.displayCwd === channel.cwd
-    ? formatProject(channel.displayCwd, homeDir())
-    : channel.displayCwd
+    ? formatProject(currentCwd, homeDir())
+    : currentCwd
 
   // --- 值构造（全部复用状态栏口径） -------------------------------------
   const none = t('info-value-none')

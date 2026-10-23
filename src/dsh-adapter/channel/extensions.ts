@@ -83,6 +83,7 @@ import { createSkillCatalog } from './skill-catalog.js'
 import { createSubagentProjection, type SubagentsServiceView } from './subagent-projection.js'
 import { readChildTranscriptPage } from './subagent-transcript.js'
 import { DSH_BACKEND_LABEL, type ChannelLaunchOptions } from './state.js'
+import { sessionWorkingDirectory } from '../../channel/working-directory.js'
 import { ensureUpstreamRetry } from './upstream-retry.js'
 import { foldBack } from './transcript.js'
 import type { BackgroundResult, ResumeResult } from './types.js'
@@ -475,7 +476,7 @@ export function attachDshExtensions(
     owner,
     commandService,
     agent: () => binding.agent,
-    cwd: () => state.cwd,
+    cwd: () => sessionWorkingDirectory(state),
     setCommands(commands) {
       // Annotate before publishing: Help and `/` completion both read
       // `commandList`, so a command whose capability is missing says so
@@ -529,7 +530,7 @@ export function attachDshExtensions(
   const loadedContext = createLoadedContextRefresher(ctx, {
     owner,
     agent: () => binding.agent,
-    cwd: () => state.cwd,
+    cwd: () => sessionWorkingDirectory(state),
     skillRegistryFor,
     skillViewOptions,
     publish(context) { state.loadedContext = context; state.emit() },
@@ -633,6 +634,13 @@ export function attachDshExtensions(
     messageObserver,
     seedUpstreamRetry,
     retireAttachment: core.input.retireAttachment,
+    onWorkingDirectoryChange: () => {
+      // The 1s poll also re-probes the new directory; starting it here drops
+      // the stale-branch window on a move.
+      core.refreshGitBranch()
+      void refreshLoadedContext()
+      void refreshSkillCommands()
+    },
   })
 
   const sessionAdoption = createSessionAdoption(state, {
