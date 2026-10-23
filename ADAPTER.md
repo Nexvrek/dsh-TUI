@@ -184,6 +184,7 @@ web-app patch 按 include 语义合成一遍,直接拦截 loader entry id 复用
 - 复核 rc.2 的入口复刻面：退出、ready、环境加载、profile 组合与启动报告的整文件指纹与 alpha.5 相同；运行时解析重组仍由宿主 `PluginPackages` 与插件管理服务拥有。
 - rc.2 的 `web` 提供者选择改为 volatile Config；DSH channel 按服务 fiber 与已加载的插件 runtime 找到 `web` / `web-deepseek-api` / `web-search-deepseek` 的 Config owner，使用其实际 Loader 行 ID 映射到 TUI 表单，经现有 `settings.mutate` 保存。单个 API key 控件跟随当前搜索 API，通过宿主创建的不透明授权写入 DSH 凭据库；不暴露凭据变量名输入，不把密钥写入配置或回显，第三方字段仍不能覆盖宿主保留凭据。不重实现搜索、抓取或鉴权，旧宿主没有 API 分区时不暴露新增表单。
 - rc.2 的 `1017` 模型标记仅映射到官方两个 provider 的 Flash 展示名称，不修改目录对象、模型 ID 或请求路由。Web Slot、DOM 布局和终端查询缓存仍属于 Web 客户端。
+- `/settings` 的「插件」页（`src/dsh-adapter/plugin-config.ts`）只读消费宿主设置服务：`ctx.settings.describe({ redactSecrets: true })` 的序列化 `schema`、值、`secrets` 与 `autoGenerate`，以及 `documentPath` / `writable`，再经 `configEditor.entries()` 认出每个表单背后的 Loader 行与模块（判第三方、列出非 volatile 键）；写入仍走既有 `settings.mutate`，不写宿主内部、不用 `configEditor.edit()` 整块覆盖。schema 只当 JSON 读，从不还原成 `Schema` 实例。
 
 ## 同会话模型路由
 

@@ -109,6 +109,13 @@ const manifestCases = [
   ['provides rejected', 'conformance/fixtures/invalid-plugin-provides.json', false],
   ['unknown version remains structurally valid', 'conformance/fixtures/unknown-version-plugin.json', true],
   ['compound unknown remains structurally valid', 'conformance/fixtures/plugin-compound-unknown.json', true],
+  // TUI-PKG-002 command permission coverage: one `commands.invoke` per facet (the
+  // projection keys permissions by name), so several commands share `<id>.*`.
+  ['multi-command plugin with its namespace wildcard', 'conformance/fixtures/valid-plugin-multi-command.json', true],
+  ['wildcard over another Component namespace rejected', 'conformance/fixtures/invalid-plugin-command-wildcard-foreign.json', false],
+  ['bare * command scope rejected', 'conformance/fixtures/invalid-plugin-command-wildcard-bare.json', false],
+  ['command outside the wildcard rejected', 'conformance/fixtures/invalid-plugin-command-uncovered.json', false],
+  ['two commands.invoke permissions in one facet rejected', 'conformance/fixtures/invalid-plugin-command-two-permissions.json', false],
 ]
 const cases = manifestCases.map(([name, relative, expected]) => {
   const result = validate(name, undefined, undefined, () => parseAndValidateManifest(relative))
@@ -248,6 +255,7 @@ const host = load('registry/host-descriptor.tui.example.json')
 const minimalHost = load('conformance/fixtures/host-no-observe.example.json')
 const negotiation = {
   compatible: admissionDecision('conformance/fixtures/valid-plugin.json', host),
+  multiCommand: admissionDecision('conformance/fixtures/valid-plugin-multi-command.json', host),
   privateUnavailable: admissionDecision('conformance/fixtures/valid-private-protocol-plugin.json', host),
   waiting: admissionDecision('conformance/fixtures/waiting-authorization-plugin.json', host),
   authorized: admissionDecision('conformance/fixtures/waiting-authorization-plugin.json', host, ['messages.observe.read']),
@@ -258,6 +266,7 @@ const negotiation = {
   facetMismatch: admissionDecision('conformance/fixtures/valid-plugin.json', load('conformance/fixtures/invalid-host-facet-version.json')),
 }
 assert.equal(negotiation.compatible.decision, 'compatible')
+assert.equal(negotiation.multiCommand.decision, 'compatible')
 assert.equal(negotiation.privateUnavailable.reasonCode, 'REQUIRED_PROTOCOL_UNAVAILABLE')
 assert.equal(negotiation.waiting.decision, 'waiting_authorization')
 assert.equal(negotiation.authorized.decision, 'compatible')

@@ -10,7 +10,7 @@ import { existsSync, readFileSync } from 'node:fs'
 import { dirname, join, resolve as resolvePath } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { Context } from '@deepseek-ai/cordis'
-import { componentIdentityOf } from './component-identity.js'
+import { ownComponentIdentityOf } from './component-identity.js'
 import { compositionRoot, withHostRootCapability } from './host-access.js'
 import { getHostAdmission, type TuiPluginHost } from './plugin-host.js'
 import { logForDebugging } from '../utils/debug.js'
@@ -117,7 +117,9 @@ export function armAdmissionLoader(
     }
     // Already admitted (the row called admission itself, or a previous pass
     // of this loader did): the manifest identity is host-owned and single.
-    if (componentIdentityOf(pluginCtx) !== undefined) {
+    // Its OWN binding only — an identity it merely inherits from an admitted
+    // ancestor must not stop a nested plugin's own manifest from admitting.
+    if (ownComponentIdentityOf(pluginCtx) !== undefined) {
       settle(fiber, 'admitted')
       return
     }
