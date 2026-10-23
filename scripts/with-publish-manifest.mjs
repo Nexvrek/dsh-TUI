@@ -47,7 +47,14 @@ try {
   const result = spawnSync(command, npmArgs, {
     cwd: staging, encoding: 'utf8', shell: process.platform === 'win32', stdio: ['ignore', 'pipe', 'pipe'],
   })
-  if (result.stdout) process.stdout.write(result.stdout)
+  if (result.status === 0 && args[0] === 'pack' && args.includes('--json')) {
+    const reports = JSON.parse(result.stdout)
+    const report = Array.isArray(reports) ? reports[0] : Object.values(reports)[0]
+    // npm runs here with scripts disabled, so this is the exact manifest used
+    // for the reported package, including dry runs. Read it before cleanup.
+    report.dshTuiManifest = JSON.parse(await readFile(join(staging, 'package.json'), 'utf8'))
+    process.stdout.write(`${JSON.stringify(reports)}\n`)
+  } else if (result.stdout) process.stdout.write(result.stdout)
   if (result.stderr) process.stderr.write(result.stderr)
   if (result.error) throw result.error
   process.exitCode = result.status ?? 1

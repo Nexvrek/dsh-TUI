@@ -809,13 +809,17 @@ const cleanManifest = {
   writeFileSync(join(rescueDirOf(home), 'cordis.yml'), '# dsh profile root\n[]\n')
   mkdirSync(join(rescueDirOf(home), 'node_modules'), { recursive: true })
   mkdirSync(join(rescueDirOf(home), '.dsh-module-fallback', 'node_modules'), { recursive: true })
+  const managedDir = join(rescueDirOf(home), '.dsh-tui')
+  mkdirSync(join(managedDir, 'runtime-bundles', ownVersion), { recursive: true })
+  writeFileSync(join(managedDir, 'processes.json'), '[]\n')
+  writeFileSync(join(managedDir, 'runtime-bundles', ownVersion, 'package.json'), JSON.stringify({ version: ownVersion }))
   const halfBefore = snapshot(rescueDirOf(home))
   check('救援: 半装夹具确实落了盘（断言非空转）', Object.keys(halfBefore).length >= 6, Object.keys(halfBefore).join(','))
   const r = run(['safe', '--rescue'], { PATH: stub.dir, DSH_STUB_STATE: stub.state, DSH_HOME: home })
   // 这一条是功能性的：`.dsh-module-fallback` 是 dsh 每次 profile 启动都会建的
   // 目录（「装坏了 → 启动过一次 → 再来救援」正长这样）。白名单漏掉它，自愈
   // 路径就被堵死，而且用户按提示移走后下次启动又会被重新生成。
-  check('救援: 半装且含 .dsh-module-fallback 时走清理重建（不误拒）', r.status === 0 && r.stdout.includes('已清理半装的 profile') && r.stdout.includes('救援 profile 已创建'), `status=${r.status}`)
+  check('救援: 半装且含 .dsh-module-fallback / .dsh-tui 时走清理重建（不误拒）', r.status === 0 && r.stdout.includes('已清理半装的 profile') && r.stdout.includes('救援 profile 已创建'), `status=${r.status}`)
   check('救援: 重建后安装判定文件可读', existsSync(rescuePkgOf(home)))
   // 重建出来的必须是真实形态（含 dsh 默认补丁层与 pnpm-workspace），
   // 否则下一次复用会被门禁误拒。
@@ -864,6 +868,8 @@ const cleanManifest = {
   const stub = makeStub()
   const home = join(tmp, 'rescue-noop-stray')
   mkdirSync(join(rescueDirOf(home), 'node_modules'), { recursive: true })
+  mkdirSync(join(rescueDirOf(home), '.dsh-tui'), { recursive: true })
+  writeFileSync(join(rescueDirOf(home), '.dsh-tui', 'processes.json'), '[]\n')
   writeFileSync(join(rescueDirOf(home), 'package.json'), JSON.stringify(cleanManifest))
   writeFileSync(join(rescueDirOf(home), 'my-notes.txt'), 'keep me\n')
   const before = snapshot(rescueDirOf(home))

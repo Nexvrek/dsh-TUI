@@ -319,11 +319,15 @@ pnpm build
   production, optional and bundled sets for the release manifest. Pack and
   publish through `scripts/with-publish-manifest.mjs`, which stages files and
   the projected manifest without rewriting the checkout. Do not pack the root
-  directly with `npm pack`. `verify:package` checks this release projection.
+  directly with `npm pack`. The wrapper attaches the actual staging manifest to
+  its pack report; `verify:package` validates that manifest and rejects raw pack
+  reports without it.
 - `compile` also generates the private `lib/tui-runtime` bundle shipped inside
   the main package. Management materializes it under the profile's
-  `.dsh-tui/runtime-bundles/<version>` so its `file:` dependency survives removal
-  of `node_modules`. Later user layers retain their precedence. The dedicated
+  `.dsh-tui/runtime-bundles/<version>-<patch-sha256>` so its `file:` dependency
+  survives removal of `node_modules`. A same-version development rebuild with
+  a changed patch gets a new directory without overwriting the old recipe.
+  Later user layers retain their precedence. The dedicated
   profile selects only this internal bundle and retains the main package as a
   direct dependency, avoiding duplicate layers from an older global TUI.
 - Local and CI workflows use explicit builds rather than implicit lifecycles.

@@ -2,16 +2,19 @@
 import { createRequire } from 'node:module'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
-import { prepareRuntime } from './prepare.mjs'
+import { managementModules, prepareRuntime } from './prepare.mjs'
 import { compareVersions, PACKAGE, packageDirectory, PROFILE, readJson, RESCUE_PROFILE, runtimeStatus } from './runtime-profile.mjs'
 
 export const name = 'dsh-tui-profile-manager'
-export const inject = ['loader', 'profileContext']
+export const inject = ['loader']
 
 const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../../..')
 
 export async function apply(ctx) {
-  const source = ctx.profileContext
+  const source = ctx.get('profileContext')
+  if (source === undefined || await managementModules(source.installAnchor, { optional: true }) === undefined) {
+    throw new Error('Automatic TUI profile management requires a newer DSH host; run dsh-tui once to prepare this profile, or upgrade DSH to 0.2.0-rc.2 or later')
+  }
   // DSH resolves an installation copy before a profile copy. A modern global
   // entry must still prepare the version actually installed by the UI.
   const manifest = readJson(join(packageDirectory(source.dir), 'package.json')) ?? readJson(join(packageRoot, 'package.json'))
@@ -113,7 +116,7 @@ export async function apply(ctx) {
     if (ready === undefined || hmr === undefined) throw new Error('Run dsh-tui once to prepare this profile before starting it directly')
     ctx.effect(() => ready.onReady(() => {
       const timer = setTimeout(() => {
-        void service.prepare().then(() => hmr.reconcileProfile()).catch(error => {
+        void service.prepare().then(() => hmr.runExclusive(() => hmr.reconcileProfile())).catch(error => {
           if (disposed) return
           ctx.logger.error(error)
           ctx.get('appExit')?.(1)

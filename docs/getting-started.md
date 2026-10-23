@@ -52,8 +52,14 @@ npm install -g pnpm
 # 或：corepack enable pnpm
 
 dsh plugin --profile dsh-tui add @deepseek-harness-tui/dsh-tui
-dsh --profile dsh-tui   # 或 dsh-tui
+# 首次启动：准备完整运行时；若已全局安装启动命令，也可直接运行 dsh-tui
+node "${DSH_HOME:-$HOME/.dsh}/profiles/dsh-tui/node_modules/@deepseek-harness-tui/dsh-tui/bin/dsh-tui.js"
 ```
+
+官方市场自动配置需要 DSH `0.2.0-rc.2` 或更新版本的管理 API。
+缺少这些 API 的旧宿主中，已有安装或源码开发 profile 首次通过上述启动器准备；
+新装仍须满足包声明的宿主 peer 范围。准备成功后可用 `dsh --profile dsh-tui`。
+自定义 `DSH_HOME` 时，安装和启动使用同一个值。
 
 从仓库检出运行时，也可以执行：
 
@@ -76,7 +82,7 @@ sh install.sh
 
 ```sh
 dsh plugin --profile dsh-tui add @deepseek-harness-tui/dsh-tui
-dsh --profile dsh-tui
+node "${DSH_HOME:-$HOME/.dsh}/profiles/dsh-tui/node_modules/@deepseek-harness-tui/dsh-tui/bin/dsh-tui.js"
 ```
 
 新版本只使用 `DSH_TUI_*` 环境变量与 `~/.dsh-tui` 数据目录，旧名不再被读取，
@@ -97,22 +103,24 @@ dsh --profile dsh-tui
    默认根目录通常是 `~/.dsh`。
 2. 让 profile 的第一层 bundle 使用 `@deepseek-ai/dsh-base`。
 3. 在 profile 内通过 pnpm 安装 `@deepseek-harness-tui/dsh-tui`。
-4. 读取包内 `dsh.bundle.patch` 元数据，将 `cordis.patch.yml` 追加为组合层。
+4. 读取包内 `dsh.bundle.patch` 元数据，选择 `market.patch.yml` 管理入口；
+   这一步不会把完整终端组合挂进官方界面。
 
-启动时的主要顺序是：
-
-```text
-dsh-base -> 其他 bundle -> @deepseek-harness-tui/dsh-tui patch -> 用户 profile patch
-```
+首次运行 `dsh-tui` 时，启动器准备完整运行时：把同包携带的私有 bundle
+物化到 profile 的 `.dsh-tui/runtime-bundles/<version>-<patch-sha256>`，
+安装为 `file:` 依赖，并替换原公开入口所在的 bundle 层。其后的用户 bundle、
+profile/home patch 与命令行覆盖层保留原顺序和优先级。
 
 - base 提供 Agent、模型、会话、文件、Shell、策略和注册表等服务。
-- 本插件的 patch 覆盖或插入 TUI、Agent preset 名册、SQLite 会话持久化与
+- 私有运行时的 patch 覆盖或插入 TUI、Agent preset 名册、SQLite 会话持久化与
   工作状态行。
 
-`dsh-working-activity` 已经是本包依赖，并由 `dsh-tui` 的 patch 自动插入。
+`dsh-working-activity` 已经是本包依赖，并由私有运行时的 patch 自动插入。
 不要对同一个 profile 再单独执行 `add dsh-working-activity`，否则可能出现重复行。
 
 ## 启动
+
+完成首次运行时准备后，也可以直接启动已配置的 profile：
 
 ```sh
 dsh --profile dsh-tui
@@ -120,6 +128,10 @@ dsh --profile dsh-tui
 
 命令从当前目录启动，因此 Agent 的默认工作区也是当前目录。进入目标项目目录后再
 启动即可。
+
+DSH 0.2.1 起，Agent 可以把会话切到别的目录（`working_directory` 工具或 Git
+worktree）。状态栏、Git 分支、`@` 补全和 `!` 命令会跟随这个目录，`/resume` 后
+也一样；会话仍登记在启动时的项目下。
 
 Windows 仓库检出还提供：
 

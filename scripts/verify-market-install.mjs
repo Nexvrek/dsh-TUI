@@ -6,9 +6,10 @@
  * No model requests, user profiles, Git configuration or public releases change.
  */
 import assert from 'node:assert/strict'
+import { AsyncLocalStorage } from 'node:async_hooks'
 import { createHash } from 'node:crypto'
-import { createServer } from 'node:http'
-import { createServer as createHttpsServer } from 'node:https'
+import { createServer, request as requestHttp } from 'node:http'
+import { createServer as createHttpsServer, request as requestHttps } from 'node:https'
 import { connect } from 'node:net'
 import { spawn } from 'node:child_process'
 import { cp, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
@@ -24,6 +25,7 @@ import { remoteMethods } from '@deepseek-ai/dsh-typert-protocol'
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml'
 import { compareVersions, liveRuntimeProcesses, PACKAGE, PROFILE, readJson, RUNTIME_BUNDLE, runtimeStatus } from '../src/dsh-adapter/market/runtime-profile.mjs'
 import { prepareRuntime } from '../src/dsh-adapter/market/prepare.mjs'
+import * as ProfileManager from '../src/dsh-adapter/market/manager.mjs'
 
 const root = fileURLToPath(new URL('../', import.meta.url))
 const scratch = await mkdtemp(join(tmpdir(), 'dsh-tui-market-'))
@@ -34,6 +36,17 @@ const pnpm = process.env.DSH_TUI_VERIFY_PNPM
 let pnpmInvocation = pnpm === undefined ? undefined
   : /\.[cm]js$/u.test(pnpm) ? { command: process.execPath, args: [pnpm] } : { command: pnpm, args: [] }
 const results = []
+// Mirror the official HMR transaction contract instead of accepting unsafe calls.
+function fixtureHmr(reconcile) {
+  const executing = new AsyncLocalStorage()
+  return {
+    runExclusive: callback => executing.run(true, callback),
+    reconcileProfile: async (requiredIds = []) => {
+      assert.equal(executing.getStore(), true, 'HMR profile reconciliation must run inside runExclusive')
+      return reconcile(requiredIds)
+    },
+  }
+}
 const waitFor = async (predicate, description, timeout = 30000) => {
   const until = Date.now() + timeout
   while (Date.now() < until) {
@@ -134,19 +147,79 @@ for (const instance of [server, archiveServer]) instance.on('connection', socket
 server.on('connect', (req, socket, head) => {
   const destination = new URL(`https://${req.url}`)
   const fixture = destination.hostname === 'codeload.github.com'
-  const upstream = connect(fixture ? archiveServer.address().port : Number(destination.port || 443), fixture ? '127.0.0.1' : destination.hostname)
-  upstream.once('connect', () => {
+  const connected = (upstream, upstreamHead = Buffer.alloc(0)) => {
+    if (socket.destroyed) { upstream.destroy(); return }
+    upstream.on('error', () => socket.destroy())
+    socket.once('close', () => upstream.destroy())
     socket.write('HTTP/1.1 200 Connection Established\r\n\r\n')
+    if (upstreamHead.length) socket.write(upstreamHead)
     if (head.length) upstream.write(head)
     socket.pipe(upstream).pipe(socket)
-  })
+  }
+  // Keep the fixture local while preserving the environment's outbound proxy.
+  const proxy = process.env.https_proxy || process.env.HTTPS_PROXY || process.env.http_proxy || process.env.HTTP_PROXY
+  if (!fixture && proxy) {
+    const url = new URL(proxy)
+    const headers = { host: req.url }
+    if (url.username || url.password) {
+      headers['proxy-authorization'] = `Basic ${Buffer.from(`${decodeURIComponent(url.username)}:${decodeURIComponent(url.password)}`).toString('base64')}`
+      url.username = url.password = ''
+    }
+    const tunnel = (url.protocol === 'https:' ? requestHttps : requestHttp)(url, { method: 'CONNECT', path: req.url, headers })
+    tunnel.once('connect', (response, upstream, upstreamHead) => {
+      if (response.statusCode === 200) connected(upstream, upstreamHead)
+      else { upstream.destroy(); socket.destroy() }
+    })
+    tunnel.on('error', () => socket.destroy())
+    socket.on('error', () => tunnel.destroy())
+    socket.once('close', () => tunnel.destroy())
+    tunnel.end()
+    return
+  }
+  const upstream = connect(fixture ? archiveServer.address().port : Number(destination.port || 443), fixture ? '127.0.0.1' : destination.hostname)
+  upstream.once('connect', () => connected(upstream))
   upstream.on('error', () => socket.destroy())
   socket.on('error', () => upstream.destroy())
   socket.once('close', () => upstream.destroy())
 })
 gitEnv.NODE_EXTRA_CA_CERTS = certificate
+if (process.env.NODE_EXTRA_CA_CERTS) {
+  // Retain the caller's proxy CA while trusting the local GitHub fixture.
+  const combinedCertificate = join(scratch, 'fixture-extra-ca.crt')
+  await writeFile(combinedCertificate, `${await readFile(process.env.NODE_EXTRA_CA_CERTS, 'utf8')}\n${await readFile(certificate, 'utf8')}`)
+  gitEnv.NODE_EXTRA_CA_CERTS = combinedCertificate
+}
 
-async function terminalLaunch(source, target, fullscreen, repairEntry = false) {
+async function directProfileStartup(source, target) {
+  const selected = readJson(join(target, 'package.json'))
+  selected.dsh.profile.bundles = selected.dsh.profile.bundles.map(name => name === RUNTIME_BUNDLE ? PACKAGE : name)
+  await writeFile(join(target, 'package.json'), `${JSON.stringify(selected, null, 2)}\n`)
+  assert.equal(runtimeStatus(target).ready, false)
+  const ctx = new Context()
+  let onReady
+  let reconciled = 0
+  let exitCode
+  ctx.provide('profileContext', { ...source, name: PROFILE, dir: target, patchPath: join(target, 'cordis.patch.yml') })
+  ctx.provide('appReady', { onReady(callback) { onReady = callback; return () => { onReady = undefined } } })
+  ctx.provide('appExit', code => { exitCode = code })
+  ctx.provide('hmr', fixtureHmr(() => {
+    assert.equal(runtimeStatus(target).ready, true, 'prepare finishes before reconciling the direct profile')
+    reconciled++
+    return { warnings: [], pending: [] }
+  }))
+  try {
+    await ctx.plugin(Loader)
+    await ctx.plugin(ProfileManager)
+    assert.equal(typeof onReady, 'function', 'own-profile startup schedules preparation after appReady')
+    onReady()
+    await waitFor(() => reconciled > 0 || exitCode !== undefined, 'direct-profile preparation and reconciliation')
+    assert.equal(exitCode, undefined, 'the first direct-profile launch must not request appExit')
+    assert.equal(reconciled, 1, 'direct-profile startup reconciles once inside the HMR transaction')
+    assert.equal(runtimeStatus(target).ready, true)
+  } finally { await ctx.fiber.dispose() }
+}
+
+async function terminalLaunch(source, target, fullscreen, repairEntry = false, directProfile = false) {
   const { findHostDsh } = await import('../lib/types/dsh-adapter/host-dsh.js')
   const found = findHostDsh()
   assert.ok(found.packageDir, 'terminal verification requires the official dsh CLI')
@@ -163,9 +236,11 @@ async function terminalLaunch(source, target, fullscreen, repairEntry = false) {
   })
   const config = patches.flatMap(patch => patch.insert ?? []).find(row => row.id === 'dsh-tui').config
   config.fullscreen = fullscreen
-  await writeFile(join(target, 'cordis.patch.yml'), stringifyYaml([{ id: 'dsh-tui', config }], {
-    customTags: [{ tag: 'tag:yaml.org,2002:js', identify: value => typeof value?.js === 'string', stringify: ({ value }) => value.js }],
-  }))
+  if (!directProfile) {
+    await writeFile(join(target, 'cordis.patch.yml'), stringifyYaml([{ id: 'dsh-tui', config }], {
+      customTags: [{ tag: 'tag:yaml.org,2002:js', identify: value => typeof value?.js === 'string', stringify: ({ value }) => value.js }],
+    }))
+  }
   const columns = fullscreen ? 100 : 45
   const terminal = new xterm.Terminal({ cols: columns, rows: 28, scrollback: 1000, allowProposedApi: true })
   if (repairEntry) {
@@ -174,9 +249,14 @@ async function terminalLaunch(source, target, fullscreen, repairEntry = false) {
     await writeFile(join(target, 'package.json'), `${JSON.stringify(selected, null, 2)}\n`)
     assert.equal(runtimeStatus(target).ready, false)
   }
-  const child = pty.spawn(process.execPath, [join(target, 'node_modules', ...PACKAGE.split('/'), repairEntry ? 'lib/types/dsh-adapter/host-entry.js' : 'bin/dsh-tui.js')], {
+  const entry = directProfile
+    ? [join(found.packageDir, readJson(join(found.packageDir, 'package.json')).bin.dsh), '--profile', PROFILE]
+    : [join(target, 'node_modules', ...PACKAGE.split('/'), repairEntry ? 'lib/types/dsh-adapter/host-entry.js' : 'bin/dsh-tui.js')]
+  const child = pty.spawn(process.execPath, entry, {
     cwd: scratch, cols: columns, rows: 28, name: 'xterm-256color',
     env: { ...process.env, HOME: home, USERPROFILE: home, DSH_HOME: source.home,
+      // Keep the installed store when isolating terminal state under another HOME.
+      PNPM_CONFIG_STORE_DIR: dirname(store),
       DSH_TUI_LANG: 'en', DSH_TUI_SESSION_ROOT: join(home, 'sessions'), DSH_TUI_WORKSPACE_TARGET: scratch,
       // Cover both hosts: the application entry and the direct official profile.
       // The landing page uses an alternate screen even in inline chat mode.
@@ -206,7 +286,7 @@ async function terminalLaunch(source, target, fullscreen, repairEntry = false) {
     assert.equal(exit.exitCode, 0, output.slice(-12000))
     assert.deepEqual(readJson(join(target, '.dsh-tui/running.json')), [], 'normal exit releases its lease')
     assert.ok(output.includes('\x1b[?25h'), 'exit restores the terminal cursor')
-    console.log(`market-install: terminal ${fullscreen ? 'fullscreen 100' : 'inline 45'} columns → /quit OK`)
+    console.log(`market-install: ${directProfile ? 'fresh official profile' : 'terminal'} ${fullscreen ? 'fullscreen 100' : 'inline 45'} columns → /quit OK`)
   } finally {
     if (exit === undefined) child.kill()
     await writeFile(join(home, 'terminal.log'), output)
@@ -238,12 +318,9 @@ try {
     await writeFile(empty, '[]\n')
     await mountRootInclude(ctx, empty, readProfilePatches('dsh', source))
     // Use the official recomposer, including required-entry failure checks.
-    ctx.provide('hmr', {
-      runExclusive: callback => callback(),
-      reconcileProfile: async (requiredIds = []) => ({
-        ...await recomposeProfile(ctx, readProfilePatches('dsh', source), 'dsh', { requiredIds }), pending: [],
-      }),
-    })
+    ctx.provide('hmr', fixtureHmr(async requiredIds => ({
+      ...await recomposeProfile(ctx, readProfilePatches('dsh', source), 'dsh', { requiredIds }), pending: [],
+    })))
     await ctx.plugin(PluginManager, { registry, fallbackRegistries: [] })
     try {
       const manager = ctx.get('pluginManager')
@@ -296,12 +373,30 @@ try {
       assert.equal(runtimeStatus(target).ready, false)
       await runPnpm(['install', '--frozen-lockfile', '--ignore-scripts'], { cwd: target, env: { ...process.env, ...gitEnv } })
       assert.equal(runtimeStatus(target).ready, true, 'stable recipe must survive cold reinstall')
+      await directProfileStartup(source, target)
+      console.log(`market-install: ${name} first direct-profile preparation → exclusive reconciliation OK`)
       if (process.argv.includes('--terminal')) {
         await terminalLaunch(source, target, true, name === 'npm')
         await terminalLaunch(source, target, false)
       }
       results.push({ source: name, spec, installed: installed.application, enabled: enabled.application, version: status.version, coldReinstall: true, failureRetry: true, ...(process.argv.includes('--terminal') ? { terminal: ['application entry fullscreen 100', 'official profile inline 45'] } : {}), profileDir: target })
     } finally { await ctx.fiber.dispose() }
+  }
+  if (process.argv.includes('--terminal')) {
+    const { findHostDsh } = await import('../lib/types/dsh-adapter/host-dsh.js')
+    const found = findHostDsh()
+    assert.ok(found.packageDir, 'direct-profile verification requires the official dsh CLI')
+    const home = join(scratch, 'direct-profile')
+    const target = join(home, 'profiles', PROFILE)
+    await mkdir(target, { recursive: true })
+    await writeFile(join(target, '.npmrc'), `registry=${registry}\nstore-dir=${store}\nhttps-proxy=${registry}\n`)
+    const bin = join(found.packageDir, readJson(join(found.packageDir, 'package.json')).bin.dsh)
+    await run(process.execPath, [bin, 'plugin', '--profile', PROFILE, 'add', tarballPath], {
+      env: { ...process.env, ...gitEnv, DSH_HOME: home, DSH_TELEMETRY_DISABLED: '1' },
+    })
+    assert.equal(runtimeStatus(target).ready, false, 'the first official launch begins before runtime preparation')
+    await terminalLaunch({ home, installAnchor: join(root, 'package.json'), packageManager: pnpmInvocation }, target, true, false, true)
+    results.push({ source: 'direct-profile', freshInstall: true, terminal: ['official HMR first launch fullscreen 100'], profileDir: target })
   }
   if (pnpmVersion.startsWith('11.')) assert.ok(githubArchiveRequests > 0, 'pnpm 11 exercised the GitHub source archive transport')
   await writeFile(join(scratch, 'result.json'), JSON.stringify({ passed: true, pnpmVersion, githubArchiveRequests, results }, null, 2))

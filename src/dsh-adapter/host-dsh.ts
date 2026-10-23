@@ -246,6 +246,26 @@ export async function loadHostDsh(packageDir: string | undefined = undefined): P
   }
 }
 
+/** The preparation path also works on hosts predating the in-process boot contract. */
+export async function loadHostProfileManagement(packageDir: string): Promise<{
+  Context: HostDsh['Context']
+  Loader: unknown
+  writeProfileManifest: typeof AppBoot.writeProfileManifest
+}> {
+  const hostRequire = createRequire(join(packageDir, 'package.json'))
+  const appBootPath = hostRequire.resolve(APP_BOOT)
+  const appBootRequire = createRequire(appBootPath)
+  const [appBoot, cordis, loader] = await Promise.all([
+    import(pathToFileURL(appBootPath).href),
+    import(pathToFileURL(hostRequire.resolve(HOST_MODULES.find(spec => spec.key === 'cordis')!.specifier)).href),
+    import(pathToFileURL(appBootRequire.resolve(HOST_MODULES.find(spec => spec.key === 'loader')!.specifier)).href),
+  ])
+  if (typeof appBoot.writeProfileManifest !== 'function' || typeof cordis.Context !== 'function' || loader.default === undefined) {
+    throw new Error('The installed DSH host does not expose its public profile preparation APIs')
+  }
+  return { Context: cordis.Context, Loader: loader.default, writeProfileManifest: appBoot.writeProfileManifest }
+}
+
 export interface HostRoot {
   readonly ctx: Context
   /**
@@ -446,7 +466,7 @@ function hostVersion(host: HostDsh): string {
 }
 
 /**
- * dsh `bin.js` reportStartupFailure (0.2.1-rc.2), the file half only: the
+ * dsh `bin.js` reportStartupFailure (0.2.1-rc.3), the file half only: the
  * screen is up, so never stderr. Undefined when it could not be written.
  */
 async function writeStartupReport(error: unknown, context: {
@@ -487,7 +507,7 @@ async function writeStartupReport(error: unknown, context: {
   return logPath
 }
 
-/** dsh `profile-boot` createAppReady (0.2.1-rc.2). */
+/** dsh `profile-boot` createAppReady (0.2.1-rc.3). */
 function createAppReady(): { readonly service: AppReadyService; commit(): void } {
   let ready = false
   const listeners = new Set<() => void>()
@@ -511,7 +531,7 @@ function createAppReady(): { readonly service: AppReadyService; commit(): void }
   }
 }
 
-/** dsh `process-shutdown` createProcessShutdown (0.2.1-rc.2), the `shutdown` half only. */
+/** dsh `process-shutdown` createProcessShutdown (0.2.1-rc.3), the `shutdown` half only. */
 function createProcessShutdown(dispose: () => Promise<unknown>, timeoutMs = PROCESS_SHUTDOWN_TIMEOUT_MS): (code: number) => Promise<void> {
   let pending: Promise<void> | undefined
   let settled = false

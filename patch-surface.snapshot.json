@@ -30,6 +30,20 @@
     "approval",
     "session-persistence-jsonl"
   ],
+  "market": {
+    "path": "./market.patch.yml",
+    "overrides": [],
+    "inserts": [
+      {
+        "id": "dsh-tui-profile-manager",
+        "disabled": false
+      },
+      {
+        "id": "dsh-tui-profile-ready",
+        "disabled": "['dsh-tui', 'dsh-tui-safe'].includes(ctx.get('profileContext')?.name)"
+      }
+    ]
+  },
   "webAppComparisons": {
     "0.1.1-rc.2": {
       "disablesBeyondWebApp": [],
@@ -123,6 +137,16 @@
       "insertsSharedWithWebApp": []
     },
     "0.2.1-rc.2": {
+      "disablesBeyondWebApp": [
+        "tool-ralph"
+      ],
+      "webAppDisablesBeyondTui": [
+        "tool-plugin-manager",
+        "workflow-ptc"
+      ],
+      "insertsSharedWithWebApp": []
+    },
+    "0.2.1-rc.3": {
       "disablesBeyondWebApp": [
         "tool-ralph"
       ],

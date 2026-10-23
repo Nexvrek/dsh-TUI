@@ -2,19 +2,34 @@
 import { randomUUID } from 'node:crypto'
 import { mkdir } from 'node:fs/promises'
 import { createRequire } from 'node:module'
-import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { liveRuntimeProcesses, ownedDirectory, PROFILE, runtimeStatus } from './runtime-profile.mjs'
+import { liveRuntimeProcesses, ownedDirectory, runtimeStatus } from './runtime-profile.mjs'
 
 export const name = 'dsh-tui-runtime-lease'
 
 export async function apply(ctx) {
   const profile = ctx.get('profileContext')
-  const dir = profile?.dir ?? join(process.env.DSH_HOME || join(homedir(), '.dsh'), 'profiles', process.env.DSH_TUI_PROFILE || PROFILE)
-  const anchor = profile?.installAnchor ?? new URL('package.json', ctx.baseUrl)
-  const require = createRequire(anchor)
-  const { withFileLock, writeFileAtomic } = await import(pathToFileURL(require.resolve('@deepseek-ai/dsh-atomic-write')).href)
+  // A directly composed development host has no managed profile to lease.
+  if (profile === undefined) {
+    ctx.provide('tuiRuntimeLease', {})
+    return
+  }
+  const dir = profile.dir
+  const require = createRequire(profile.installAnchor)
+  let atomicPath
+  try { atomicPath = require.resolve('@deepseek-ai/dsh-atomic-write') }
+  catch (error) {
+    if (error.code !== 'MODULE_NOT_FOUND') throw error
+    // Legacy hosts have no managed updater or shared setup lock to coordinate.
+    ctx.provide('tuiRuntimeLease', { profileDir: dir })
+    return
+  }
+  const { withFileLock, writeFileAtomic } = await import(pathToFileURL(atomicPath).href)
+  if (typeof withFileLock !== 'function' || typeof writeFileAtomic !== 'function') {
+    ctx.provide('tuiRuntimeLease', { profileDir: dir })
+    return
+  }
   const owned = ownedDirectory(dir)
   await mkdir(owned, { recursive: true, mode: 0o700 })
   const token = randomUUID()

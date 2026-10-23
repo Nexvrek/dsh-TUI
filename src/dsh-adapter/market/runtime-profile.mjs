@@ -25,11 +25,12 @@ export function ownedDirectory(profileDir) {
   return join(profileDir, '.dsh-tui')
 }
 
-export function recipeDirectory(profileDir, version) {
+export function recipeDirectory(profileDir, version, patchSha256) {
   if (!/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/u.test(version)) {
     throw new Error('The TUI package must have an exact release version')
   }
-  return join(ownedDirectory(profileDir), 'runtime-bundles', version)
+  if (!/^[a-f0-9]{64}$/u.test(patchSha256)) throw new Error('The TUI patch digest is invalid')
+  return join(ownedDirectory(profileDir), 'runtime-bundles', `${version}-${patchSha256}`)
 }
 
 export function digest(content) {
@@ -64,10 +65,10 @@ export function runtimeTemplate(packageRoot) {
   if (manifest?.name !== PACKAGE || manifest.dshTui?.runtimeBundle !== './lib/tui-runtime') {
     throw new Error('This package does not contain a prepared TUI runtime')
   }
-  recipeDirectory(packageRoot, manifest.version)
   const source = join(packageRoot, 'lib', 'tui-runtime')
   const bundle = readJson(join(source, 'package.json'))
   const patch = readFileSync(join(source, 'cordis.patch.yml'))
+  recipeDirectory(packageRoot, manifest.version, digest(patch))
   if (bundle?.name !== RUNTIME_BUNDLE || bundle.version !== manifest.version
     || bundle.dependencies?.[PACKAGE] !== manifest.version
     || bundle.dsh?.bundle?.patch !== './cordis.patch.yml'
@@ -91,7 +92,7 @@ export function runtimeStatus(profileDir) {
   if (manifest === undefined || profile === undefined) return result
   try {
     const template = runtimeTemplate(packageRoot)
-    const recipe = recipeDirectory(profileDir, template.manifest.version)
+    const recipe = recipeDirectory(profileDir, template.manifest.version, template.bundle.dshTui.patchSha256)
     const installed = join(profileDir, 'node_modules', ...RUNTIME_BUNDLE.split('/'))
     const recipeManifest = readJson(join(recipe, 'package.json'))
     const installedManifest = readJson(join(installed, 'package.json'))
@@ -116,7 +117,7 @@ export function runtimeStatus(profileDir) {
 /** Materialize a self-contained, immutable file dependency outside node_modules. */
 export async function materializeRecipe(profileDir, packageRoot) {
   const template = runtimeTemplate(packageRoot)
-  const target = recipeDirectory(profileDir, template.manifest.version)
+  const target = recipeDirectory(profileDir, template.manifest.version, template.bundle.dshTui.patchSha256)
   const expected = Buffer.from(`${JSON.stringify(template.bundle, null, 2)}\n`)
   if (existsSync(target)) {
     if (!expected.equals(await readFile(join(target, 'package.json')))

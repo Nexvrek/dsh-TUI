@@ -1,7 +1,7 @@
 /** Official package operations, isolated from the running application's Loader and events. */
 import { mkdir } from 'node:fs/promises'
 import { createRequire } from 'node:module'
-import { join, resolve } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import {
   compareVersions, liveRuntimeProcesses, materializeRecipe, ownedDirectory, PACKAGE,
@@ -10,15 +10,64 @@ import {
 } from './runtime-profile.mjs'
 
 /** Resolve public management APIs from the same installation that owns the caller. */
-export async function managementModules(installAnchor) {
+export async function managementModules(installAnchor, { optional = false } = {}) {
   const require = createRequire(installAnchor)
-  const load = spec => import(pathToFileURL(require.resolve(spec)).href)
-  const [manager, operations, atomic] = await Promise.all([
-    load('@deepseek-ai/dsh-plugin-manager'),
-    load('@deepseek-ai/dsh-plugin-manager/operations'),
-    load('@deepseek-ai/dsh-atomic-write'),
-  ])
+  let paths
+  try {
+    paths = [
+      '@deepseek-ai/dsh-plugin-manager',
+      '@deepseek-ai/dsh-plugin-manager/operations',
+      '@deepseek-ai/dsh-atomic-write',
+      '@deepseek-ai/dsh-typert-protocol',
+    ].map(spec => require.resolve(spec))
+  } catch (error) {
+    if (optional && ['MODULE_NOT_FOUND', 'ERR_PACKAGE_PATH_NOT_EXPORTED'].includes(error.code)) return undefined
+    throw error
+  }
+  const [manager, operations, atomic, typert] = await Promise.all(paths.map(path => import(pathToFileURL(path).href)))
+  const available = typeof manager.default === 'function'
+    && ['installBundle', 'setBundleEnabled', 'cancelInstall'].every(method => typeof manager.default.prototype?.[method] === 'function')
+    && ['runPluginCommand', 'saveManifest'].every(method => typeof operations[method] === 'function')
+    && ['withFileLock', 'writeFileAtomic'].every(method => typeof atomic[method] === 'function')
+    && ['Remote', 'bindTypertRemote'].every(method => typeof typert[method] === 'function')
+  if (!available) {
+    if (optional) return undefined
+    throw new Error('This DSH host does not expose the TUI profile management APIs; start with dsh-tui instead')
+  }
   return { PluginManager: manager.default, ...operations, ...atomic }
+}
+
+/** Prepare an installed package without requiring the newer in-process host boot APIs. */
+export async function prepareInstalledRuntime({ Context, Loader, writeProfileManifest, source, version, profile = PROFILE, signal }) {
+  if (profile !== PROFILE && profile !== RESCUE_PROFILE) throw new Error('Unsupported TUI profile')
+  signal?.throwIfAborted()
+  const dir = join(source.home, 'profiles', profile)
+  const status = runtimeStatus(dir)
+  if (status.ready && compareVersions(status.version, version) >= 0) return status
+  if (await managementModules(source.installAnchor, { optional: true }) !== undefined) {
+    return prepareRuntime({ Context, Loader, source, version, profile, signal })
+  }
+  // Older DSH exposes profile writers and its CLI, but not the market APIs.
+  // Keep using its public package operation; only replace our bundle layer.
+  if (status.version !== version) throw new Error('Install the matching TUI package before preparing this legacy profile')
+  if (liveRuntimeProcesses(dir).length > 0) throw new Error('Close the running TUI before preparing or updating its environment')
+  const recipe = await materializeRecipe(dir, packageDirectory(dir))
+  const hostManifest = readJson(source.installAnchor)
+  const bin = typeof hostManifest?.bin === 'string' ? hostManifest.bin : hostManifest?.bin?.dsh
+  if (typeof bin !== 'string') throw new Error('The installed DSH package has no CLI entry')
+  const { runInstallerProcess } = await import(new URL('../../../lib/types/updateProcess.js', import.meta.url).href)
+  const code = await runInstallerProcess(process.execPath, [join(dirname(source.installAnchor), bin), 'plugin', '--profile', profile, 'add', `file:${recipe}`], {
+    category: 'tui-legacy-runtime', signal, env: { ...process.env, DSH_HOME: source.home },
+    onStdout: text => process.stdout.write(text), onStderr: text => process.stderr.write(text),
+  })
+  if (code !== 0) throw new Error(`TUI runtime installation failed (exit ${code})`)
+  signal?.throwIfAborted()
+  const current = readJson(join(dir, 'package.json'))
+  current.dsh.profile.bundles = runtimeBundleOrder(current.dsh?.profile?.bundles)
+  await writeProfileManifest(dir, current)
+  const prepared = runtimeStatus(dir)
+  if (!prepared.ready) throw new Error(prepared.problem ?? 'The legacy TUI profile did not become ready')
+  return prepared
 }
 
 function assertChange(result, stage) {

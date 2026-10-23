@@ -110,8 +110,8 @@ function stubEnvs() {
   }
 }
 
-function runBin(args, extraEnv = {}, { delegating = false } = {}) {
-  return spawnSync(process.execPath, [bin, ...args], {
+function runBin(args, extraEnv = {}, { delegating = false, entry = bin } = {}) {
+  return spawnSync(process.execPath, [entry, ...args], {
     env: {
       PATH: stubPath,
       HOME: tmp,
@@ -312,6 +312,43 @@ resetStubLog()
 r = runBin(['foo', 'a b'], {}, { delegating: true })
 check('shim: delegates argv through to the profile copy', stubCalls().at(-1) === '<--profile><dsh-tui><--><foo><a b>')
 check('shim: silent + exit 0 when aligned', r.status === 0 && r.stderr.trim() === '')
+
+// Run the real outer and profile launchers; only replace the preparation CLI.
+// A warm launch still spawns that CLI, so counting calls catches duplicate work.
+{
+  const profilePackage = join(home, PKG_DIR)
+  const prepareDir = join(profilePackage, 'src', 'dsh-adapter', 'market')
+  const prepareLog = join(tmp, 'prepare.log')
+  mkdirSync(prepareDir, { recursive: true })
+  writeFileSync(join(profilePackage, 'package.json'), JSON.stringify({
+    name: PACKAGE, version: ownVersion, type: 'module', dshTui: { runtimeBundle: './lib/tui-runtime' },
+  }))
+  writeFileSync(join(prepareDir, 'cli.mjs'), [
+    "import { appendFileSync } from 'node:fs'",
+    "appendFileSync(process.env.DSH_STUB_PREPARE_LOG, process.argv[2] + '\\n')",
+    'process.exit(Number(process.env.DSH_STUB_PREPARE_EXIT ?? 0))',
+    '',
+  ].join('\n'))
+  for (const [label, options] of [
+    ['delegated', { delegating: true }],
+    ['no-delegate', {}],
+    ['profile copy', { entry: join(profilePackage, 'bin', 'dsh-tui.js') }],
+  ]) {
+    writeFileSync(prepareLog, '')
+    resetStubLog()
+    r = runBin([], { DSH_STUB_PREPARE_LOG: prepareLog }, options)
+    check(`managed preparation: ${label} launches after exactly one preparation`,
+      r.status === 0 && readFileSync(prepareLog, 'utf8') === `${PROFILE}\n`
+      && stubCalls().at(-1) === '<--profile><dsh-tui>')
+  }
+  writeFileSync(prepareLog, '')
+  resetStubLog()
+  r = runBin([], { DSH_STUB_PREPARE_LOG: prepareLog, DSH_STUB_PREPARE_EXIT: '7' }, { delegating: true })
+  check('managed preparation: delegated failure blocks the session without a second attempt',
+    r.status !== 0 && readFileSync(prepareLog, 'utf8') === `${PROFILE}\n`
+    && launchCalls().length === 0 && r.stderr.includes('preparation failed (exit 7)'))
+  setProfileVersion(ownVersion)
+}
 
 // 反向错位（profile 更旧，issue #183）必须在「瘦壳委托」路径上拦住：上面 3.5
 // 走的是 DSH_TUI_NO_DELEGATE=1 的完整逻辑路径，而真实用户命中的是这条委托

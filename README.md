@@ -70,6 +70,8 @@ Plugin side panels stay enabled when unrelated settings change. Editing the enab
 
 Workspace side-panel counts match the session manager: the current conversation counts; empty logs, subagents, fork ancestors and archived sessions do not. Registered workspaces with no visible conversations remain at zero. Loading and read errors are shown separately; press `r` to refresh.
 
+When a DSH 0.2.1+ Agent moves its session to another directory (the `working_directory` tool or a Git worktree), the status line, Git branch, `@` completion, `!` commands, clicked paths, skill commands and loaded context follow it, including after `/resume`. The session stays registered under the project it started in. Relative paths in cards rendered before a move resolve against the session's current directory when clicked; absolute paths keep their target.
+
 Fullscreen mouse selection stays in the pane where the gesture starts, including chat, sidebar and either diff column. Diagonal, word and line selection copy that pane’s text; soft wraps join independently, source newlines remain, and divider drags only resize.
 
 ## Preview
@@ -127,11 +129,11 @@ The `deepseek-official` API-key route needs `DEEPSEEK_API_KEY`. On DSH
 and select the separate account route through `/model`. Other supported
 accounts can sign in through `/provider` or `/auth` after startup.
 
-The primary compatibility target is DSH `0.2.1-rc.2`. This adapter supports its
+The primary compatibility target is DSH `0.2.1-rc.3`. This adapter supports its
 Shell API, V4 session messages, declarative presets, and profile-backed settings;
 older supported hosts retain their compatibility paths. See [configuration](docs/configuration.en.md).
 
-On DSH rc.2, `/settings` also selects DeepSeek Search / Fetch APIs and edits their
+On DSH 0.2.1-rc.2 and later, `/settings` also selects DeepSeek Search / Fetch APIs and edits their
 endpoint and result limits, supporting custom Loader entry IDs and a masked API
 key input saved through DSH's credential store. Official Flash model labels show the `1017` release
 marker while retaining the `deepseek-flash` model ID.
@@ -169,7 +171,9 @@ Migrating an old global copy: DSH resolves same-name bundles from its installati
 
 Then run `dsh-tui` / `dst` in a terminal. Without a global launcher, use `node ~/.dsh/profiles/dsh-tui/node_modules/@deepseek-harness-tui/dsh-tui/bin/dsh-tui.js`; `/tui-status` in the official UI also reports the actual launch path and environment; use the reported `DSH_HOME` when launching with a custom home. If preparation fails, close any TUI using that profile, address the reported problem, then disable and enable the bundle again. `/tui-prepare` retries preparation and `/tui-status` reports its state. Removing the UI entry retains the TUI profile and session data.
 
-Manual alternative: `dsh plugin --profile dsh-tui add @deepseek-harness-tui/dsh-tui`, then run `dsh-tui` once to prepare its runtime. The repo's `sh install.sh` runs the installation step and checks the required commands.
+Manual alternative: `dsh plugin --profile dsh-tui add @deepseek-harness-tui/dsh-tui`, then run `dsh-tui` once to download and prepare its runtime (network access and pnpm required). Without a global launcher, use the profile-local Node command above. The repo's `sh install.sh` checks for `dsh` and `pnpm`, runs `plugin add`, and prints the first-start instructions.
+
+On older hosts without the management APIs, use `dsh-tui` first to prepare an existing installation or source-development profile; fresh installs must satisfy the package's declared host peer ranges. After preparation, `dsh --profile dsh-tui` also works. Use the same `DSH_HOME` for installation and startup.
 
 > **New-user note**: pnpm ≥11 blocks dependencies with install scripts by
 > default and reports `ERR_PNPM_IGNORED_BUILDS`. Updates skip foreign-platform
@@ -192,7 +196,7 @@ source builds, and troubleshooting, including migration from the former
 
 Automation: `dst -p "task"`, `dst run --json`, `dst session list --json`.
 The independent engine does not load the TUI or inherit its profile/preferences;
-it uses official DSH headless/services (validated on 0.2.0-rc.2 and 0.2.1-rc.2).
+it uses official DSH headless/services (validated on 0.2.0-rc.2, 0.2.1-rc.2 and 0.2.1-rc.3).
 `dst cli --help` lists its commands; `dst dsh <argv...>` forwards native DSH.
 See [Automation CLI](docs/cli.en.md) for protocol, limits, resume restrictions,
 and Node/Python/PowerShell integration examples.
@@ -373,7 +377,7 @@ team record stays in the session and comes back when the bundle is enabled
 again.
 
 If the running DSH does not ship the bundle (`/plugin list` stays silent),
-switch DSH to one of the supported lines first (`0.2.1-rc.2`, `0.2.1-alpha.5`,
+switch DSH to one of the supported lines first (`0.2.1-rc.3`, `0.2.1-rc.2`, `0.2.1-alpha.5`,
 `0.2.0-rc.1` or `0.2.0-rc.2`). To install it into the profile explicitly,
 run `dsh plugin --profile dsh-tui add @deepseek-ai/dsh-experimental-agent-team-profile@<your-dsh-version>`:
 the team packages ship in lockstep with DSH and pin their DSH peers exactly,

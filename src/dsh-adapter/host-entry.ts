@@ -9,7 +9,7 @@ import '../force-production-react.js'
 import { spawn } from 'node:child_process'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
-import { prepareRuntime } from '#tui-market/prepare'
+import { prepareInstalledRuntime } from '#tui-market/prepare'
 import { packageDirectory, readJson, runtimeStatus } from '#tui-market/runtime-profile'
 import { markBoot } from '../utils/bootTrace.js'
 import { configuredBackend, delegatesToProfile, entryKernel, hostProfile } from '../hostEntryRoute.js'
@@ -20,7 +20,7 @@ import { cmdEscapeArgument } from '../utils/shellQuote.js'
 import type { Context } from '@deepseek-ai/cordis'
 import type { Config as TuiConfig } from './index.js'
 import { ENTRY_ROW_DEFAULTS } from './lite-profile.js'
-import { HostComposeError, loadHostDsh, NO_DSH_ON_PATH, prepareHostRoot, type HostRoot } from './host-dsh.js'
+import { findHostDsh, HostComposeError, loadHostDsh, loadHostProfileManagement, NO_DSH_ON_PATH, prepareHostRoot, type HostRoot } from './host-dsh.js'
 import { installEntrySignals, type ProcessExitSeam } from './process-exit.js'
 import { disposeRootSettled, trackComposition } from './root-dispose.js'
 
@@ -36,12 +36,19 @@ if (profile === 'dsh-tui' || profile === 'dsh-tui-safe') {
   const dir = join(home, 'profiles', profile)
   const installed = readJson(join(packageDirectory(dir), 'package.json'))
   if (installed?.dshTui?.runtimeBundle !== undefined && !runtimeStatus(dir).ready) {
-    const host = await loadHostDsh()
-    await prepareRuntime({
-      Context: host.Context, Loader: host.Loader,
-      source: { home, cwd: process.cwd(), installAnchor: join(host.packageDir, 'package.json') },
-      version: installed.version, profile,
-    })
+    const found = findHostDsh()
+    if ('packageDir' in found) {
+      let host: Awaited<ReturnType<typeof loadHostProfileManagement>> | undefined
+      try { host = await loadHostProfileManagement(found.packageDir) }
+      catch { /* The normal entry route below owns unavailable-host fallback and diagnostics. */ }
+      if (host !== undefined) {
+        await prepareInstalledRuntime({
+          ...host,
+          source: { home, cwd: process.cwd(), installAnchor: join(found.packageDir, 'package.json') },
+          version: installed.version, profile,
+        })
+      }
+    }
   }
 }
 const configured = configuredBackend(profile)

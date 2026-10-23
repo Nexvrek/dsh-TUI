@@ -605,7 +605,8 @@ const homePatchFile = join(dshHome, 'cordis.patch.yml')
 // `healProfileModuleFallback` → mkdirSync(ownedModulesDir)），而「装坏了 →
 // 启动过一次 → 再来救援」正是这条路径要处理的场景；不认它就会把自愈路径堵死，
 // 用户按提示移走后下次启动又会被重新生成。
-const GENERATED_DIR_ENTRIES = new Set(['node_modules', '.dsh-module-fallback'])
+// Managed preparation owns .dsh-tui (recipes, setup lock, and process records).
+const GENERATED_DIR_ENTRIES = new Set(['node_modules', '.dsh-module-fallback', '.dsh-tui'])
 const GENERATED_FILE_ENTRIES = new Set([
   'package.json',
   'pnpm-lock.yaml',
@@ -1553,7 +1554,6 @@ if (subcommand === 'migrate') {
 // 的沙箱用它直接驱动全量路径；现场排查委托链时同样可用）。
 if (!runningInsideProfile && ownVersion !== undefined && process.env.DSH_TUI_NO_DELEGATE !== '1') {
   if (!profileReady()) bootstrapProfile()
-  prepareManagedProfile()
   // Refuse to delegate into a profile from an older release line: the profile
   // copy would launch `dsh --profile dsh-tui` against a composition built from
   // this launcher's patch surface and fail inside the loader.

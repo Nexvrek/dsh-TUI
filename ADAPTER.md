@@ -104,10 +104,10 @@ Cordis 插件消费公开服务，不复刻领域逻辑或日志格式。厂商�
 
 ## 上游契约
 
-- 校验版本线:主 `0.2.1-rc.2`,兼容 `0.2.0-rc.2` / `0.2.0-rc.1` / `0.1.7-rc.2` / `0.1.7-rc.1` / `0.1.5-rc.1` / `0.1.5-alpha.2` / `0.1.5-alpha.1` / `0.1.3-alpha.2` / `0.1.2-rc.1` / `0.1.2-alpha.5` / `0.1.2-alpha.4` / `0.1.2-alpha.3` / `0.1.1-rc.2` / `0.1.1-rc.1` / `0.1.0-rc.8` / `0.1.0-rc.7` / `0.1.0-rc.6`
+- 校验版本线:主 `0.2.1-rc.3`,兼容 `0.2.1-rc.2` / `0.2.0-rc.2` / `0.2.0-rc.1` / `0.1.7-rc.2` / `0.1.7-rc.1` / `0.1.5-rc.1` / `0.1.5-alpha.2` / `0.1.5-alpha.1` / `0.1.3-alpha.2` / `0.1.2-rc.1` / `0.1.2-alpha.5` / `0.1.2-alpha.4` / `0.1.2-alpha.3` / `0.1.1-rc.2` / `0.1.1-rc.1` / `0.1.0-rc.8` / `0.1.0-rc.7` / `0.1.0-rc.6`
   (`src/dsh-adapter/contract.ts` 的 `UPSTREAM_VALIDATED_VERSIONS`;特性门控用
   `installedMeetsVersion(pkg, 'x.y.z-<alpha|beta|rc>.n')` 跨家族、跨预发布通道比较,老安装上优雅降级)
-- peer 范围:`^0.1.0-rc.6 || ^0.1.1-rc.1 || 0.1.2-alpha.3 || 0.1.2-alpha.4 || 0.1.2-alpha.5 || 0.1.2-rc.1 || 0.1.3-alpha.2 || 0.1.5-alpha.1 || 0.1.5-alpha.2 || 0.1.5-rc.1 || 0.1.7-rc.1 || 0.1.7-rc.2 || 0.2.0-rc.1 || 0.2.0-rc.2 || 0.2.1-rc.2`(新命名的 registry/PTC 包仅声明 `0.1.7-rc.1 || 0.1.7-rc.2 || 0.2.0-rc.1 || 0.2.0-rc.2 || 0.2.1-rc.2`;契约外版本启动时打 drift 警告;新增预发布一律用精确 OR,不用 caret)
+- peer 范围:`^0.1.0-rc.6 || ^0.1.1-rc.1 || 0.1.2-alpha.3 || 0.1.2-alpha.4 || 0.1.2-alpha.5 || 0.1.2-rc.1 || 0.1.3-alpha.2 || 0.1.5-alpha.1 || 0.1.5-alpha.2 || 0.1.5-rc.1 || 0.1.7-rc.1 || 0.1.7-rc.2 || 0.2.0-rc.1 || 0.2.0-rc.2 || 0.2.1-rc.2 || 0.2.1-rc.3`(新命名的 registry/PTC 包仅声明 `0.1.7-rc.1 || 0.1.7-rc.2 || 0.2.0-rc.1 || 0.2.0-rc.2 || 0.2.1-rc.2 || 0.2.1-rc.3`;契约外版本启动时打 drift 警告;新增预发布一律用精确 OR,不用 caret)
 - 白名单包:blessed list(harness 包按完整版本号校验,框架包 cordis/schemastery 按 major 校验)
 - 启动时:检测到 drift 打 warning;CI 上 `pnpm run verify:contract` 直接失败
 
@@ -122,7 +122,7 @@ Cordis 插件消费公开服务，不复刻领域逻辑或日志格式。厂商�
   进 blessed 清单。宿主 CLI `@deepseek-ai/dsh` **不是**依赖(它的依赖树是整个 CLI):
   `host-dsh.ts` 本地声明入口读取的 `profile-boot` 三个导出。运行期**不**从本包解析
   它们:入口按宿主 realpath 加载宿主自己的副本(profile 由宿主 dsh 安装、cordis 必须单实例),
-  所以它们也在运行期可缺的集合里(缺席不算 drift)。宿主类型包范围为 `0.2.0-rc.2 || 0.2.1-rc.2`
+  所以它们也在运行期可缺的集合里(缺席不算 drift)。宿主类型包范围为 `0.2.0-rc.2 || 0.2.1-rc.2 || 0.2.1-rc.3`
   (`dsh-home-paths` 沿用家族宽范围)。`cordis-plugin-loader` 只当 `unknown` 用,不声明 peer。
 - **能力探测**:`HOST_MODULES` 列出 8 个宿主模块与入口读取的每个导出。`loadHostDsh` 逐项检查,
   缺模块 / 缺导出即抛出点名原因,入口回退(DSH 内核交给 `dsh --profile`,Claude 内核无宿主解析)
@@ -137,7 +137,10 @@ Cordis 插件消费公开服务，不复刻领域逻辑或日志格式。厂商�
 
 ## Patch Surface
 
-`cordis.patch.yml` 里对官方行的干预已快照到 `patch-surface.snapshot.json`:
+`patch-surface.snapshot.json` 同时保护完整运行时 `cordis.patch.yml` 和
+`package.json` 的 `dsh.bundle.patch` 指定的市场入口（当前为 `market.patch.yml`）。
+市场入口记录路径、插入行及 disabled 条件、覆盖行；两种 patch 都检查与官方
+web-app 的行 ID 冲突。完整运行时的干预如下：
 
 - **disabled overrides**:23 行。其中 22 行恒定禁用；`command-goal` 在新 registry
   或旧 shipped standard preset 自带该命令时禁用。0.1.7 的 host PTC/workflow
@@ -146,7 +149,7 @@ Cordis 插件消费公开服务，不复刻领域逻辑或日志格式。厂商�
   `plugin-package-inventory-deepseek` 与 `session-log-deepseek` 继承官方组合，
   上报默认值、导出配置与版本差异由上游拥有；三项均可经用户补丁覆盖。
   遥测环境变量只控制 `session-telemetry-otel`，不控制两项 API 请求元数据。
-- **inserts**:20 行(dsh-tui、dsh-tui-runtime-lease、working-activity、内置 OAuth 入口 dsh-tui-auth、DeepSeek 账号回调的 dsh-tui-webserver、六个插件互通行,以及
+- **inserts**:21 行(dsh-tui、dsh-tui-runtime-lease、working-activity、内置 OAuth 入口 dsh-tui-auth、DeepSeek 账号回调的 dsh-tui-webserver、七个插件互通行,以及
   dsh-tui-storage、dsh-tui-storage-json、dsh-tui-storage-domain、
   dsh-tui-workspace、dsh-tui-code-runtime、dsh-tui-subagent-model-selection-settings、
   dsh-tui-agent-presets、dsh-tui-agent-preset-registry、dsh-tui-cordis-host-runner)。这些 host-plane 行使用 dsh-tui 作用域 id,
@@ -160,6 +163,10 @@ Cordis 插件消费公开服务，不复刻领域逻辑或日志格式。厂商�
   行，经官方 registry 注册 web-app 导出的 standard/ptc/minimal/cordis bundle
   与包内 liangshen；已有 profile preset 声明优先，不重复注册。
 
+市场入口另有 `dsh-tui-profile-manager` 与 `dsh-tui-profile-ready` 两个插入行，
+不挂载完整终端组合；ready 行在 TUI 与救援 profile 中禁用，由启动器或首次
+直接启动的准备流程管理这些 profile。
+
 上游发版后如果 patch 面变化,`pnpm run verify:patch-surface` 会在 CI 先爆;
 确认差异后执行 `node --import tsx/esm scripts/verify-patch-surface.ts --snapshot`
 重新生成快照。`pnpm run verify:web-coexistence` 会把 dsh-tui patch 与官方
@@ -168,7 +175,7 @@ web-app patch 按 include 语义合成一遍,直接拦截 loader entry id 复用
 
 ## 升级流程
 
-- dev 树由 `pnpm-workspace.yaml` 的 overrides 钉在 `0.2.1-rc.2`,
+- dev 树由 `pnpm-workspace.yaml` 的 overrides 钉在 `0.2.1-rc.3`,
   CI `alpha-compat` lane 还对同版上游 tag 的固定 SHA 做源码类型与 patch 合成校验。
   旧 SQLite 迁移工具的依赖闭包单独锁在 `vendor/sqlite-island`。
 - 主验证线移动时 `verify:contract` 会要求复核独立入口的复刻面(见「独立入口的宿主契约」),
@@ -190,6 +197,7 @@ web-app patch 按 include 语义合成一遍,直接拦截 loader entry id 复用
 - 复核 rc.2 的入口复刻面：退出、ready、环境加载、profile 组合与启动报告的整文件指纹与 alpha.5 相同；运行时解析重组仍由宿主 `PluginPackages` 与插件管理服务拥有。
 - rc.2 的 `web` 提供者选择改为 volatile Config；DSH channel 按服务 fiber 与已加载的插件 runtime 找到 `web` / `web-deepseek-api` / `web-search-deepseek` 的 Config owner，使用其实际 Loader 行 ID 映射到 TUI 表单，经现有 `settings.mutate` 保存。单个 API key 控件跟随当前搜索 API，通过宿主创建的不透明授权写入 DSH 凭据库；不暴露凭据变量名输入，不把密钥写入配置或回显，第三方字段仍不能覆盖宿主保留凭据。不重实现搜索、抓取或鉴权，旧宿主没有 API 分区时不暴露新增表单。
 - rc.2 的 `1017` 模型标记仅映射到官方两个 provider 的 Flash 展示名称，不修改目录对象、模型 ID 或请求路由。Web Slot、DOM 布局和终端查询缓存仍属于 Web 客户端。
+- 复核 rc.3：与本包相关的上游包 `lib/` 与 rc.2 逐字节相同（入口复刻面指纹不变），差异只在 web 客户端——`dsh-web-app` 的 patch 新增 `entry-customization` 行（TUI 不插入、不覆盖该行，patch 合成仍由 include 语义负责），`dsh-tool-cordis` 的 API 目录新增 `AnalyticsPreset` 与发信事件的 `is_new_session` / `agent_preset` 字段，TUI 不消费这两项。
 
 ## 同会话模型路由
 

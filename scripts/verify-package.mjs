@@ -2,6 +2,7 @@ import { spawnSync } from 'node:child_process'
 import { readFileSync, readdirSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { readFile } from 'node:fs/promises'
+import { isDeepStrictEqual } from 'node:util'
 import { GUIDE_DIR, guideFiles } from './guide-sources.mjs'
 import { publishManifest } from './publish-manifest.mjs'
 import { runtimeTemplate } from '../src/dsh-adapter/market/runtime-profile.mjs'
@@ -22,7 +23,14 @@ if (report === undefined || !Array.isArray(report.files)) {
 }
 
 const root = fileURLToPath(new URL('../', import.meta.url))
-const manifest = await publishManifest(JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8')), root)
+const manifest = report.dshTuiManifest
+if (manifest === undefined) {
+  throw new Error('Package report has no packed manifest; run pnpm verify:package or pack through scripts/with-publish-manifest.mjs')
+}
+const expected = await publishManifest(JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8')), root)
+if (!isDeepStrictEqual(manifest, expected)) {
+  throw new Error('Packed manifest does not match the release projection; rebuild and pack through scripts/with-publish-manifest.mjs')
+}
 const packed = new Set(report.files.map(file => file.path.replaceAll('\\', '/')))
 for (const path of packed) {
   if (path.startsWith('/') || /^[a-z]:/iu.test(path) || path.split('/').includes('..')) {
