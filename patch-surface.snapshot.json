@@ -18,6 +18,7 @@
     "dsh-tui-cordis-host-runner",
     "dsh-tui-webserver",
     "dsh-tui-auth",
+    "dsh-tui-runtime-lease",
     "dsh-tui",
     "working-activity"
   ],

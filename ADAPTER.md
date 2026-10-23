@@ -19,6 +19,12 @@
 | `'@deepseek-ai/…'` 字符串字面量 | 只在 `src/dsh-adapter/` 内出现(运行期拼出来交给 `createRequire` / `import()` 的说明符也算) |
 | 宿主专属模块(`host-contract.ts` 的 `HOST_MODULES`,cordis 除外,含 `@deepseek-ai/dsh` 本身) | 任何地方不得值 import;只由 `src/dsh-adapter/host-dsh.ts` 按宿主 realpath 动态加载,说明符只写在 `host-contract.ts`;`host-dsh.ts` 对 `@deepseek-ai/*` 只能 `import type`;`host-contract.ts` 只给 `host-dsh.ts` 与 `contract.ts` import |
 
+市场管理入口 `src/dsh-adapter/market/*.mjs` 是无需编译的原生 ESM，同样受适配边界门禁约束。
+它从当前安装的公开导出解析 PluginManager、原子写和 Typert 协议，并使用当前
+Cordis Context / Loader 的构造器创建独立管理根；只做目标 profile 的磁盘管理，
+不启动第二套 DSH 域服务，不把目标的 HMR 或包变更事件送入正在运行的官方界面。
+完整 TUI 配置由同包生成的私有 bundle 承载，用户层仍排在它之后。
+
 ### 后端 manifest
 
 `src/backends/<id>/manifest.ts` 是后端对宿主、UI 与门禁的**静态声明**,纯数据:
@@ -140,7 +146,7 @@ Cordis 插件消费公开服务，不复刻领域逻辑或日志格式。厂商�
   `plugin-package-inventory-deepseek` 与 `session-log-deepseek` 继承官方组合，
   上报默认值、导出配置与版本差异由上游拥有；三项均可经用户补丁覆盖。
   遥测环境变量只控制 `session-telemetry-otel`，不控制两项 API 请求元数据。
-- **inserts**:19 行(dsh-tui、working-activity、内置 OAuth 入口 dsh-tui-auth、DeepSeek 账号回调的 dsh-tui-webserver、六个插件互通行,以及
+- **inserts**:20 行(dsh-tui、dsh-tui-runtime-lease、working-activity、内置 OAuth 入口 dsh-tui-auth、DeepSeek 账号回调的 dsh-tui-webserver、六个插件互通行,以及
   dsh-tui-storage、dsh-tui-storage-json、dsh-tui-storage-domain、
   dsh-tui-workspace、dsh-tui-code-runtime、dsh-tui-subagent-model-selection-settings、
   dsh-tui-agent-presets、dsh-tui-agent-preset-registry、dsh-tui-cordis-host-runner)。这些 host-plane 行使用 dsh-tui 作用域 id,

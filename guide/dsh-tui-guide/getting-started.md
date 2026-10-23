@@ -295,8 +295,8 @@ git submodule update --init --recursive
 `pnpm build` 会清理忽略入库的 `lib/`，把 `src/` 编译到 `lib/types/`，再运行
 构建门禁。
 
-- **Git URL 安装不受支持**（workspace 依赖/子模块/pnpm ≥11 prepare 白名单
-  三重阻断）。
+- Git URL 安装加载原生管理入口，在启用时自动准备匹配的 npm 发行版；
+  开发源码仍需子模块。
 - 发布 workflow 也会在打包前显式执行干净编译和包面验证。
 
 真实测试当前源码时，首次使用或正式模型/密钥配置变化后运行：
@@ -352,25 +352,11 @@ node --import tsx/esm scripts/repro-toolcards.tsx
 
 ## 常见问题
 
-### Git URL 安装报错
+### Git URL 安装与版本匹配
 
-Git URL（如 `https://github.com/ccch1mneyyy/dsh-TUI`）安装不受支持，报以下错误码：
+在官方插件安装框输入 `https://github.com/ccch1mneyyy/dsh-TUI`，安装后启用即可自动配置专用 profile。管理入口无需编译，不需要 Git 子模块，也不执行本包的 `prepare`。
 
-- `ERR_PNPM_GIT_DEP_PREPARE_NOT_ALLOWED`
-- `ERR_PNPM_WORKSPACE_PKG_NOT_FOUND`
-
-三重阻断：
-
-- 源 manifest 的 `@dsh-std/*` 是 workspace 依赖（git tarball 原样保留，
-  profile 内无法解析）。
-- `vendor/dsh-std` 是 git 子模块（依赖抓取不带子模块内容，编译必败）。
-- pnpm ≥11 默认拒绝 git 依赖执行 `prepare` 构建脚本。
-
-请安装 registry 包：
-
-```sh
-dsh plugin --profile dsh-tui add @deepseek-harness-tui/dsh-tui
-```
+Git 仓库的 `package.json` 版本必须已经发布到 npm。若对应运行时未发布、registry 不可达或 TUI 正在使用该 profile，启用会报错；修复原因后禁用并重新启用，或先运行 `/tui-prepare`。`/tui-status` 提供状态和实际启动路径。开发未发布提交仍使用上述源码构建流程。
 
 ### `dsh-tui requires an interactive terminal`
 

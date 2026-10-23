@@ -125,6 +125,14 @@ overrides:
   '@deepseek-ai/dsh-web-app': 0.2.1-rc.2
   '@deepseek-ai/dsh-workspace': 0.2.1-rc.2
 
+# dsh-llm's declarations import attachment types, but rc.2 lists that package
+# only as a dev dependency. Pin its missing edge so the sqlite island's older
+# attachment cannot become a phantom type dependency after a clean install.
+packageExtensions:
+  '@deepseek-ai/dsh-llm@0.2.1-rc.2':
+    dependencies:
+      '@deepseek-ai/dsh-attachment': 0.2.1-rc.2
+
 allowBuilds:
   # Optional postinstall-only (pi-ai transitive deps): nothing at runtime
   # needs their build scripts.

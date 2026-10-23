@@ -761,7 +761,7 @@ const runDoctorChecks = () => {
 }
 // ─── safe 会话支撑（清单解析与报告渲染，交互/非交互共用）──────────────────────
 // Packages that profile repair and rescue must never remove.
-const PROTECTED_PLUGINS = new Set(['@deepseek-ai/dsh-base', PACKAGE])
+const PROTECTED_PLUGINS = new Set(['@deepseek-ai/dsh-base', PACKAGE, '@deepseek-harness-tui/dsh-tui-runtime'])
 // dir 参数供救援 profile 复用同一套解析规则（两处 manifest 契约不许分叉）。
 const readProfileInventory = (dir = profileDir) => {
   const pkg = readJson(join(dir, 'package.json'))
@@ -1284,7 +1284,11 @@ const createRescueProfile = () => {
   // 就绪判定与 bootstrapProfile 同源：安装判定文件在 node_modules 深处
   // （真实 dsh plugin add 与测试 stub 都落这里），不是 profile 根 manifest。
   if (state.state === 'clean') {
-    if (readJson(rescueInstalledPkg) !== undefined) return { kind: 'exists' }
+    if (readJson(rescueInstalledPkg) !== undefined) {
+      try { prepareManagedProfile(rescueProfileDir, RESCUE_PROFILE) }
+      catch (error) { return { kind: 'failed', lines: [msg('safeRescueFailed')(error.message)] } }
+      return { kind: 'exists' }
+    }
     // clean 但没装成：pnpm 会把半装状态视为「已是最新」，原地重试永远
     // no-op（与主 profile 的 bootstrapUnreadable 同一失败模式，issue #209）。
     // 清掉重建——但先确认目录里没有用户自己的东西（见 rescueDirStrays）。
@@ -1320,6 +1324,8 @@ const createRescueProfile = () => {
     lines.push(failed === undefined ? msg('safeRescueCleanup')(rescueProfileDir) : msg('safeRescueRemoveFailed')(rescueProfileDir, failed.message))
     return { kind: 'failed', lines }
   }
+  try { prepareManagedProfile(rescueProfileDir, RESCUE_PROFILE) }
+  catch (error) { return { kind: 'failed', lines: [msg('safeRescueFailed')(error.message)] } }
   return { kind: 'created' }
 }
 
@@ -1364,6 +1370,17 @@ const profileReady = () => {
   } catch {
     return false
   }
+}
+// Use the profile copy so migrated global launchers remain independent of lib/.
+// Legacy releases have no managed runtime and retain their original boot path.
+const prepareManagedProfile = (directory = profileDir, profile = PROFILE) => {
+  const packageRoot = join(directory, 'node_modules', '@deepseek-harness-tui', 'dsh-tui')
+  if (readJson(join(packageRoot, 'package.json'))?.dshTui?.runtimeBundle === undefined) return
+  const result = spawnSync(process.execPath, [join(packageRoot, 'src/dsh-adapter/market/cli.mjs'), profile], {
+    stdio: 'inherit', env: process.env,
+  })
+  if (result.error) throw result.error
+  if (result.status !== 0) throw new Error(`TUI profile preparation failed (exit ${result.status ?? 1})`)
 }
 const bootstrapProfile = () => {
   const probe = spawnSync(...cmd('dsh', ['--version']), { stdio: 'pipe', ...shellOpt })
@@ -1536,6 +1553,7 @@ if (subcommand === 'migrate') {
 // 的沙箱用它直接驱动全量路径；现场排查委托链时同样可用）。
 if (!runningInsideProfile && ownVersion !== undefined && process.env.DSH_TUI_NO_DELEGATE !== '1') {
   if (!profileReady()) bootstrapProfile()
+  prepareManagedProfile()
   // Refuse to delegate into a profile from an older release line: the profile
   // copy would launch `dsh --profile dsh-tui` against a composition built from
   // this launcher's patch surface and fail inside the loader.
@@ -1580,6 +1598,7 @@ if (!runningInsideProfile && ownVersion !== undefined && process.env.DSH_TUI_NO_
   // 该判定不能只留在这里——委派出去的子进程就是 profile 副本，看不到外层
   // 启动器版本。
   if (!runningInsideProfile) checkProfileAlignment(installedVersion)
+  prepareManagedProfile()
 
   // --resume / 工作区目标拦截（launcher 契约，见 src/sessionHistory.ts）。
   // sourceBackend 只在**派生**目标时给出（读的是那个内核的上次会话）；显式敲的

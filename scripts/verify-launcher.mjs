@@ -81,7 +81,9 @@ const winBasics = ['C:\\Windows\\System32', 'C:\\Windows']
 const stubPath = [stubDir, ...(isWin ? [dirname(process.execPath), ...winBasics] : ['/usr/bin', '/bin'])].join(sep)
 // 无 dsh 环境：绝不能含 node 目录——本机 node 与 dsh 同目录（D:\\node）时会把真 dsh 带进来。
 // bin 自身经绝对路径 spawn，不需要 PATH 里的 node；仅需 cmd.exe（System32）。
-const noDshPath = (isWin ? winBasics : ['/usr/bin', '/bin']).join(sep)
+const emptyPath = join(tmp, 'no-dsh-bin')
+mkdirSync(emptyPath)
+const noDshPath = (isWin ? winBasics : [emptyPath]).join(sep)
 
 function setProfileVersion(version) {
   const dir = join(home, PKG_DIR)

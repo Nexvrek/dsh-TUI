@@ -97,7 +97,7 @@ import type { BackendManifest } from '../src/agent/backend-manifest.js'
 
 const SRC = resolve(import.meta.dirname, '..', 'src')
 const ALLOWLIST_FILE = join(import.meta.dirname, 'adapter-boundary.allowlist.json')
-const SOURCE_EXTENSIONS = ['.ts', '.tsx']
+const SOURCE_EXTENSIONS = ['.ts', '.tsx', '.mjs']
 const VERBOSE = process.argv.includes('--verbose')
 
 interface VendorRule {
