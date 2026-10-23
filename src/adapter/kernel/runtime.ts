@@ -89,6 +89,8 @@ export const ADAPTER_CAPABILITY_EFFECT_CLASSES: Readonly<Record<string, HostEffe
   // Plugin surface verb host.copy: writes the system clipboard (OSC 52 plus
   // a native utility subprocess), so it never runs in a shadow mode.
   'host.surface.copy': 'mutate',
+  // host.openSession switches the session on screen (channel.resumeTo).
+  'host.surface.open-session': 'mutate',
   'host.command-trees.register': 'register',
   'host.command-trees.children': 'read-only',
   'host.command-trees.descriptions': 'read-only',
@@ -183,6 +185,7 @@ export const ADAPTER_CAPABILITY_SLICES: Readonly<Record<string, string>> = Objec
   'host.session-data.watch-projection': 'session-data',
   'host.session-data.watch-session-list': 'session-data',
   'host.surface.copy': 'surface',
+  'host.surface.open-session': 'surface',
   'host.command-trees.register': 'command-trees',
   'host.command-trees.children': 'command-trees',
   'host.command-trees.descriptions': 'command-trees',

@@ -105,9 +105,12 @@ function PluginSceneHost({ scene, channel, context }: PluginSceneHostProps): Rea
       get storage() { return sceneStorage(owner()) },
       openSession: sessionId => {
         const record = owner()
-        return record === undefined
-          ? Promise.resolve(false)
-          : surfaceOpenSession(record.owner, channel, sessionId, warn)
+        return surfaceOpenSession(
+          record === undefined ? undefined : { owner: record.owner, runtime: adapterRuntimeFor(record.caller) },
+          channel,
+          sessionId,
+          warn,
+        )
       },
       openFile: (path, options) => {
         // Relative paths resolve against the session cwd at call time.

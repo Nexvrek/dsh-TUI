@@ -41,9 +41,20 @@ function validateActivationId(value: unknown): string {
 }
 
 const identities = new WeakMap<object, VerifiedComponentIdentity>()
+/** Activations that are plugins in their own right (a Loader row's own fiber,
+ *  marked by the admission loader before the row's `apply`). Inheritance
+ *  never crosses one: a nested row whose own admission is pending, refused
+ *  or impossible must not act under the identity of the row around it. */
+const admissionBoundaries = new WeakSet<object>()
 // assertCallerContext admits a plugin's ancestor ctx only while no fiber on
 // the way holds an identity of its own (the same walk as componentIdentityOf).
-registerIdentityHolderProbe(fiber => identities.has(fiber))
+registerIdentityHolderProbe(fiber => identities.has(fiber) || admissionBoundaries.has(fiber))
+
+/** Mark `fiber` as its own plugin: identity lookups stop there unless it is
+ *  admitted itself. */
+export function markAdmissionBoundary(fiber: object): void {
+  admissionBoundaries.add(fiber)
+}
 
 function ownerKey(context: Context): object {
   const fiber = activationFiber(context)
@@ -92,7 +103,8 @@ const IDENTITY_LOOKUP_DEPTH = 64
  * `ctx.inject([...], cb)` and `ctx.plugin(...)` it creates — are part of that
  * plugin, so a panel registered or a grant checked from inside one carries the
  * plugin's identity instead of none. A nested plugin with its own admitted
- * manifest is found first and keeps its own. The walk stops at the root fiber
+ * manifest is found first and keeps its own; a nested Loader row that is not
+ * admitted (an admission boundary) gets none. The walk stops at the root fiber
  * (`runtime === null`), which never holds an identity, and follows the parent
  * Cordis set at creation (`parentFiberOf`) — never the live, writable
  * `fiber.parent`, which would let a plugin adopt another plugin's identity.
@@ -110,6 +122,7 @@ export function componentIdentityOf(context: Context): VerifiedComponentIdentity
     seen.add(fiber)
     const identity = identities.get(fiber)
     if (identity !== undefined) return identity
+    if (admissionBoundaries.has(fiber)) return undefined
     try {
       if ((fiber as { readonly runtime?: unknown }).runtime === null) return undefined
     } catch {

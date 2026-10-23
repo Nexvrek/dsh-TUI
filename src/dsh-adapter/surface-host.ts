@@ -278,18 +278,27 @@ type SessionChannel = Pick<ChannelUi, 'resumeTo' | 'notify' | 'sessionId'>
 const lastSessionOpen = new WeakMap<object, number>()
 
 /**
- * `openSession` for one plugin activation (`owner`). Validation and the rate
- * limit refuse synchronously (warned); the switch itself is `channel.resumeTo`
- * — the same transaction `/resume` and the session browser use — and its
+ * `openSession` for one plugin activation (`caller`). `host.surface.open-session`
+ * is a mutate capability (it switches the session on screen), so a shadow
+ * mode refuses it before anything else; validation and the rate limit then
+ * refuse synchronously (warned); the switch itself is `channel.resumeTo` —
+ * the same transaction `/resume` and the session browser use — and its
  * refusals surface through the same sentences (`resumeFailureText`).
  */
 export async function surfaceOpenSession(
-  owner: object,
+  caller: SurfaceCaller | undefined,
   channel: SessionChannel | undefined,
   sessionId: unknown,
   warn: (message: string) => void,
 ): Promise<boolean> {
-  if (channel === undefined) return false
+  if (caller === undefined || channel === undefined) return false
+  try {
+    assertCapabilityShadowPolicy('host.surface.open-session', caller.runtime.mode, caller.runtime.slices)
+  } catch {
+    warn('dsh-tui: openSession refused by the adapter shadow policy')
+    return false
+  }
+  const { owner } = caller
   // eslint-disable-next-line no-control-regex -- session ids are plain tokens
   if (typeof sessionId !== 'string' || sessionId.trim() === '' || sessionId.length > SESSION_ID_MAX || /[\x00-\x1f\x7f]/u.test(sessionId)) {
     warn('dsh-tui: openSession rejected an invalid session id')

@@ -658,6 +658,26 @@ check('Table widths: fixed first, grow split, minWidth floor, clip at the edge',
   assert.deepEqual(table.layoutTable({ columns: [], rows: [{ a: 1 }], width: 5 }), [])
 })
 
+check('Table: a huge generated column list only lays out the columns that can show', () => {
+  // Every column past width/gap starts beyond the right edge: the layout must
+  // be the one of the columns that fit, and must never read the rest.
+  const many: { key: string; title?: string; minWidth?: number }[] = Array.from({ length: 100_000 }, (_, index) => ({ key: 'k' + index, title: 'T' + index, minWidth: index % 3 }))
+  let touched = false
+  Object.defineProperty(many, 50_000, { get() { touched = true; return { key: 'far' } } })
+  const rows = Array.from({ length: 50 }, (_, at) => Object.fromEntries(Array.from({ length: 30 }, (_, index) => ['k' + index, at * 100 + index])))
+  const width = 20
+  const bounded = table.layoutTable({ columns: many, rows, width })
+  assert.equal(touched, false, 'columns that start past the edge are never read')
+  assert.deepEqual(bounded, table.layoutTable({ columns: many.slice(0, width + 1), rows, width }), 'the same rows as the columns that fit')
+  for (const row of bounded) assert.equal(rowWidth(row), width)
+  // Dropping the clipped columns changes no width of the ones that show (the
+  // gaps of the full list already left no flexible room).
+  const plain = Array.from({ length: 2_000 }, (_, index) => ({ key: 'k' + index, minWidth: index % 3, ...(index % 7 === 0 ? { width: 2 } : {}) }))
+  for (const at of [5, 20, 64]) {
+    assert.deepEqual(table.tableColumnWidths(plain.slice(0, at + 1), at), table.tableColumnWidths(plain, at).slice(0, at + 1), `widths at ${at} cells`)
+  }
+})
+
 console.log('palette')
 
 check('every built-in carries eight distinct chart colors from its ramp', () => {

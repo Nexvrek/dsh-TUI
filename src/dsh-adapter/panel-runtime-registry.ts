@@ -181,7 +181,12 @@ export function pluginPanelOpenSession(
 ): Promise<boolean> {
   const record = liveRecord(registration)
   if (record === undefined) return Promise.resolve(false)
-  return surfaceOpenSession(record.owner, channel, sessionId, message => { record.caller.logger.warn(message) })
+  return surfaceOpenSession(
+    { owner: record.owner, runtime: adapterRuntimeFor(record.caller) },
+    channel,
+    sessionId,
+    message => { record.caller.logger.warn(message) },
+  )
 }
 
 /** host.openFile：校验 + 相对路径按会话 cwd 解析，交给宿主只读预览场景。 */

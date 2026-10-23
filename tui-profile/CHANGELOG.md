@@ -109,7 +109,7 @@
   `refresh()` 合并为每个 watch 每秒至多开始一次读取（尾随读取，不中途取代）；非 DSH 后端恒读
   `undefined` / `[]`。类型进 `./extensions` 与 `./api`。
 - **adapter 能力位**：`host.session-data.watch-projection` / `watch-session-list`（slice
-  `session-data`，subscribe 类）与 `host.surface.copy`（slice `surface`，mutate 类）；
+  `session-data`，subscribe 类）与 `host.surface.copy` / `host.surface.open-session`（slice `surface`，mutate 类）；
   `DSH_TUI_ADAPTER_SLICES` 接受这两个新 slice 名。
 - **插件命令限定名**：经 `tuiPluginHost.registerCommand` 归属、被内置命令遮蔽的命令以
   `/<pluginId>:<name>` 列出并可执行（同一执行路径、同一 `commands.invoke` 检查）；`pluginId`

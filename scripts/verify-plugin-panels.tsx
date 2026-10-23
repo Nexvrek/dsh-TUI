@@ -1004,11 +1004,11 @@ const failChannel = (result: unknown) => ({
   async resumeTo() { return result as never },
 })
 check('wp3 openSession: working refusal → false + the /resume working notice',
-  await surface.surfaceOpenSession({}, failChannel({ ok: false, reason: 'working' }) as never, 's4', () => {}) === false
+  await surface.surfaceOpenSession({ owner: {}, runtime: { mode: 'legacy', slices: [] } }, failChannel({ ok: false, reason: 'working' }) as never, 's4', () => {}) === false
   && failNotices.includes(t(WORKING_GATE_NOTICES.resume)))
 const beforeCancel = failNotices.length
 check('wp3 openSession: cancelled (vetoed/stale-dropped) → false, no extra notice',
-  await surface.surfaceOpenSession({}, failChannel({ ok: false, reason: 'cancelled' }) as never, 's5', () => {}) === false
+  await surface.surfaceOpenSession({ owner: {}, runtime: { mode: 'legacy', slices: [] } }, failChannel({ ok: false, reason: 'cancelled' }) as never, 's5', () => {}) === false
   && failNotices.length === beforeCancel)
 
 // copy：校验 + OSC 52 经渲染器原始通道写出 + 宿主提示一次。

@@ -328,7 +328,9 @@ schema 缺失时全部写入被抑制（fail closed）。四个托管服务
 
 **身份继承**：插件里嵌套创建的 fiber（`ctx.inject([...], cb)` 的回调、`ctx.plugin(...)`
 挂上的子插件）以**最近一个已准入祖先**的 verified 身份行事；嵌套的子插件若自带已准入的
-manifest，则保留它自己的身份。所以下文各接缝里 `ctx.inject(['tuiScenes'], sceneCtx => …)`
+manifest，则保留它自己的身份。由 Loader 实例化的行（插件组里的子行）是独立插件、不是外层插件
+代码创建的 fiber：它自己的准入未通过（待定、被拒、manifest 无法解析）时不继承外层身份，只有
+会话级 `session:actN`。所以下文各接缝里 `ctx.inject(['tuiScenes'], sceneCtx => …)`
 这类写法注册的场景、面板、命令同样带插件身份（面板稳定前缀、命令命名空间、台账归属、授权
 判定都按它算）。查找沿 Cordis **创建 fiber 时记录的父链**进行，不读可写的 `fiber.parent`：
 插件改写 `ctx.fiber.parent` 借不到别的插件的身份——被改写的 fiber 仍按创建时的父链继承（通常
@@ -1135,7 +1137,7 @@ interface TuiSceneHostApi extends TuiSurfaceHostApi {
 
 | 动词 | 语义 | 限制 / 失败 |
 | --- | --- | --- |
-| `openSession(sessionId): Promise<boolean>` | 把屏上会话切到另一个持久化会话，与 `/resume` **同一条路径**（`channel.resumeTo`）：照常触发 `tui/session-switch` 决策事件、陈旧丢弃与同样的提示；成功时提示「已恢复会话」 | 每个插件 activation 每 2s 至多 1 次；id 必须是非空、≤256 字符、无控制字符的字符串；已在屏上的会话直接 `true`（不重挂）；回合进行中、被决策否决、会话被别的终端占用、后端不支持 → `false`，提示与 `/resume` 一致。**不会自动关闭调用它的场景**：需要时写 `if (await host.openSession(id)) close()` |
+| `openSession(sessionId): Promise<boolean>` | 把屏上会话切到另一个持久化会话，与 `/resume` **同一条路径**（`channel.resumeTo`）：照常触发 `tui/session-switch` 决策事件、陈旧丢弃与同样的提示；成功时提示「已恢复会话」 | 每个插件 activation 每 2s 至多 1 次；属修改类能力（`host.surface.open-session`），adapter 处于 shadow 模式时一律返回 `false`（不占窗口）；id 必须是非空、≤256 字符、无控制字符的字符串；已在屏上的会话直接 `true`（不重挂）；回合进行中、被决策否决、会话被别的终端占用、后端不支持 → `false`，提示与 `/resume` 一致。**不会自动关闭调用它的场景**：需要时写 `if (await host.openSession(id)) close()` |
 | `openFile(path, { line? }): boolean` | 打开宿主自带的[只读文件预览](#宿主文件预览)；相对路径按**调用时**的会话 cwd 解析；`line` 是 1 起的行号，打开时滚到该行并标出 | path 非空、≤4096 字符、不含 NUL；`line` 必须是正整数；目录、非普通文件、二进制、> 2 MiB 的文件打开后**显示提示而不是内容**（仍返回 `true`）；从不执行任何东西；`tuiScenes` 服务缺席时 `false` |
 | `copy(text): boolean` | 复制到系统剪贴板：OSC 52（tmux 内自动包装）+ 本地剪贴板工具兜底，与宿主自己的复制同一路径；宿主每次都提示「已复制 N 个字符」 | 非空字符串、≤1,048,576 个 UTF-16 码元；**每个插件 activation 每秒至多 1 次**（被拒的调用不占窗口）；属修改类能力（`host.surface.copy`），adapter 处于 shadow 模式时一律拒绝——被拒或超限返回 `false` 并写 warn 日志，既不提示也不写剪贴板；终端不支持 OSC 52 且没有本地工具时可能实际没复制上（与宿主复制同样的限制） |
 | `openScene(id, params?): boolean` | 打开**自己注册的**场景，可带深链参数 | 不属于自己的 id、参数非法 → `false` |

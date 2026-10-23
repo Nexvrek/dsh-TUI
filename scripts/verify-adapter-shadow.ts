@@ -596,8 +596,10 @@ const EXTRA_CAPABILITY_GUARDS: ReadonlyArray<{ capability: string; file: string 
   { capability: 'host.commands.invoke', file: 'dsh-adapter/channel/external-commands.ts' },
   { capability: 'host.presentation.ask', file: 'dsh-adapter/questions.ts' },
   { capability: 'host.presentation.approve', file: 'dsh-adapter/approvals.ts' },
-  // The panel/scene surface verb host.copy (one helper behind both surfaces).
+  // The panel/scene surface verbs host.copy and host.openSession (one helper
+  // each behind both surfaces).
   { capability: 'host.surface.copy', file: 'dsh-adapter/surface-host.ts' },
+  { capability: 'host.surface.open-session', file: 'dsh-adapter/surface-host.ts' },
 ])
 for (const { capability, file } of EXTRA_CAPABILITY_GUARDS) {
   assert.ok(fileHasDirectCapabilityGuard(file, capability),
@@ -608,6 +610,7 @@ assert.ok(ADAPTER_CAPABILITY_EFFECT_CLASSES['host.commands.invoke'] === 'mutate'
 assert.ok(ADAPTER_CAPABILITY_EFFECT_CLASSES['host.presentation.ask'] === 'mutate')
 assert.ok(ADAPTER_CAPABILITY_EFFECT_CLASSES['host.presentation.approve'] === 'mutate')
 assert.ok(ADAPTER_CAPABILITY_EFFECT_CLASSES['host.surface.copy'] === 'mutate')
+assert.ok(ADAPTER_CAPABILITY_EFFECT_CLASSES['host.surface.open-session'] === 'mutate')
 
 // The grant evaluation path is hosted by external-commands.ts, not an adapter
 // capability guard. It is still a machine-checkable invocation claim, so keep
@@ -854,6 +857,17 @@ try {
     assert.deepEqual(notices, [], 'a refused copy announces nothing')
     await new Promise(resolve => setTimeout(resolve, 20))
     assert.deepEqual(writes, [], 'a refused copy writes no OSC 52')
+    // host.openSession switches the session on screen: refused the same way,
+    // before the rate-limit window or channel.resumeTo.
+    const { surfaceOpenSession } = await import('../src/dsh-adapter/surface-host.js')
+    const resumes: string[] = []
+    const sessionChannel = { sessionId: 's1', notify: () => () => {}, async resumeTo(id: string) { resumes.push(id); return { ok: true as const } } }
+    const owner = {}
+    assert.equal(await surfaceOpenSession({ owner, runtime: adapterRuntimeFor(passiveRoot) }, sessionChannel as never, 's2', () => undefined), false,
+      'host.openSession is refused in passive-shadow')
+    assert.equal(await surfaceOpenSession({ owner, runtime: { mode: 'legacy', slices: [] } }, sessionChannel as never, 's2', () => undefined), true,
+      'the refusal did not use the rate-limit window')
+    assert.deepEqual(resumes, ['s2'], 'only the admitted call switched')
   }
   checks += 1
 

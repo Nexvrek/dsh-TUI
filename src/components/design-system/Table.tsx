@@ -63,7 +63,11 @@ function cellParts(cell: TuiTableCell | undefined): { text: string; color?: unkn
  */
 export function layoutTable(props: TuiTableProps): ChartRun[][] {
   const width = cellCount(props.width)
-  const columns = Array.isArray(props.columns) ? props.columns : []
+  // Column i starts at cell i·COLUMN_GAP or later, so past this many every
+  // column is clipped whole. Dropping them changes no width (their gaps alone
+  // already exhaust the flexible budget) and bounds the work for a huge
+  // generated column list.
+  const columns = (Array.isArray(props.columns) ? props.columns : []).slice(0, Math.floor(width / COLUMN_GAP) + 1)
   if (width === 0 || columns.length === 0) return []
   const widths = tableColumnWidths(columns, width)
   const showHeader = props.header ?? columns.some(column => chartText(column?.title) !== '')

@@ -536,6 +536,26 @@ try {
     while (pending.length > 0) pending.shift()!([])
     await waitUntil(() => false, interval * 3)
     assert.equal(loads, beforeLast + 1, 'the pending trailing read is dropped with the last subscriber')
+    // A host that ignores the abort: the aborted read keeps the slot until it
+    // settles, so a new subscriber's read follows it instead of overlapping.
+    const beforeSlow = loads
+    const offSlow = watch.subscribe(() => {})
+    assert.equal(loads, beforeSlow + 1)
+    offSlow()
+    await waitUntil(() => false, interval * 2)
+    let slowEmits = 0
+    const offAgain = watch.subscribe(() => { slowEmits += 1 })
+    await waitUntil(() => false, interval * 2)
+    assert.equal(loads, beforeSlow + 1, 'no second listing while the aborted one still runs')
+    pending.shift()!([{ id: 'stale' } as never])
+    await waitUntil(() => loads === beforeSlow + 2, 1_000)
+    assert.equal(loads, beforeSlow + 2, 'the new subscriber\'s read starts once the aborted one settles')
+    assert.equal(slowEmits, 0, 'the aborted read\'s rows are discarded')
+    assert.ok(!watch.read().some(row => row.id === 'stale'))
+    pending.shift()!([])
+    await flush()
+    assert.equal(slowEmits, 1, 'and the fresh read lands')
+    offAgain()
     dispose()
     const disposedLoads = loads
     watch.refresh()

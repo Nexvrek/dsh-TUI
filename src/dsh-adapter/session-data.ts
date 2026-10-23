@@ -363,6 +363,12 @@ export function createSessionListWatch(
     }
     load(controller.signal).then(next => {
       if (disposed || inflight !== controller) return
+      // An aborted read only frees the slot: nobody asked for its rows, and
+      // a read a new subscriber asked for meanwhile starts now.
+      if (controller.signal.aborted) {
+        settle()
+        return
+      }
       rows = next
       // Settle before notifying: a listener that refreshes lands in the
       // interval and coalesces instead of starting a read of its own.
@@ -372,7 +378,7 @@ export function createSessionListWatch(
       if (disposed || inflight !== controller) return
       // A failed read is not an empty store: the previous rows stay.
       settle()
-      onLoadError(error)
+      if (!controller.signal.aborted) onLoadError(error)
     })
   }
   /** Ask for a read: now when nothing runs and the interval has passed,
@@ -400,8 +406,9 @@ export function createSessionListWatch(
       return () => {
         if (!listeners.delete(own) || listeners.size > 0) return
         // Nobody observes the read in flight (or the pending one) any more.
+        // It stays in flight until it settles — a host that honours the
+        // signal late (or not at all) must never run two listings at once.
         inflight?.abort()
-        inflight = undefined
         cancelTimer()
         stale = false
       }
