@@ -31,6 +31,8 @@ import { openHostFilePreview, type TuiSceneRuntime } from './scenes.js'
 export const PANEL_OPEN_RATE_LIMIT_MS = 5_000
 
 export interface PanelOwnerRecord {
+  /** The panel id this registration holds (one record per registration). */
+  readonly id: string
   /** Canonical activation context (kept alive by the bound effect; the panel
    * is unregistered before the activation tears down, so late host-API calls
    * through a disposed ctx degrade, never crash the store). */
@@ -57,6 +59,20 @@ export function deletePanelOwnerRecord(id: string): void {
   ownerRecords.delete(id)
 }
 
+/**
+ * The host verbs below take the record of the registration that made the
+ * rendered panel, never a bare id: they act only while that registration is
+ * still the live one, so a callback a panel kept past its unload refuses —
+ * even across a reload that registers the same durable id again.
+ */
+function liveRecord(registration: PanelOwnerRecord): PanelOwnerRecord | undefined {
+  return ownerRecords.get(registration.id) === registration ? registration : undefined
+}
+
+export function isLivePanelRegistration(registration: PanelOwnerRecord): boolean {
+  return liveRecord(registration) !== undefined
+}
+
 export function countPanelsOwnedBy(owner: object): number {
   let count = 0
   for (const record of ownerRecords.values()) if (record.owner === owner) count += 1
@@ -69,8 +85,8 @@ export function countPluginPanels(): number {
 
 /** Plugin Panel 的 toast：经注册激活自己的 tuiToast 服务（无服务时静默
  * false，与 scenes 降级语义一致）。 */
-export function pluginPanelToast(id: string, text: string): boolean {
-  const record = ownerRecords.get(id)
+export function pluginPanelToast(registration: PanelOwnerRecord, text: string): boolean {
+  const record = liveRecord(registration)
   if (record === undefined) return false
   const toast = record.caller.get('tuiToast') as { show(text: string): boolean } | undefined
   if (toast === undefined || typeof toast.show !== 'function') return false
@@ -82,8 +98,8 @@ export function pluginPanelToast(id: string, text: string): boolean {
 }
 
 /** 打开自己注册的全屏场景：转 tuiScenes（它自己做 owner 校验、参数校验与降级）。 */
-export function pluginPanelOpenScene(id: string, sceneId: string, params?: TuiJsonValue): boolean {
-  const record = ownerRecords.get(id)
+export function pluginPanelOpenScene(registration: PanelOwnerRecord, sceneId: string, params?: TuiJsonValue): boolean {
+  const record = liveRecord(registration)
   if (record === undefined) return false
   const scenes = record.caller.get('tuiScenes') as { open(id: string, params?: TuiJsonValue): boolean } | undefined
   if (scenes === undefined || typeof scenes.open !== 'function') return false
@@ -96,8 +112,8 @@ export function pluginPanelOpenScene(id: string, sceneId: string, params?: TuiJs
 
 /** 打开自己注册的另一个（或同一个）Panel：转 tuiPanels.open（owner 校验、
  *  参数校验、5s 限速与 shadow policy 都在那里）。 */
-export function pluginPanelOpenPanel(id: string, panelId: string, params?: TuiJsonValue): boolean {
-  const record = ownerRecords.get(id)
+export function pluginPanelOpenPanel(registration: PanelOwnerRecord, panelId: string, params?: TuiJsonValue): boolean {
+  const record = liveRecord(registration)
   if (record === undefined) return false
   const panels = record.caller.get('tuiPanels') as { open(id: string, params?: TuiJsonValue): boolean } | undefined
   if (panels === undefined || typeof panels.open !== 'function') return false
@@ -159,18 +175,18 @@ export function usePluginPanelParams(id: string): TuiJsonValue | undefined {
 
 /** host.openSession：与 /resume 同一条 channel.resumeTo 路径；每插件每 2s 至多 1 次。 */
 export function pluginPanelOpenSession(
-  id: string,
+  registration: PanelOwnerRecord,
   channel: Pick<ChannelUi, 'resumeTo' | 'notify' | 'sessionId'> | undefined,
   sessionId: unknown,
 ): Promise<boolean> {
-  const record = ownerRecords.get(id)
+  const record = liveRecord(registration)
   if (record === undefined) return Promise.resolve(false)
   return surfaceOpenSession(record.owner, channel, sessionId, message => { record.caller.logger.warn(message) })
 }
 
 /** host.openFile：校验 + 相对路径按会话 cwd 解析，交给宿主只读预览场景。 */
-export function pluginPanelOpenFile(id: string, cwd: string | undefined, path: unknown, options: unknown): boolean {
-  const record = ownerRecords.get(id)
+export function pluginPanelOpenFile(registration: PanelOwnerRecord, cwd: string | undefined, path: unknown, options: unknown): boolean {
+  const record = liveRecord(registration)
   if (record === undefined) return false
   const warn = (message: string): void => { record.caller.logger.warn(message) }
   const request = resolveSurfaceFileRequest(cwd, path, options, warn)
@@ -187,20 +203,20 @@ export function pluginPanelOpenFile(id: string, cwd: string | undefined, path: u
 /** host.copy：宿主统一的剪贴板路径（OSC 52 + 本地工具兜底），并提示一次；
  *  mutate（shadow 模式拒绝）+ 每插件每秒至多 1 次。 */
 export function pluginPanelCopy(
-  id: string,
+  registration: PanelOwnerRecord,
   text: unknown,
   writeRaw: ((data: string) => void) | null | undefined,
   notify: ((text: string) => void) | undefined,
 ): boolean {
-  const record = ownerRecords.get(id)
+  const record = liveRecord(registration)
   if (record === undefined) return false
   const caller = { owner: record.owner, runtime: adapterRuntimeFor(record.caller) }
   return surfaceCopy(caller, text, writeRaw, notify, message => { record.caller.logger.warn(message) })
 }
 
 /** 自己的 tuiPluginStorage 句柄（懒开、每 Panel 一次；无服务时 undefined）。 */
-export function pluginPanelStorage(id: string): TuiPluginStorage | undefined {
-  const record = ownerRecords.get(id)
+export function pluginPanelStorage(registration: PanelOwnerRecord): TuiPluginStorage | undefined {
+  const record = liveRecord(registration)
   if (record === undefined) return undefined
   if (record.storage !== undefined) return record.storage
   const service = record.caller.get('tuiPluginStorage') as
@@ -216,6 +232,6 @@ export function pluginPanelStorage(id: string): TuiPluginStorage | undefined {
 }
 
 /** 侧栏展开且自己是 active 时聚焦（useSidePanel 侧裁决）。 */
-export function pluginPanelFocus(id: string): boolean {
-  return panelBridgeRequests.request('focus', id)
+export function pluginPanelFocus(registration: PanelOwnerRecord): boolean {
+  return liveRecord(registration) !== undefined && panelBridgeRequests.request('focus', registration.id)
 }

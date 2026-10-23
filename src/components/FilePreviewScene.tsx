@@ -49,6 +49,12 @@ const BINARY_SNIFF_BYTES = 8000
 /** First read size when the stat'd size says less (procfs reports 0). */
 const READ_CHUNK_BYTES = 64 * 1024
 const TAB_SIZE = 4
+/** Source code units {@link displayRuns} may read per cell it was asked for
+ *  (plus a floor): far above real text (an emoji ZWJ sequence is ~10 per
+ *  cell), so only zero-width floods — one huge combining cluster, a run of
+ *  ZWSP — reach it, and they cost a bounded walk instead of the whole line. */
+const SOURCE_UNITS_PER_CELL = 32
+const SOURCE_UNITS_FLOOR = 256
 /** Header + footer rows around the body. */
 const CHROME_ROWS = 2
 
@@ -143,16 +149,26 @@ const BIDI_CONTROLS = /[‪-‮⁦-⁩]/u
  * Make one line of file runs safe and measurable: tabs expand to stops of
  * {@link TAB_SIZE} cells, C0/C1 controls become control pictures, and bidi
  * overrides/isolates become U+FFFD (a code viewer must show, not obey, them).
- * Work stops once `maxCells` are produced: a minified one-line file must not
- * cost a full grapheme walk per keypress when only a window of it is shown.
+ * Work stops once `maxCells` are produced, or once the source budget for them
+ * is read (zero-width content produces no cells): a minified one-line file
+ * must not cost a full grapheme walk per keypress when only a window of it is
+ * shown.
  */
 export function displayRuns(runs: readonly SyntaxRun[], maxCells: number = Number.POSITIVE_INFINITY): SyntaxRun[] {
   const out: SyntaxRun[] = []
   let column = 0
+  let budget = Number.isFinite(maxCells) ? Math.max(0, maxCells) * SOURCE_UNITS_PER_CELL + SOURCE_UNITS_FLOOR : Number.POSITIVE_INFINITY
   for (const run of runs) {
-    if (column >= maxCells) break
+    if (column >= maxCells || budget <= 0) break
+    let source = run.text
+    if (source.length > budget) {
+      // Never end on half a surrogate pair.
+      const end = source.charCodeAt(budget - 1) >= 0xd800 && source.charCodeAt(budget - 1) <= 0xdbff ? budget - 1 : budget
+      source = source.slice(0, end)
+    }
+    budget -= source.length
     let text = ''
-    for (const { segment } of getGraphemeSegmenter().segment(run.text)) {
+    for (const { segment } of getGraphemeSegmenter().segment(source)) {
       if (column >= maxCells) break
       const code = segment.codePointAt(0) ?? 0
       if (segment === '\t') {

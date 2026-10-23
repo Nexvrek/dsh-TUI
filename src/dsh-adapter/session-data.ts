@@ -255,7 +255,11 @@ export async function listSessionRows(
       }
       const projections: Record<string, unknown> = {}
       for (const key of keys) {
-        if (hints !== undefined && Object.hasOwn(hints, key)) projections[key] = hints[key]
+        // Defined, not assigned: a requested `__proto__` must be an own key,
+        // not a call to the inherited setter.
+        if (hints !== undefined && Object.hasOwn(hints, key)) {
+          Object.defineProperty(projections, key, { value: hints[key], enumerable: true, writable: true, configurable: true })
+        }
       }
       const prompted = lastPromptAt(hints?.[LIST_METADATA_KEY])
       const created = header.createdAt
@@ -435,6 +439,9 @@ const sessionDataStates = new WeakMap<TuiSessionDataRuntime, SessionDataState>()
 /** Live watches per activation fiber. */
 const projectionWatches = new WeakMap<object, number>()
 const sessionListWatches = new WeakMap<object, number>()
+/** Watches holding each distinct projection key, across every composition
+ *  root: the key budget is process-wide, the values stay in each root's hub. */
+const watchedProjectionKeys = new Map<string, number>()
 
 function sessionDataStateFor(runtime: TuiSessionDataRuntime): SessionDataState {
   const state = sessionDataStates.get(concreteService(runtime))
@@ -513,7 +520,7 @@ export class TuiSessionDataRuntime extends Service {
       caller.get('tuiEffectLedger')?.record({ operation: 'bind', resource, result: 'failed', errorCode: 'SESSION_DATA_BUDGET_EXCEEDED' }, identity)
       return undefined
     }
-    if (!state.hub.has(key) && state.hub.size >= MAX_PROJECTION_KEYS_TOTAL) {
+    if (!watchedProjectionKeys.has(key) && watchedProjectionKeys.size >= MAX_PROJECTION_KEYS_TOTAL) {
       caller.logger.warn(`dsh-tui: tuiSessionData.watchProjection rejected "${key}" — ${MAX_PROJECTION_KEYS_TOTAL} projection keys are already watched`)
       caller.get('tuiEffectLedger')?.record({ operation: 'bind', resource, result: 'failed', errorCode: 'SESSION_DATA_BUDGET_EXCEEDED' }, identity)
       return undefined
@@ -522,6 +529,7 @@ export class TuiSessionDataRuntime extends Service {
       caller.logger.warn(`dsh-tui: tuiSessionData listener for "${key}" failed: ${errorText(error)}`)
     })
     projectionWatches.set(owner, held + 1)
+    watchedProjectionKeys.set(key, (watchedProjectionKeys.get(key) ?? 0) + 1)
     let disposed = false
     let ledgerApplied = false
     let ownerCleanup: (() => unknown) | undefined
@@ -530,6 +538,9 @@ export class TuiSessionDataRuntime extends Service {
       disposed = true
       lease.release()
       projectionWatches.set(owner, Math.max(0, (projectionWatches.get(owner) ?? 1) - 1))
+      const holders = (watchedProjectionKeys.get(key) ?? 1) - 1
+      if (holders > 0) watchedProjectionKeys.set(key, holders)
+      else watchedProjectionKeys.delete(key)
       if (ledgerApplied) {
         caller.get('tuiEffectLedger')?.record({ operation: 'release', resource, result: 'applied' }, identity)
       }

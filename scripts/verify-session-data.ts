@@ -325,10 +325,19 @@ try {
     assert.equal(sessionData(extra.ctx).watchProjection('g-new'), undefined, 'a 65th distinct key is refused')
     assert.ok(ledgerRecords().some(record => record.result === 'failed' && record.resource?.id === 'projection:g-new'))
     assert.ok(sessionData(extra.ctx).watchProjection('g0-0') !== undefined, 'an already-watched key is still shared')
+    // The budget spans composition roots: a second root has its own hub but
+    // no second allowance of keys.
+    const otherRoot = new Context()
+    await otherRoot.plugin(TuiSessionDataRuntime)
+    const elsewhere = await activation(otherRoot, 'holder-elsewhere')
+    assert.equal(sessionData(elsewhere.ctx).watchProjection('g-other-root'), undefined, 'a 65th distinct key in another root is refused')
+    assert.ok(sessionData(elsewhere.ctx).watchProjection('g1-0') !== undefined, 'a key watched in another root is still admitted')
     for (const holder of [...many, extra]) await holder.dispose()
     assert.equal(hub.size, 0)
+    assert.ok(sessionData(elsewhere.ctx).watchProjection('g-other-root') !== undefined, 'released keys free the budget for every root')
+    await elsewhere.dispose()
   }
-  pass('budgets: 8 watches per activation, 64 keys process-wide, invalid keys refused')
+  pass('budgets: 8 watches per activation, 64 keys process-wide (across roots), invalid keys refused')
 
   // The registry leaving clears the value.
   {
@@ -568,6 +577,19 @@ try {
     }, ['k'], new AbortController().signal, (_error, sessionId) => { failures.push(sessionId) })
     assert.deepEqual(rowsWithFailure.map(row => [row.id, row.projections]), [['y', {}], ['x', { k: 'x-value' }]], 'a failing read costs that row its values only')
     assert.deepEqual(failures, ['y'])
+    // `__proto__` is a valid key: it must come back as an own data property,
+    // never through the inherited setter (which would drop it and swap the
+    // row's prototype for the value).
+    const protoValue = { inherited: true }
+    const [protoRow] = await listSessionRows({
+      query: { listSessions: async () => [{ header: { id: 'p', cwd: '/w/p', createdAt: 1 } }] },
+      projectionCache: { cachedSnapshot: () => ({ values: JSON.parse('{"__proto__":{"inherited":true}}') as Record<string, unknown> }) },
+    }, ['__proto__'], new AbortController().signal)
+    const protoProjections = protoRow!.projections as Record<string, unknown>
+    assert.ok(Object.hasOwn(protoProjections, '__proto__'), 'a requested __proto__ is an own key')
+    assert.deepEqual(protoProjections['__proto__'], protoValue)
+    assert.equal(Object.getPrototypeOf(protoProjections), Object.prototype, 'the record keeps its prototype')
+    assert.equal((protoProjections as { inherited?: unknown }).inherited, undefined, 'no field the caller never requested')
     const aborted = new AbortController()
     aborted.abort()
     await assert.rejects(listSessionRows({ query: { listSessions: async () => [] } }, [], aborted.signal), /superseded/)

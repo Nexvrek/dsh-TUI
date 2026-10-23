@@ -40,6 +40,7 @@ import type {
   TuiPanelUi,
 } from '../../dsh-adapter/panels.js'
 import {
+  isLivePanelRegistration,
   pluginPanelCopy,
   pluginPanelFocus,
   pluginPanelOpenFile,
@@ -49,15 +50,19 @@ import {
   pluginPanelStorage,
   pluginPanelToast,
   usePluginPanelParams,
+  type PanelOwnerRecord,
 } from '../../dsh-adapter/panel-runtime-registry.js'
 import type { SidePanelKeyFlags } from './types.js'
 
 /** sendToChat 未授权提示每 Panel 每会话只 toast 一次。 */
 const sendToChatWarned = new Set<string>()
 
+/** `registration` is the owner record of the registration making this
+ *  component: every host verb is bound to it (panel-runtime-registry.ts). */
 export function makePluginPanelComponent(
   panelId: string,
   component: React.ComponentType<TuiPanelProps>,
+  registration: PanelOwnerRecord,
 ): React.ComponentType<PanelProps> {
   function PluginPanelHost(props: PanelProps): React.ReactNode {
     const { width, height, focused, visible, mode } = props
@@ -85,7 +90,7 @@ export function makePluginPanelComponent(
     }, { active: focused && visible })
 
     // ── host API：identity 随 runtimeCtx（channel/activity/attention 计数）
-    // 与 focused 变化而刷新；其余函数绑定 panelId。attention 按两个计数
+    // 与 focused 变化而刷新；其余函数绑定这次注册（撤下或重注册后一律拒绝）。attention 按两个计数
     // 记忆——Chat 每次渲染都会给一个新对象，不能让 host 每帧换身份。
     const channel = runtimeCtx?.channel
     const activity = runtimeCtx?.activity
@@ -95,29 +100,29 @@ export function makePluginPanelComponent(
       // 结构拷贝、只策展白名单字段——不含转录正文/凭证/文件内容。
       snapshot: () => buildPanelSnapshot(channel, activity, { approvals, questions }),
       focused,
-      notify: (level, unread = 0) => { panelStore.setBadge(panelId, { level, unread }) },
-      clearBadge: () => { panelStore.clearBadge(panelId) },
+      notify: (level, unread = 0) => { if (isLivePanelRegistration(registration)) panelStore.setBadge(panelId, { level, unread }) },
+      clearBadge: () => { if (isLivePanelRegistration(registration)) panelStore.clearBadge(panelId) },
       sendToChat: () => {
         if (!sendToChatWarned.has(panelId)) {
           sendToChatWarned.add(panelId)
-          pluginPanelToast(panelId, t('panel-send-to-chat-denied'))
+          pluginPanelToast(registration, t('panel-send-to-chat-denied'))
         }
         return false
       },
-      openScene: (sceneId, params) => pluginPanelOpenScene(panelId, sceneId, params),
-      openPanel: (targetId, params) => pluginPanelOpenPanel(panelId, targetId, params),
-      openSession: sessionId => pluginPanelOpenSession(panelId, channel, sessionId),
+      openScene: (sceneId, params) => pluginPanelOpenScene(registration, sceneId, params),
+      openPanel: (targetId, params) => pluginPanelOpenPanel(registration, targetId, params),
+      openSession: sessionId => pluginPanelOpenSession(registration, channel, sessionId),
       // 相对路径按调用时的会话 cwd 解析（不是渲染时的：会话可能已经切换）。
-      openFile: (path, options) => pluginPanelOpenFile(panelId, channel?.cwd, path, options),
-      copy: text => pluginPanelCopy(panelId, text, writeRaw, channel === undefined ? undefined : message => { channel.notify(message, { timeoutMs: 1500 }) }),
+      openFile: (path, options) => pluginPanelOpenFile(registration, channel?.cwd, path, options),
+      copy: text => pluginPanelCopy(registration, text, writeRaw, channel === undefined ? undefined : message => { channel.notify(message, { timeoutMs: 1500 }) }),
       useParams: () => usePluginPanelParams(panelId),
-      toast: text => pluginPanelToast(panelId, text),
-      get storage() { return pluginPanelStorage(panelId) },
+      toast: text => pluginPanelToast(registration, text),
+      get storage() { return pluginPanelStorage(registration) },
       onKey: listener => {
         keyListeners.current.add(listener)
         return () => { keyListeners.current.delete(listener) }
       },
-      focus: () => pluginPanelFocus(panelId),
+      focus: () => pluginPanelFocus(registration),
     }), [channel, activity, approvals, questions, focused, writeRaw])
 
     // ── ui kit：useTerminalSize/useAnimationTime 绑定 Panel 尺寸，其余

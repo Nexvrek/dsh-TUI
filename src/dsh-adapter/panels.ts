@@ -50,6 +50,7 @@ import {
   getPanelOwnerRecord,
   requestOwnPanelOpen,
   setPanelOwnerRecord,
+  type PanelOwnerRecord,
 } from './panel-runtime-registry.js'
 import { clearSurfaceParams, panelParamsKey } from './surface-host.js'
 
@@ -632,6 +633,10 @@ export class TuiPanelRuntime extends Service {
     }
 
     const title = cleanScalarText(d.title, TITLE_CELLS)
+    // One record per registration: the rendered panel's host verbs are bound
+    // to it, so they refuse once this registration is gone — a reload that
+    // registers the same id gets a record of its own.
+    const ownerRecord: PanelOwnerRecord = { id: finalId, caller, owner, pluginId, lastOpenAt: 0 }
     const definition: PanelDefinition = Object.freeze({
       id: finalId,
       title,
@@ -642,7 +647,7 @@ export class TuiPanelRuntime extends Service {
       pluginId,
       // v2.1：插件 Panel 强制 active 挂载（防常驻面板烧资源）。
       mountPolicy: 'active',
-      component: makePluginPanelComponent(finalId, (d.component ?? (() => null)) as React.ComponentType<TuiPanelProps>),
+      component: makePluginPanelComponent(finalId, (d.component ?? (() => null)) as React.ComponentType<TuiPanelProps>, ownerRecord),
       compact: compactMaxRows === undefined
         ? undefined
         : {
@@ -653,7 +658,7 @@ export class TuiPanelRuntime extends Service {
     const ownerTag: PanelOwner = { pluginId, activation: owner }
     // owner record 先于 store 注册：register() 同步发出 registered（屏上面板
     // 重注册时还会重放 opened/focused），subscribe 的过滤要靠这条记录认主。
-    setPanelOwnerRecord(finalId, { caller, owner, pluginId, lastOpenAt: 0 })
+    setPanelOwnerRecord(finalId, ownerRecord)
     let unregister: () => void
     try {
       unregister = panelStore.register(definition, ownerTag)

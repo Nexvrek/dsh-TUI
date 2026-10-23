@@ -1116,6 +1116,24 @@ const reRegistered = (): string => lifecycle.slice(beforeReRegister).join(',')
 check('wp11 lifecycle (useSidePanel): re-registering the shown panel replays opened + focused',
   typeof disposeProbe === 'function' && reRegistered() === 'opened:probe,focused:probe', reRegistered())
 check('wp11 lifecycle: the owner\'s subscriber also receives registered for its own panel', registeredSeen.includes(probeId), JSON.stringify(registeredSeen))
+// The host the first registration rendered is bound to THAT registration: the
+// same durable id registered again (a reload) must not hand it the new one.
+const freshRecord = registry.getPanelOwnerRecord(probeId)!
+check('wp11 stale host: the re-registration holds a record of its own',
+  freshRecord !== probeRecord && registry.isLivePanelRegistration(freshRecord) && !registry.isLivePanelRegistration(probeRecord))
+const resumesBeforeStale = resumeCalls.length
+check('wp11 stale host: every verb of the old registration\'s host refuses',
+  await probeHost.openSession('s-stale') === false && resumeCalls.length === resumesBeforeStale
+  && probeHost.openFile('fixture.txt') === false && probeHost.copy('stale') === false
+  && probeHost.openScene('c-scene') === false && probeHost.openPanel(probeId) === false
+  && probeHost.toast('stale') === false && probeHost.focus() === false && probeHost.storage === undefined,
+  'resumes=' + JSON.stringify(resumeCalls.slice(resumesBeforeStale)))
+probeHost.notify('error', 9)
+check('wp11 stale host: … and cannot badge the new registration', panelStore.get(probeId)?.badge?.unread !== 9)
+// The panel is on screen, so the old host's openPanel above would have been a
+// params-only deep link (true) had it reached the new registration.
+check('wp11 stale host: the new registration\'s verbs act',
+  registry.pluginPanelOpenPanel(freshRecord, probeId, { tab: 'fresh' }) === true && panelParams() === '{"tab":"fresh"}', panelParams())
 controllerRef!.focusChat()
 check('wp11 lifecycle (useSidePanel): the new registration then gets blurred, with no second opened',
   await settled(() => reRegistered() === 'opened:probe,focused:probe,blurred:probe'), reRegistered())

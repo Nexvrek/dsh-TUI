@@ -75,6 +75,23 @@ check('slice: a wide char cut by the right edge becomes a space',
 check('slice: run colour is kept', sliceRuns(wide, 0, 2)[0]?.color === 'red')
 check('display: work stops at the visible window (minified one-liners)',
   runsWidth(displayRuns([{ text: 'abcdefghij'.repeat(100_000) }, { text: 'tail' }], 12)) === 12)
+{
+  // Zero-width content produces no cells, so the cell bound alone would walk
+  // (and measure) all of it: one huge combining cluster, or a ZWSP flood.
+  const sourceRead = (runs: { text: string }[]): number => runs.reduce((total, run) => total + run.text.length, 0)
+  const cluster = displayRuns([{ text: 'a' + '\u0301'.repeat(1_000_000) }, { text: 'tail' }], 12)
+  const flood = displayRuns([{ text: '\u200b'.repeat(1_000_000) + 'visible' }], 12)
+  check('display: a huge zero-width cluster or flood costs a bounded walk',
+    sourceRead(cluster) <= 12 * 32 + 256 && sourceRead(flood) <= 12 * 32 + 256,
+    String(sourceRead(cluster)) + ' / ' + String(sourceRead(flood)))
+  // Zero-width padding so the budget (not the cells) ends the walk, exactly
+  // on the emoji's high surrogate.
+  const emoji = displayRuns([{ text: '\u200b'.repeat(12 * 32 + 255) + '😀' }], 12).map(run => run.text).join('')
+  check('display: the source budget never ends on half a surrogate pair',
+    emoji.length === 12 * 32 + 255 && !/[\ud800-\udbff]/.test(emoji), String(emoji.length))
+  check('display: ordinary wide text is untouched by the source budget',
+    runsWidth(displayRuns([{ text: '👩🏽‍👩🏽‍👦🏽‍👦🏽'.repeat(50) }], 40)) === 40)
+}
 
 const dir = mkdtempSync(join(tmpdir(), 'dsh-tui-preview-'))
 const fixture = join(dir, 'sample.ts')
