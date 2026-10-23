@@ -1204,6 +1204,14 @@ await compactApp.unmount()
 // 输入没变的插件行不得因此重渲染。读 snapshot() 的行在用量变化时重渲染、
 // 数字与宿主同源；从不读它的行不为它付任何代价。
 check('wp11 compact: rows get snapshot() in their props', typeof compactPropsSeen?.snapshot === 'function')
+{
+  // `version` moves on every streamed delta and the row does not re-render
+  // for it, so a compact snapshot must not carry it (it would read stale).
+  const compactSnapshot = compactPropsSeen?.snapshot() as unknown as Record<string, unknown> | undefined
+  check('wp11 compact: the row snapshot carries usage but no version',
+    compactSnapshot !== undefined && 'usage' in compactSnapshot && !('version' in compactSnapshot) && Object.isFrozen(compactSnapshot),
+    JSON.stringify(Object.keys(compactSnapshot ?? {})))
+}
 // Free activation C's panel budget (≤4) for the two rows below.
 disposeC1?.()
 disposeC2?.()

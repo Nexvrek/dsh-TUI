@@ -81,13 +81,25 @@ export function layoutColumnChart(props: TuiColumnChartProps): ChartRun[][] {
   const columns = (Array.isArray(props.columns) ? props.columns : []).slice(0, fits)
   if (height === 0 || columns.length === 0) return []
 
-  const totals = columns.map(column => {
+  // Finite segment values can still sum past Number.MAX_VALUE; every ratio
+  // would then read as 0. Only then, divide every value (and the ceiling) by
+  // the largest segment: the ratios stay, and ordinary inputs keep exactly
+  // the arithmetic they always had.
+  let factor = 1
+  const sumOf = (column: (typeof columns)[number]): number => {
     let total = 0
-    for (const segment of Array.isArray(column?.segments) ? column.segments : []) total += chartValue(segment?.value)
+    for (const segment of Array.isArray(column?.segments) ? column.segments : []) total += chartValue(segment?.value) / factor
     return total
-  })
+  }
+  let totals = columns.map(sumOf)
+  if (totals.some(total => !Number.isFinite(total))) {
+    for (const column of columns) {
+      for (const segment of Array.isArray(column?.segments) ? column.segments : []) factor = Math.max(factor, chartValue(segment?.value))
+    }
+    totals = columns.map(sumOf)
+  }
   let scale = 0
-  if (typeof props.max === 'number' && Number.isFinite(props.max)) scale = chartValue(props.max)
+  if (typeof props.max === 'number' && Number.isFinite(props.max)) scale = chartValue(props.max) / factor
   else for (const total of totals) scale = Math.max(scale, total)
 
   const stacks: ColumnStack[] = columns.map((column, at) => {
@@ -95,7 +107,7 @@ export function layoutColumnChart(props: TuiColumnChartProps): ChartRun[][] {
     const tops: number[] = []
     let sum = 0
     for (const segment of segments) {
-      sum += chartValue(segment?.value)
+      sum += chartValue(segment?.value) / factor
       // Rounding the cumulative boundary (not each segment) keeps the stack's
       // top exactly where the column total puts it.
       tops.push(eighthsOf(sum, scale, height))

@@ -338,14 +338,22 @@ export interface TuiPanelCompactProps {
   readonly width: number
   readonly badge: { readonly level: TuiPanelBadgeLevel; readonly unread: number } | null
   /**
-   * The same curated snapshot as a panel's `host.snapshot()` (built on call;
-   * `usage` is what the footer shows). Props stay identical while nothing a
-   * row reads changed — no re-render per streamed token: the function's
-   * identity only changes once the row has called it AND a snapshot input
-   * (usage, goal, todos, jobs, subagents, attention, …) moved since.
+   * The same curated snapshot as a panel's `host.snapshot()`, minus `version`
+   * (built on call; `usage` is what the footer shows). Props stay identical
+   * while nothing a row reads changed — no re-render per streamed token: the
+   * function's identity only changes once the row has called it AND a
+   * snapshot input (usage, goal, todos, jobs, subagents, attention, …) moved
+   * since.
    */
-  readonly snapshot: () => TuiPanelSnapshot
+  readonly snapshot: () => TuiPanelCompactSnapshot
 }
+
+/**
+ * A compact row's snapshot. `version` bumps on every streamed delta while the
+ * row re-renders only when what it shows moved, so it is left out rather than
+ * handed over stale.
+ */
+export type TuiPanelCompactSnapshot = Omit<TuiPanelSnapshot, 'version'>
 
 type _TuiPanelCompactUiIsRowKit = Assert<
   SameType<React.ComponentProps<TuiPanelCompactUi['StackedBar']>, React.ComponentProps<TuiChartRowKit['StackedBar']>>

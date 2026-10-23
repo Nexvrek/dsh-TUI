@@ -150,6 +150,16 @@ check('allocateCells: largest remainder, ties to the earlier index', () => {
   assert.deepEqual(allocateCells([100, 1, 1], 3), [3, 0, 0], 'without keepVisible small values vanish')
 })
 
+check('StackedBar occupancy and ColumnChart stacks survive a sum that overflows', () => {
+  const big = Number.MAX_VALUE
+  const occupancy = stacked.layoutStackedBar({ width: 10, capacity: 1e12, segments: [{ value: big, color: 0 }, { value: big, color: 1 }] })
+  assert.equal(text(occupancy), '██████████', `an overflowing sum exceeds any finite capacity: ${text(occupancy)}`)
+  const rows = column.layoutColumnChart({ height: 4, columns: [{ segments: [{ value: big, color: 0 }, { value: big, color: 1 }] }, { segments: [{ value: big, color: 0 }] }] })
+  const plot = rows.slice(-4).map(text)
+  assert.equal(plot.map(line => line[0]).join(''), '████', `the overflowing stack fills the plot: ${JSON.stringify(plot)}`)
+  assert.equal(plot.map(line => line[1]).join(''), '  ██', `the half-height column keeps its ratio: ${JSON.stringify(plot)}`)
+})
+
 check('allocateCells: finite values whose sum overflows still fill the budget', () => {
   assert.deepEqual(allocateCells([Number.MAX_VALUE, Number.MAX_VALUE], 10), [5, 5])
   assert.deepEqual(allocateCells([Number.MAX_VALUE, Number.MAX_VALUE / 4], 10), [8, 2])

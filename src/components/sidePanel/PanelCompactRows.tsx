@@ -28,7 +28,7 @@ import React from 'react'
 import { Box, useTerminalSize } from '../../ui.js'
 import type { ChannelUi } from '../../adapter/channel/ui-policy.js'
 import type { ActivityView } from '../../dsh-adapter/activity-store.js'
-import type { TuiPanelSnapshot } from '../../dsh-adapter/panels.js'
+import type { TuiPanelCompactSnapshot } from '../../dsh-adapter/panels.js'
 import { panelStore } from './PanelStore.js'
 import { PanelErrorBoundary } from './PanelErrorBoundary.js'
 import { buildPanelSnapshot, panelSnapshotInputs, PANEL_SNAPSHOT_INPUT_COUNT } from './panelSnapshot.js'
@@ -116,10 +116,11 @@ function CompactRow({ entry, width, channel, activity, approvals = 0, questions 
   const used = React.useRef(false)
   const inputs = used.current ? panelSnapshotInputs(channel, activity, approvals, questions) : UNUSED_SNAPSHOT_INPUTS
   const snapshot = React.useMemo(
-    () => (): TuiPanelSnapshot => {
+    () => (): TuiPanelCompactSnapshot => {
       used.current = true
       const latest = sources.current
-      return buildPanelSnapshot(latest.channel, latest.activity, { approvals: latest.approvals, questions: latest.questions })
+      const { version: _version, ...snapshot } = buildPanelSnapshot(latest.channel, latest.activity, { approvals: latest.approvals, questions: latest.questions })
+      return Object.freeze(snapshot)
     },
     inputs,
   )

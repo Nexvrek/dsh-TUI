@@ -55,10 +55,6 @@ interface PluginSceneHostProps {
   readonly context: TuiSceneRenderContext | undefined
 }
 
-function warnFor(record: SceneOwnerRecord | undefined): (message: string) => void {
-  return message => { record?.caller.logger.warn(message) }
-}
-
 /** A service the registering activation reaches through its own ctx (same
  *  checks the plugin itself would hit); undefined when gone or unmounted. */
 function callerService<T>(record: SceneOwnerRecord | undefined, name: string): T | undefined {
@@ -89,10 +85,12 @@ function sceneStorage(record: SceneOwnerRecord | undefined): TuiPluginStorage | 
  * its own `ctx` calls carry — so ownership checks, rate limits and the shadow
  * policy apply exactly as for a direct service call. Host-owned scenes (the
  * file preview) have no plugin identity: their plugin-scoped verbs refuse.
+ * The registering activation is looked up per call, never captured: disposing
+ * the registration drops it, so a callback the scene kept past its unload
+ * (a pending promise, a timer) acts as no one and every verb refuses.
  */
 function PluginSceneHost({ scene, channel, context }: PluginSceneHostProps): React.ReactNode {
   const writeRaw = React.useContext(TerminalWriteContext)
-  const record = sceneOwnerRecordOf(scene)
   const activity = context?.activity
   const approvals = context?.attention?.approvals ?? 0
   const questions = context?.attention?.questions ?? 0
@@ -100,29 +98,35 @@ function PluginSceneHost({ scene, channel, context }: PluginSceneHostProps): Rea
   // The scene's params slot in ITS registry (scene ids are per composition).
   const paramsKey = React.useMemo(() => sceneParamsKeyOf(scene), [scene])
   const host = React.useMemo<TuiSceneHostApi>(() => {
-    const warn = warnFor(record)
+    const owner = (): SceneOwnerRecord | undefined => sceneOwnerRecordOf(scene)
+    const warn = (message: string) => { owner()?.caller.logger.warn(message) }
     return {
       snapshot: () => buildPanelSnapshot(channel, activity, { approvals, questions }),
-      get storage() { return sceneStorage(record) },
-      openSession: sessionId => record === undefined
-        ? Promise.resolve(false)
-        : surfaceOpenSession(record.owner, channel, sessionId, warn),
+      get storage() { return sceneStorage(owner()) },
+      openSession: sessionId => {
+        const record = owner()
+        return record === undefined
+          ? Promise.resolve(false)
+          : surfaceOpenSession(record.owner, channel, sessionId, warn)
+      },
       openFile: (path, options) => {
         // Relative paths resolve against the session cwd at call time.
         const request = resolveSurfaceFileRequest(channel.cwd, path, options, warn)
         if (request === undefined) return false
-        const scenes = record === undefined ? undefined : callerService<TuiSceneRuntime>(record, 'tuiScenes')
-        return openHostFilePreview(scenes, request)
+        return openHostFilePreview(callerService<TuiSceneRuntime>(owner(), 'tuiScenes'), request)
       },
-      copy: text => surfaceCopy(
-        record === undefined ? undefined : { owner: record.owner, runtime: adapterRuntimeFor(record.caller) },
-        text,
-        writeRaw,
-        message => { channel.notify(message, { timeoutMs: 1500 }) },
-        warn,
-      ),
+      copy: text => {
+        const record = owner()
+        return surfaceCopy(
+          record === undefined ? undefined : { owner: record.owner, runtime: adapterRuntimeFor(record.caller) },
+          text,
+          writeRaw,
+          message => { channel.notify(message, { timeoutMs: 1500 }) },
+          warn,
+        )
+      },
       openScene: (sceneId: string, params?: TuiJsonValue) => {
-        const scenes = callerService<{ open(id: string, params?: TuiJsonValue): boolean }>(record, 'tuiScenes')
+        const scenes = callerService<{ open(id: string, params?: TuiJsonValue): boolean }>(owner(), 'tuiScenes')
         if (scenes === undefined || typeof scenes.open !== 'function') return false
         try {
           return params === undefined ? scenes.open(sceneId) : scenes.open(sceneId, params)
@@ -131,7 +135,7 @@ function PluginSceneHost({ scene, channel, context }: PluginSceneHostProps): Rea
         }
       },
       openPanel: (panelId: string, params?: TuiJsonValue) => {
-        const panels = callerService<{ open(id: string, params?: TuiJsonValue): boolean }>(record, 'tuiPanels')
+        const panels = callerService<{ open(id: string, params?: TuiJsonValue): boolean }>(owner(), 'tuiPanels')
         if (panels === undefined || typeof panels.open !== 'function') return false
         try {
           return params === undefined ? panels.open(panelId) : panels.open(panelId, params)
@@ -141,7 +145,7 @@ function PluginSceneHost({ scene, channel, context }: PluginSceneHostProps): Rea
       },
       useParams: () => useSurfaceParams(paramsKey),
       toast: text => {
-        const toast = callerService<{ show(text: string): boolean }>(record, 'tuiToast')
+        const toast = callerService<{ show(text: string): boolean }>(owner(), 'tuiToast')
         if (toast === undefined || typeof toast.show !== 'function') return false
         try {
           return toast.show(text)
@@ -150,7 +154,7 @@ function PluginSceneHost({ scene, channel, context }: PluginSceneHostProps): Rea
         }
       },
     }
-  }, [scene, paramsKey, record, channel, activity, approvals, questions, writeRaw])
+  }, [scene, paramsKey, channel, activity, approvals, questions, writeRaw])
   const component = HOST_SCENE_COMPONENTS.get(scene.id) ?? scene.component
   return React.createElement(component, { React, ui: SCENE_UI, channel, close, host })
 }

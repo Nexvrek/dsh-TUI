@@ -82,7 +82,8 @@ function costOf(channel: SnapshotChannel | undefined): TuiPanelUsage['cost'] {
  * (occupancy, breakdown, goal fields), by identity where it replaces the
  * value (todos, jobs, subagents, cost lists). `version` is left out on
  * purpose — it bumps on every streamed delta, and nothing else the snapshot
- * shows moves with it. A key that did not change means the snapshot would not.
+ * shows moves with it, so the compact rows keyed on this get a snapshot
+ * without it (TuiPanelCompactSnapshot). A key that did not change means the snapshot would not.
  */
 export function panelSnapshotInputs(
   channel: SnapshotChannel | undefined,

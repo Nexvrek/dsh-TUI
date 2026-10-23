@@ -125,8 +125,9 @@ export interface SceneOwnerRecord {
 
 const sceneOwnerRecords = new WeakMap<TuiSceneDescriptor, SceneOwnerRecord>()
 
-/** The registering activation of a scene descriptor; undefined for host scenes
- *  and host-facade registrations (they have no plugin identity to act as). */
+/** The registering activation of a scene descriptor; undefined for host scenes,
+ *  host-facade registrations (they have no plugin identity to act as) and a
+ *  registration that was disposed (its host verbs refuse from then on). */
 export function sceneOwnerRecordOf(scene: TuiSceneDescriptor): SceneOwnerRecord | undefined {
   return sceneOwnerRecords.get(scene)
 }
@@ -254,6 +255,7 @@ export class TuiSceneRuntime extends Service {
       if (state.scenes.get(id) !== normalized) return
       state.scenes.delete(id)
       state.owners.delete(id)
+      sceneOwnerRecords.delete(normalized)
       clearSurfaceParams(sceneParamsKey(state, id))
       if (state.returnTo === normalized) state.returnTo = undefined
       caller.get('tuiEffectLedger')?.record(

@@ -30,8 +30,11 @@ export function layoutStackedBar(props: TuiStackedBarProps): ChartRun[] {
   let partial = 0
   if (typeof props.capacity === 'number') {
     const capacity = chartValue(props.capacity)
-    // A zero capacity with anything in it is simply full.
-    const eighths = capacity === 0 ? (total > 0 ? width * 8 : 0) : eighthsOf(total, capacity, width)
+    // A zero capacity with anything in it is simply full, and so is a sum
+    // of finite values that overflowed: it exceeds any finite capacity.
+    const eighths = capacity === 0 || total === Number.POSITIVE_INFINITY
+      ? (total > 0 ? width * 8 : 0)
+      : eighthsOf(total, capacity, width)
     filled = Math.floor(eighths / 8)
     partial = eighths % 8
     if (total > 0 && eighths === 0) partial = 1

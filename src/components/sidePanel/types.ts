@@ -6,7 +6,7 @@
  */
 import type React from 'react'
 import type { I18nKey } from '../../i18n.js'
-import type { TuiPanelSnapshot } from '../../dsh-adapter/panels.js'
+import type { TuiPanelCompactSnapshot } from '../../dsh-adapter/panels.js'
 
 export type PanelMountPolicy =
   /** 只有 active 时才挂载（插件默认——防止常驻面板烧资源）。 */
@@ -40,8 +40,8 @@ export interface PanelProps {
 export interface PanelCompactProps {
   readonly width: number
   readonly badge: PanelBadge | null
-  /** The curated snapshot, built on call; stable identity while unused or unchanged (PanelCompactRows). */
-  readonly snapshot: () => TuiPanelSnapshot
+  /** The curated snapshot minus `version`, built on call; stable identity while unused or unchanged (PanelCompactRows). */
+  readonly snapshot: () => TuiPanelCompactSnapshot
 }
 
 export interface PanelDefinition {

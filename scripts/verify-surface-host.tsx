@@ -200,6 +200,7 @@ const disposeProbe = scenes.register({ id: 'probe', component: ProbeScene })
 const disposeOther = otherScenes.register({ id: 'other', component: () => null })
 
 const notices: string[] = []
+const resumed: string[] = []
 const channel = {
   version: 0, rows: [], status: 'idle', working: false, sessionId: 's1', cwd: dir,
   spinnerMode: 'idle', goal: undefined, todos: [], subagents: [], backgroundJobs: [],
@@ -210,7 +211,7 @@ const channel = {
   costReport: undefined,
   notify(text: string) { notices.push(text); return () => {} },
   subscribe() { return () => {} },
-  async resumeTo() { return { ok: true as const } },
+  async resumeTo(sessionId: string) { resumed.push(sessionId); return { ok: true as const } },
   closePluginScene() { sceneHost.close() },
 }
 
@@ -330,6 +331,13 @@ disposeProbe()
 sceneHost.close()
 check('preview: a disposed covered scene → close lands on chat', await settled(() => sceneHost.active === undefined && lines().some(line => line.includes('chat-screen'))))
 check('scene: params cleared on dispose', surface.getSurfaceParams(scenesMod.sceneParamsKeyFor(scenes, 'probe')) === undefined)
+// A host the disposed scene kept past its unload (a pending promise, a timer)
+// acts as no one: no session switch, no preview, no clipboard write.
+check('scene: a disposed registration\'s host refuses every verb',
+  await host.openSession('s2') === false && resumed.length === 0
+  && host.openFile('sample.ts') === false && sceneHost.active === undefined
+  && host.copy('stale') === false && host.openScene('probe') === false && host.storage === undefined,
+  'resumed=' + JSON.stringify(resumed) + ' active=' + String(sceneHost.active?.id))
 
 // A plugin's explicit open replaces the preview's return target.
 const disposeProbe2 = scenes.register({ id: 'probe', component: ProbeScene })

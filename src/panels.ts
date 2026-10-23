@@ -10,6 +10,7 @@ export type {
   TuiPanelCodeBlockProps,
   TuiPanelHostApi,
   TuiPanelSnapshot,
+  TuiPanelCompactSnapshot,
   TuiPanelUsage,
   TuiPanelKeyEvent,
   TuiPanelUi,

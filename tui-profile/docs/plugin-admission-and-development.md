@@ -1902,8 +1902,8 @@ ctx.tuiPanels.subscribe(event => {
 - **props**：`{ React, ui, width, badge, snapshot }`。`ui`（`TuiPanelCompactUi`）只有
   `Box`、`Text` 与单行可视化子集（`StackedBar`、`Sparkline`、`Meter`、`format`、
   `seriesColor`、`hashSeries`）；`width` 是整行宽度（显示单元）；`badge` 是该面板当前角标
-  或 `null`；`snapshot(): TuiPanelSnapshot` 与面板 `host.snapshot()` 用同一个策展构建器、
-  调用时才构建（含 `usage`，不含转录正文），所以 compact 行里的占用百分比能与底栏 `ctx`
+  或 `null`；`snapshot(): TuiPanelCompactSnapshot` 与面板 `host.snapshot()` 用同一个策展构建器、
+  调用时才构建（含 `usage`，不含转录正文，也不含随每个流式增量跳动的 `version`——行不按它重渲染），所以 compact 行里的占用百分比能与底栏 `ctx`
   一致。compact 行没有其余 `host` 动词、不收键盘：快照之外的数据从插件自己的 store 读。
 - **何时重渲染**：聊天每个流式增量都会重渲染 compact 槽，但插件的 compact 组件只在三种情况下
   重渲染——`width` 变了；`badge` 变了（`badge` 是冻结对象，`level` / `unread` 不变时身份不变）；

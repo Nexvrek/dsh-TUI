@@ -73,7 +73,8 @@ Also an experimental public surface:
   content narrower than 93 columns, the full-page editor) it renders above the
   prompt, after the rich status views, 3 rows in total, following the
   `sidePanel.panels` enabled set; compact components also receive `snapshot()`
-  (the panels' snapshot, `usage` included); `opened` / `closed` / `focused` / `blurred` events arrive through
+  (the panels' snapshot, `usage` included, without the `version` that moves on
+  every streamed delta); `opened` / `closed` / `focused` / `blurred` events arrive through
   `subscribe`; keys arrive through `host.onKey` (Ctrl/Alt combos never reach a
   panel). `host.snapshot().usage` carries occupancy, composition, tokens and
   cost from the same source as the footer's `ctx`. `sendToChat`
