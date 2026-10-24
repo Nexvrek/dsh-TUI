@@ -1,14 +1,26 @@
 import type { Context } from '@deepseek-ai/cordis'
 import type { ProfileContext, writeProfileManifest } from '@deepseek-ai/dsh-app-boot'
-import type PluginManager from '@deepseek-ai/dsh-plugin-manager'
 import type * as Operations from '@deepseek-ai/dsh-plugin-manager/operations'
 import type { PackageOperationOptions } from '@deepseek-ai/dsh-plugin-manager/operations'
-import type { PluginRegistries } from '@deepseek-ai/dsh-plugin-manager/types'
+import type { ChangeResult, InstallBundleOptions, PluginInstallCancellation, PluginInstallRequestId, PluginRegistries } from '@deepseek-ai/dsh-plugin-manager/types'
 import type * as Atomic from '@deepseek-ai/dsh-atomic-write'
 import type { ReadyRuntimeStatus, RuntimeProfileName } from './runtime-profile.mjs'
 
+/** The methods checked by managementModules, using the host's public records. */
+export interface RuntimePluginManager {
+  installBundle(spec: string, options?: InstallBundleOptions): Promise<ChangeResult>
+  setBundleEnabled(name: string, enabled: boolean): Promise<ChangeResult>
+  cancelInstall(requestId: PluginInstallRequestId): Promise<PluginInstallCancellation>
+}
+
 /** The actual public namespaces loaded from the installation that owns the profile. */
-export type RuntimeManagementModules = { PluginManager: typeof PluginManager } & typeof Operations & typeof Atomic
+export type RuntimeManagementModules = {
+  /** Only the constructor configuration used by profile preparation. */
+  PluginManager: new (ctx: Context, config: {
+    registry?: Exclude<PluginRegistries['registry'], null>
+    fallbackRegistries?: Array<PluginRegistries['fallbackRegistries'][number]>
+  }) => RuntimePluginManager
+} & typeof Operations & typeof Atomic
 
 export function managementModules(installAnchor: string, options?: { optional?: false }): Promise<RuntimeManagementModules>
 export function managementModules(installAnchor: string, options: { optional?: boolean }): Promise<RuntimeManagementModules | undefined>

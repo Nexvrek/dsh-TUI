@@ -12,7 +12,9 @@ try {
   writeFileSync(join(scratch, 'consumer.ts'), `
 import { Context } from '@deepseek-ai/cordis'
 import { writeProfileManifest } from '@deepseek-ai/dsh-app-boot'
-import { managementModules, prepareRuntime, prepareInstalledRuntime, withRuntimeUpdate } from '#tui-market/prepare'
+import type OfficialPluginManager from '@deepseek-ai/dsh-plugin-manager'
+import type { PluginInstallRequestId } from '@deepseek-ai/dsh-plugin-manager/types'
+import { managementModules, prepareRuntime, prepareInstalledRuntime, withRuntimeUpdate, type RuntimeManagementModules, type RuntimePluginManager } from '#tui-market/prepare'
 import { PACKAGE, RUNTIME_BUNDLE, readJson, runtimeStatus, runtimeTemplate, compareVersions, recipeDirectory, liveRuntimeProcesses, type ReadyRuntimeStatus } from '#tui-market/runtime-profile'
 
 const source = { home: '/tmp/home', cwd: '/tmp/work', installAnchor: '/tmp/host/package.json' }
@@ -66,6 +68,29 @@ const owned = readJson<{ version?: string }>('/tmp/owned.json')
 const ownedVersion: string | undefined = owned?.version
 
 const modules = await managementModules('/tmp/host/package.json')
+declare const officialConstructor: typeof OfficialPluginManager
+const constructor: RuntimeManagementModules['PluginManager'] = officialConstructor
+const manager = new modules.PluginManager(new Context(), { registry: 'https://registry.example', fallbackRegistries: [] })
+// Check both directions: the capability view must still agree with the official class.
+const officialMethods: Pick<OfficialPluginManager, keyof RuntimePluginManager> = manager
+declare const requestId: PluginInstallRequestId
+const change = await manager.installBundle(PACKAGE, { requestId, saveExact: true })
+await manager.setBundleEnabled(PACKAGE, true)
+await manager.cancelInstall(requestId)
+// @ts-expect-error a registry URL is a string
+new modules.PluginManager(new Context(), { registry: 42 })
+// @ts-expect-error fallback registries contain URL strings
+new modules.PluginManager(new Context(), { fallbackRegistries: [42] })
+// @ts-expect-error installation specs are strings
+manager.installBundle(42)
+// @ts-expect-error the official installation options require a boolean
+manager.installBundle(PACKAGE, { saveExact: 'yes' })
+// @ts-expect-error the official result is typed, not an unchecked value
+const badApplication: number = change.application
+// @ts-expect-error enablement is a boolean
+manager.setBundleEnabled(PACKAGE, 'yes')
+// @ts-expect-error cancellation requires the host's branded request id
+manager.cancelInstall('unchecked-id')
 const locked: number = await modules.withFileLock('/tmp/lock', async () => 1)
 // @ts-expect-error the real host lock API requires an asynchronous operation
 modules.withFileLock('/tmp/lock', () => 1)
