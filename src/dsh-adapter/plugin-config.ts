@@ -163,15 +163,23 @@ export function readSchema(json: unknown): SchemaNode | undefined {
 }
 
 /** The fields an object-like node contributes: an object's dict, or the
- *  object members of an intersection (first declaration wins per key). */
-function objectEntries(node: SchemaNode, depth = 0): readonly (readonly [string, SchemaNode])[] {
-  if (depth > 8) return []
+ *  object members of an intersection (first declaration wins per key). Each
+ *  node is expanded once per walk: a repeated or cyclic member adds no key
+ *  the first expansion did not, and re-expanding every reference would cost
+ *  exponential work on a schema that lists one node many times. */
+function objectEntries(
+  node: SchemaNode,
+  depth = 0,
+  expanded: Set<SchemaNode> = new Set(),
+): readonly (readonly [string, SchemaNode])[] {
+  if (depth > 8 || expanded.has(node)) return []
+  expanded.add(node)
   if (node.type === 'object') return node.dict()
   if (node.type !== 'intersect') return []
   const seen = new Set<string>()
   const out: (readonly [string, SchemaNode])[] = []
   for (const member of node.list()) {
-    for (const entry of objectEntries(member, depth + 1)) {
+    for (const entry of objectEntries(member, depth + 1, expanded)) {
       if (seen.has(entry[0])) continue
       seen.add(entry[0])
       out.push(entry)
@@ -668,8 +676,12 @@ const SNAPSHOT_TTL_MS = 1000
 /** Top-level Config keys outside the live form, from the entry's live schema. */
 function otherConfigKeys(config: unknown, served: ReadonlySet<string>): string[] {
   const keys: string[] = []
+  // Each schema once: a repeated intersect member would otherwise be walked
+  // again per reference (exponential on a self-listing intersection).
+  const expanded = new Set<unknown>()
   const visit = (schema: unknown, depth: number): void => {
-    if (depth > 8 || (typeof schema !== 'function' && !isRecord(schema))) return
+    if (depth > 8 || (typeof schema !== 'function' && !isRecord(schema)) || expanded.has(schema)) return
+    expanded.add(schema)
     const node = schema as { type?: unknown; dict?: unknown; list?: unknown }
     if (node.type === 'object' && isRecord(node.dict)) {
       for (const [key, child] of Object.entries(node.dict)) {

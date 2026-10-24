@@ -1,7 +1,7 @@
 import React from 'react'
 import { stringWidth } from '../../ink/stringWidth.js'
 import { chartColorKey, seriesColor } from './chartColor.js'
-import { cellCount } from './chartGeometry.js'
+import { cellCount, MAX_CHART_ITEMS } from './chartGeometry.js'
 import { chartText, fitCells } from './chartFormat.js'
 import { ChartRows, fitRow, pushRun, rowWidth, type ChartRun } from './chartRows.js'
 import type { TuiLegendItem, TuiLegendProps } from './chartTypes.js'
@@ -34,11 +34,14 @@ function chip(item: TuiLegendItem | undefined, index: number, width: number): Ch
 /**
  * Lay out legend chips left to right, wrapping by display cells; every row is
  * padded to exactly `width`. With `maxRows`, chips past the last row collapse
- * into a trailing `+N` chip (chips are pulled off that row until it fits).
+ * into a trailing `+N` chip (chips are pulled off that row until it fits);
+ * items past {@link MAX_CHART_ITEMS} are never laid out and count into it.
  */
 export function layoutLegend(props: TuiLegendProps): ChartRun[][] {
   const width = cellCount(props.width)
-  const items = Array.isArray(props.items) ? props.items : []
+  const all = Array.isArray(props.items) ? props.items : []
+  const items = all.slice(0, MAX_CHART_ITEMS)
+  const dropped = all.length - items.length
   if (width === 0 || items.length === 0) return []
   const chips = items.map((item, index) => chip(item, index, width))
   const rows: ChartRun[][][] = [[]]
@@ -56,10 +59,11 @@ export function layoutLegend(props: TuiLegendProps): ChartRun[][] {
   }
 
   const maxRows = cellCount(props.maxRows)
-  if (maxRows > 0 && rows.length > maxRows) {
-    const kept = rows.slice(0, maxRows)
-    let hidden = 0
-    for (const row of rows.slice(maxRows)) hidden += row.length
+  const clipped = maxRows > 0 && rows.length > maxRows
+  if (clipped || dropped > 0) {
+    const kept = clipped ? rows.slice(0, maxRows) : rows.slice()
+    let hidden = dropped
+    for (const row of rows.slice(kept.length)) hidden += row.length
     const last = kept[kept.length - 1]!
     const chipsWidth = (row: ChartRun[][]): number =>
       row.reduce((sum, runs, at) => sum + (at > 0 ? CHIP_GAP : 0) + rowWidth(runs), 0)

@@ -173,6 +173,12 @@ const fieldAt = (section: TuiSettingsSection | undefined, path: string): TuiSett
   checks += 1
   const cyclic = pluginConfigSections(input([descriptor('third', { uid: 1, refs: { 1: { type: 'object', dict: { self: 1, flag: 2 } }, 2: { type: 'boolean' } } })]))
   check(fieldAt(cyclic[0], 'self.flag').kind === 'boolean' && fieldAt(cyclic[0], 'self.self').readOnly === true, 'self-referencing schemas stop at one nested level')
+  // An intersection that lists itself eight times: re-expanding every
+  // reference to the depth cap is ~8^9 calls; each node is expanded once.
+  const selfListing = { uid: 1, refs: { 1: { type: 'intersect', list: [1, 1, 1, 1, 1, 1, 1, 1, 2] }, 2: { type: 'object', dict: { flag: 3 } }, 3: { type: 'boolean' } } }
+  const selfStarted = performance.now()
+  const selfSections = pluginConfigSections(input([descriptor('third', selfListing)]))
+  check(performance.now() - selfStarted < 2000 && fieldAt(selfSections[0], 'flag').kind === 'boolean', 'an intersection that lists itself eight times stays bounded')
   const wide = Schema.object(Object.fromEntries(Array.from({ length: 300 }, (_, index) => [`f${index}`, Schema.boolean()])))
   const capped = pluginConfigSections(input([descriptor('third', wide.toJSON())]))
   check(capped[0]!.fields.length === PLUGIN_CONFIG_LIMITS.fields + 1 && capped[0]!.fields.at(-1)!.readOnly === true

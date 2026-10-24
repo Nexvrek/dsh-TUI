@@ -1,6 +1,6 @@
 import React from 'react'
 import { chartColorKey, seriesColor } from './chartColor.js'
-import { allocateCells, cellCount, chartValue, eighthsOf, HORIZONTAL_EIGHTHS } from './chartGeometry.js'
+import { allocateCells, cellCount, chartValue, eighthsOf, HORIZONTAL_EIGHTHS, MAX_CHART_ITEMS } from './chartGeometry.js'
 import { ChartLine, pushRun, type ChartRun } from './chartRows.js'
 import type { TuiStackedBarProps } from './chartTypes.js'
 
@@ -17,11 +17,12 @@ const TRACK = '─'
  * span is `sum / capacity` of the width with eighth-cell precision at its end
  * (the partial cell takes the last non-zero segment's color), the rest is
  * track in `emptyColor`. Any non-zero occupancy shows at least one eighth.
+ * Segments past {@link MAX_CHART_ITEMS} are left out.
  */
 export function layoutStackedBar(props: TuiStackedBarProps): ChartRun[] {
   const width = cellCount(props.width)
   if (width === 0) return []
-  const segments = Array.isArray(props.segments) ? props.segments : []
+  const segments = (Array.isArray(props.segments) ? props.segments : []).slice(0, MAX_CHART_ITEMS)
   const values = segments.map(segment => chartValue(segment?.value))
   let total = 0
   for (const value of values) total += value

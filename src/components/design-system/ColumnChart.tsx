@@ -1,10 +1,10 @@
 import React from 'react'
 import type { Theme } from '../../theme.js'
 import { chartColorKey, seriesColor } from './chartColor.js'
-import { cellCount, chartValue, eighthsOf, MAX_CHART_CELLS, VERTICAL_EIGHTHS } from './chartGeometry.js'
+import { cellCount, chartValue, eighthsOf, MAX_CHART_CELLS, MAX_CHART_ITEMS, VERTICAL_EIGHTHS } from './chartGeometry.js'
 import { singleCell } from './chartFormat.js'
 import { ChartRows, pushRun, type ChartRun } from './chartRows.js'
-import type { TuiColumnChartProps } from './chartTypes.js'
+import type { TuiColumnChartProps, TuiColumnChartSegment } from './chartTypes.js'
 
 /** Tallest plot a column chart will build, in rows. */
 const MAX_PLOT_ROWS = 200
@@ -71,7 +71,8 @@ function plotCell(stack: ColumnStack, base: number, band: keyof Theme | undefine
  * (default: the tallest column) with eighth-cell precision; any non-zero
  * column shows at least one eighth. The selected column gets a
  * `selectionBg` band behind its unfilled cells and on the marker row, where
- * it also carries a `▾` pointer unless it has its own marker.
+ * it also carries a `▾` pointer unless it has its own marker. At most
+ * {@link MAX_CHART_ITEMS} segments take part, split evenly over the columns.
  */
 export function layoutColumnChart(props: TuiColumnChartProps): ChartRun[][] {
   const height = Math.min(MAX_PLOT_ROWS, cellCount(props.height))
@@ -80,6 +81,10 @@ export function layoutColumnChart(props: TuiColumnChartProps): ChartRun[][] {
   const fits = Math.floor((MAX_CHART_CELLS + gap) / (columnWidth + gap))
   const columns = (Array.isArray(props.columns) ? props.columns : []).slice(0, fits)
   if (height === 0 || columns.length === 0) return []
+  // The chart's segment budget, split evenly over its columns.
+  const perColumn = Math.max(1, Math.floor(MAX_CHART_ITEMS / columns.length))
+  const segmentsOf = (column: (typeof columns)[number]): readonly TuiColumnChartSegment[] =>
+    Array.isArray(column?.segments) ? column.segments.slice(0, perColumn) : []
 
   // Finite segment values can still sum past Number.MAX_VALUE; every ratio
   // would then read as 0. Only then, divide every value (and the ceiling) by
@@ -88,13 +93,13 @@ export function layoutColumnChart(props: TuiColumnChartProps): ChartRun[][] {
   let factor = 1
   const sumOf = (column: (typeof columns)[number]): number => {
     let total = 0
-    for (const segment of Array.isArray(column?.segments) ? column.segments : []) total += chartValue(segment?.value) / factor
+    for (const segment of segmentsOf(column)) total += chartValue(segment?.value) / factor
     return total
   }
   let totals = columns.map(sumOf)
   if (totals.some(total => !Number.isFinite(total))) {
     for (const column of columns) {
-      for (const segment of Array.isArray(column?.segments) ? column.segments : []) factor = Math.max(factor, chartValue(segment?.value))
+      for (const segment of segmentsOf(column)) factor = Math.max(factor, chartValue(segment?.value))
     }
     totals = columns.map(sumOf)
   }
@@ -103,7 +108,7 @@ export function layoutColumnChart(props: TuiColumnChartProps): ChartRun[][] {
   else for (const total of totals) scale = Math.max(scale, total)
 
   const stacks: ColumnStack[] = columns.map((column, at) => {
-    const segments = Array.isArray(column?.segments) ? column.segments : []
+    const segments = segmentsOf(column)
     const tops: number[] = []
     let sum = 0
     for (const segment of segments) {

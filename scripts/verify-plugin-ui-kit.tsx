@@ -160,6 +160,37 @@ check('StackedBar occupancy and ColumnChart stacks survive a sum that overflows'
   assert.equal(plot.map(line => line[1]).join(''), '  ██', `the half-height column keeps its ratio: ${JSON.stringify(plot)}`)
 })
 
+check('chart inputs past MAX_CHART_ITEMS are never read', () => {
+  const { MAX_CHART_ITEMS } = geometry
+  /** `count` entries from `make`, with a trap at `trap` that records a read. */
+  const trapped = <T,>(count: number, make: (index: number) => T, trap: number): { list: T[]; read: () => boolean } => {
+    const list = Array.from({ length: count }, (_, index) => make(index))
+    let touched = false
+    Object.defineProperty(list, trap, { get() { touched = true; return make(trap) } })
+    return { list, read: () => touched }
+  }
+  const far = MAX_CHART_ITEMS + 5_000
+  const bar = trapped(100_000, index => ({ value: 1 + (index % 5), color: index }), far)
+  const barRow = stacked.layoutStackedBar({ width: 1, segments: bar.list })
+  assert.ok(!bar.read(), 'StackedBar: segments past the cap are never read')
+  assert.equal(rowWidth(barRow), 1)
+  const values = trapped(100_000, index => index % 9, 10)
+  const sparkRow = sparkline.layoutSparkline({ width: 8, values: values.list })
+  assert.ok(!values.read(), 'Sparkline: only the newest values are read')
+  assert.deepEqual(sparkRow, sparkline.layoutSparkline({ width: 8, values: values.list.slice(100_000 - MAX_CHART_ITEMS) }), 'Sparkline: the newest window decides')
+  const items = trapped(100_000, index => ({ color: index, label: 'L' + index }), far)
+  const legendRows = legend.layoutLegend({ width: 20, items: items.list, maxRows: 2 })
+  assert.ok(!items.read(), 'Legend: items past the cap are never laid out')
+  const more = /\+(\d+)/u.exec(text(legendRows.at(-1)!))
+  const shown = legendRows.reduce((count, row) => count + (text(row).match(/■/gu)?.length ?? 0), 0)
+  assert.ok(more !== null && Number(more[1]) + shown === 100_000, `Legend: +N still counts every hidden item (${more?.[1]} + ${shown})`)
+  const unbounded = legend.layoutLegend({ width: 20, items: items.list })
+  assert.ok(/\+\d+/u.test(text(unbounded.at(-1)!)), 'Legend: without maxRows the left-out items still show as +N')
+  const segments = trapped(100_000, index => ({ value: 1, color: index }), far)
+  column.layoutColumnChart({ height: 4, columns: [{ segments: segments.list }] })
+  assert.ok(!segments.read(), 'ColumnChart: segments past the budget are never read')
+})
+
 check('allocateCells: finite values whose sum overflows still fill the budget', () => {
   assert.deepEqual(allocateCells([Number.MAX_VALUE, Number.MAX_VALUE], 10), [5, 5])
   assert.deepEqual(allocateCells([Number.MAX_VALUE, Number.MAX_VALUE / 4], 10), [8, 2])

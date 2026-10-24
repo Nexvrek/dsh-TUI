@@ -2208,7 +2208,10 @@ props 契约是 `TuiChartKit` / `TuiChartRowKit` 里新定义的收窄包装（�
   `Table` 的每一行恰好 `width` 格；`ColumnChart` 每行恰好 `n·columnWidth + (n−1)·gap`；
   `Heatmap` 每行恰好「最宽行的格数 × `cell`」。容器比它窄时行尾以 `…` 截断而不是折行。
 - **坏数不抛错**：`NaN`、`±Infinity`、负数一律按 0 画；宽度/行数向下取整，超过 2000 格
-  （`ColumnChart` 行数超过 200）截断——防止失控数值撑爆一帧。
+  （`ColumnChart` 行数超过 200）截断——防止失控数值撑爆一帧。数据项同样有上限：`StackedBar`
+  的段、`Sparkline` 的值、`Legend` 的项各至多读 10,000 个（`Sparkline` 保留最新的，`Legend`
+  把其余计入 `+N`），`ColumnChart` 全部列合计至多 10,000 段（按列平分）、`Table` 至多 1,000 行，
+  超出部分不参与计算。
 - **颜色 `TuiChartColor = number | keyof Theme`**：数字是分类色槽（`0` → `chart1` …
   `7` → `chart8`，超出循环，负数回绕，非有限数 → `chart1`）；字符串是主题语义键
   （`'warning'`、`'accent'`…，旧别名会归一化）。**字面色（`#ff0000`、`rgb(…)`、

@@ -1,6 +1,6 @@
 import React from 'react'
 import { chartColorKey, seriesColor } from './chartColor.js'
-import { cellCount, chartValue, quantize, resample, VERTICAL_EIGHTHS } from './chartGeometry.js'
+import { cellCount, chartValue, MAX_CHART_ITEMS, quantize, resample, VERTICAL_EIGHTHS } from './chartGeometry.js'
 import { ChartLine, pushRun, type ChartRun } from './chartRows.js'
 import type { TuiSparklineProps } from './chartTypes.js'
 
@@ -16,7 +16,10 @@ import type { TuiSparklineProps } from './chartTypes.js'
 export function layoutSparkline(props: TuiSparklineProps): ChartRun[] {
   const width = cellCount(props.width)
   if (width === 0) return []
-  const series = resample(Array.isArray(props.values) ? props.values : [], width, props.fit === 'tail' ? 'tail' : 'bucket')
+  // Only the newest MAX_CHART_ITEMS values take part (the right edge is now).
+  const values = Array.isArray(props.values) ? props.values : []
+  const recent = values.length > MAX_CHART_ITEMS ? values.slice(values.length - MAX_CHART_ITEMS) : values
+  const series = resample(recent, width, props.fit === 'tail' ? 'tail' : 'bucket')
   const floor = chartValue(props.min)
   let ceiling = 0
   if (typeof props.max === 'number' && Number.isFinite(props.max)) ceiling = props.max

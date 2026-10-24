@@ -14,6 +14,16 @@
  */
 export const MAX_CHART_CELLS = 2000
 
+/**
+ * Upper bound on the data items one chart reads: bar segments, sparkline
+ * values, legend items, and a column chart's segments in total (split evenly
+ * over its columns). A generated list past it must not make every render
+ * map, sort and walk it whole; the rest is left out — a sparkline keeps its
+ * newest values, a legend counts the rest into its `+N` chip. Far more than
+ * a track of at most {@link MAX_CHART_CELLS} cells can tell apart.
+ */
+export const MAX_CHART_ITEMS = 10_000
+
 /** Horizontal eighth-block ladder: index = filled eighths of the cell (0…8). */
 export const HORIZONTAL_EIGHTHS: readonly string[] = Object.freeze([' ', '▏', '▎', '▍', '▌', '▋', '▊', '▉', '█'])
 
