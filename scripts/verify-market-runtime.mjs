@@ -1,14 +1,17 @@
 /** Native profile preparation regressions; compile first for the existing installer runner. */
 import assert from 'node:assert/strict'
-import { execFile } from 'node:child_process'
+import { execFile, fork } from 'node:child_process'
+import { once } from 'node:events'
 import { existsSync } from 'node:fs'
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { copyFile, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises'
+import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
+import { createServer } from 'node:net'
 import { dirname, join } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import { promisify } from 'node:util'
 import { apply as applyLease } from '../src/dsh-adapter/market/lease.mjs'
-import { managementModules, prepareInstalledRuntime } from '../src/dsh-adapter/market/prepare.mjs'
+import { managementModules, prepareInstalledRuntime, withRuntimeUpdate } from '../src/dsh-adapter/market/prepare.mjs'
 import { digest, liveRuntimeProcesses, materializeRecipe, ownedDirectory, PACKAGE, packageDirectory, PROFILE, readJson, recipeDirectory, RUNTIME_BUNDLE, runtimeStatus } from '../src/dsh-adapter/market/runtime-profile.mjs'
 
 const root = fileURLToPath(new URL('../', import.meta.url))
@@ -107,13 +110,112 @@ try {
   assert.deepEqual(provided, { name: 'tuiRuntimeLease', value: { profileDir: dir } })
   assert.equal(existsSync(join(ownedDirectory(dir), 'running.json')), false, 'legacy hosts without atomic APIs do not invent a managed lease')
 
-  const effects = []
-  await applyLease({ get: () => ({ dir, installAnchor: join(root, 'package.json') }), provide() {}, effect: register => effects.push(register()) })
-  assert.equal(liveRuntimeProcesses(dir).length, 1, 'managed profiles still hold a live lease')
+  const acquire = async () => {
+    let dispose
+    await applyLease({ get: () => ({ dir, installAnchor: join(root, 'package.json') }), provide() {}, effect: register => { dispose = register() } })
+    return dispose
+  }
+  const firstOwner = await acquire()
+  const secondOwner = await acquire()
+  assert.equal((await liveRuntimeProcesses(dir)).length, 2, 'two sessions in the same process have distinct leases')
+  let mutations = 0
+  await assert.rejects(withRuntimeUpdate(dir, () => { mutations++ }), /Close the other running TUI/)
+  await firstOwner()
+  await assert.rejects(withRuntimeUpdate(dir, () => { mutations++ }), /Close the other running TUI/)
+  assert.equal(mutations, 0, 'disposing the updating session does not release another session')
+  await secondOwner()
+  assert.deepEqual(await liveRuntimeProcesses(dir), [])
+
+  // Published installs may omit optional peers. After root disposal there is
+  // no application resolver; the guard must use the actual host installation.
+  const peerless = join(scratch, 'installed-without-peers')
+  const native = join(peerless, 'src/dsh-adapter/market')
+  const compiled = join(peerless, 'lib/types/dsh-adapter')
+  await mkdir(native, { recursive: true })
+  await mkdir(compiled, { recursive: true })
+  await put(join(peerless, 'package.json'), { type: 'module' })
+  for (const file of ['prepare.mjs', 'runtime-profile.mjs']) await copyFile(join(root, 'src/dsh-adapter/market', file), join(native, file))
+  for (const file of ['host-dsh.js', 'host-contract.js', 'lite-profile.js', 'process-exit.js']) await copyFile(join(root, 'lib/types/dsh-adapter', file), join(compiled, file))
+  assert.throws(() => createRequire(join(native, 'prepare.mjs')).resolve('@deepseek-ai/dsh-atomic-write'), { code: 'MODULE_NOT_FOUND' })
+  const lockHost = join(scratch, 'host-with-atomic')
+  await put(join(lockHost, 'package.json'), { name: '@deepseek-ai/dsh', type: 'module' })
+  await put(join(lockHost, 'bin', process.platform === 'win32' ? 'dsh.cmd' : 'dsh'), '')
+  await symlink(join(root, 'node_modules'), join(lockHost, 'node_modules'), process.platform === 'win32' ? 'junction' : 'dir')
+  const originalPath = process.env.PATH
+  process.env.PATH = join(lockHost, 'bin')
+  try {
+    const { withRuntimeUpdate: installedGuard } = await import(pathToFileURL(join(native, 'prepare.mjs')).href)
+    assert.equal(await installedGuard(dir, () => {
+      assert.equal(existsSync(join(ownedDirectory(dir), 'setup.json.lock')), true)
+      return 'host lock held'
+    }), 'host lock held')
+  } finally {
+    if (originalPath === undefined) delete process.env.PATH
+    else process.env.PATH = originalPath
+  }
+
+  // The marker dies with the real owner, even when its PID is later reused.
+  const childFile = join(scratch, 'lease-child.mjs')
+  await put(childFile, `
+    import { apply } from ${JSON.stringify(pathToFileURL(join(root, 'src/dsh-adapter/market/lease.mjs')).href)}
+    await apply({ get: () => (${JSON.stringify({ dir, installAnchor: join(root, 'package.json') })}), provide() {}, effect() {} })
+    process.send('ready')
+    setInterval(() => {}, 1000)
+  `)
+  const owner = fork(childFile, { stdio: ['ignore', 'ignore', 'pipe', 'ipc'] })
+  let childError = ''
+  owner.stderr.on('data', chunk => { childError += chunk })
+  try {
+    const ready = await Promise.race([
+      once(owner, 'message'),
+      once(owner, 'exit').then(([code]) => { throw new Error(`lease owner exited ${code}: ${childError}`) }),
+    ])
+    assert.deepEqual(ready, ['ready', undefined])
+    const [entry] = await liveRuntimeProcesses(dir)
+    assert.equal(entry.pid, owner.pid)
+    await assert.rejects(withRuntimeUpdate(dir, () => { mutations++ }), /Close the other running TUI/)
+    const exited = once(owner, 'exit')
+    owner.kill('SIGKILL')
+    await exited
+    // Recreate the dangerous state: the recorded PID exists, but its owner died.
+    await put(join(ownedDirectory(dir), 'running.json'), [{ ...entry, pid: process.pid }])
+    assert.deepEqual(await liveRuntimeProcesses(dir), [], 'a reused live PID cannot inherit a dead lease')
+    assert.equal(await withRuntimeUpdate(dir, () => ++mutations), 1)
+    const unrelated = createServer(socket => { socket.on('error', () => {}); socket.end('different-owner\n') })
+    await new Promise(resolve => unrelated.listen(0, '127.0.0.1', resolve))
+    try {
+      await put(join(ownedDirectory(dir), 'running.json'), [{ ...entry, pid: process.pid, port: unrelated.address().port }])
+      assert.deepEqual(await liveRuntimeProcesses(dir), [], 'even a reused live port must prove the original token')
+    } finally { await new Promise(resolve => unrelated.close(resolve)) }
+    await put(join(ownedDirectory(dir), 'running.json'), [{ pid: process.pid, token: 'old-pid-only-record' }])
+    assert.deepEqual(await liveRuntimeProcesses(dir), [], 'unverifiable old PID-only records cannot lock a profile forever')
+  } finally { if (owner.exitCode === null && owner.signalCode === null) owner.kill('SIGKILL') }
+
+  let releaseUpdate
+  let enteredUpdate
+  const entered = new Promise(resolve => { enteredUpdate = resolve })
+  const hold = new Promise(resolve => { releaseUpdate = resolve })
+  const updating = withRuntimeUpdate(dir, async () => { enteredUpdate(); await hold })
+  await entered
+  const abort = new AbortController()
+  const cancelled = assert.rejects(withRuntimeUpdate(dir, () => { mutations++ }, abort.signal), /cancelled while locked/)
+  abort.abort(new Error('cancelled while locked'))
+  await cancelled
+  let started = false
+  const starting = acquire().then(dispose => { started = true; return dispose })
+  await new Promise(resolve => setTimeout(resolve, 100))
+  assert.equal(started, false, 'a fresh TUI cannot lease the profile while its packages are being replaced')
+  releaseUpdate()
+  await updating
+  const dispose = await starting
+  assert.equal(mutations, 1, 'waiting cancellation never reaches the mutating operation')
+  assert.equal((await liveRuntimeProcesses(dir)).length, 1)
   await template('- id: next-rebuild\n')
   await assert.rejects(prepare(), /Close the running TUI/)
-  for (const dispose of effects) await dispose()
-  assert.deepEqual(liveRuntimeProcesses(dir), [])
+  await dispose()
+  assert.deepEqual(await liveRuntimeProcesses(dir), [])
+  await assert.rejects(withRuntimeUpdate(dir, () => { throw new Error('install failed') }), /install failed/)
+  assert.equal(existsSync(join(ownedDirectory(dir), 'setup.json.lock')), false, 'failure releases the startup lock')
   await assert.rejects(applyLease({ get: () => ({ dir, installAnchor: join(root, 'package.json') }), provide() {}, effect() {} }), /incomplete/)
 
   await put(join(dirname(installAnchor), 'cli.mjs'), 'process.exit(23)\n')

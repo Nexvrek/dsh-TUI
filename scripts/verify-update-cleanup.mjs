@@ -1,15 +1,20 @@
 /**
  * /update must not retry, remove stale files, repair, or restart after cleanup
- * becomes unconfirmed or cancellation is requested. Runs the real updater from a disposable transpiled
- * source copy; installer, spawn, filesystem boundaries and fetch are controlled.
- * No network, installer, replacement process, or real user profile is touched.
+ * becomes unconfirmed or cancellation is requested. The real runtime guard must
+ * exclude live leases and hold one lock through all profile mutations. Runs the
+ * real updater from a disposable transpiled source copy; installer, spawn,
+ * filesystem boundaries and fetch are controlled. Only local lease sockets are
+ * opened; no installer, replacement process, or real user profile is touched.
  * Run: node scripts/verify-update-cleanup.mjs
  */
 import assert from 'node:assert/strict'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs'
+import { randomUUID } from 'node:crypto'
+import { createServer } from 'node:net'
 import { tmpdir } from 'node:os'
-import { dirname, join, relative, resolve } from 'node:path'
+import { dirname, join, relative, resolve, sep } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
+import { withFileLock } from '@deepseek-ai/dsh-atomic-write'
 import ts from 'typescript'
 
 const repo = fileURLToPath(new URL('..', import.meta.url))
@@ -33,8 +38,15 @@ try {
   delete process.env.DSH_TUI_STANDALONE
   delete process.env.DSH_TUI_STANDALONE_BINARY
   symlinkSync(join(repo, 'node_modules'), join(pkg, 'node_modules'), process.platform === 'win32' ? 'junction' : 'dir')
+  const native = join(pkg, 'src', 'dsh-adapter', 'market')
+  mkdirSync(native, { recursive: true })
+  const imports = {}
+  for (const name of ['prepare', 'runtime-profile']) {
+    copyFileSync(join(sourceRoot, 'dsh-adapter', 'market', `${name}.mjs`), join(native, `${name}.mjs`))
+    imports[`#tui-market/${name}`] = `./src/dsh-adapter/market/${name}.mjs`
+  }
   const manifest = join(pkg, 'package.json')
-  const writeVersion = version => writeFileSync(manifest, JSON.stringify({ name: '@deepseek-harness-tui/dsh-tui', version, type: 'module' }))
+  const writeVersion = version => writeFileSync(manifest, JSON.stringify({ name: '@deepseek-harness-tui/dsh-tui', version, type: 'module', imports }))
   writeVersion('1.2.3')
 
   // Transpile the actual dependency closure without changing generated lib/.
@@ -75,7 +87,7 @@ export async function runInstallerProcess(command, args, options) {
   const step = plan[calls.length]
   calls.push({ command, args: [...args] })
   if (!step) throw new Error('Unexpected installer invocation: ' + JSON.stringify(args))
-  step.onRun?.(options)
+  await step.onRun?.(options)
   if (step.stderr) options.onStderr?.(step.stderr)
   if (step.cleanup) options.onEvent?.({ category: options.category, stage: 'cleanup-error', code: step.code, message: 'fixture: owned job cleanup unconfirmed' })
   options.onEvent?.({ category: options.category, stage: 'close', code: step.code })
@@ -100,18 +112,46 @@ export function spawn() {
 export * from 'node:fs'
 import * as fs from 'node:fs'
 let onRead
+let onMutation
 export function configure(hook) { onRead = hook }
+export function observeMutations(hook) { onMutation = hook }
 export function readFileSync(...args) {
   const value = fs.readFileSync(...args)
   onRead?.(...args)
   return value
 }
+${['writeFileSync', 'rmSync', 'renameSync'].map(name => `
+export function ${name}(...args) {
+  onMutation?.('${name}', ...args)
+  return fs.${name}(...args)
+}`).join('\n')}
 `)
   const filesystem = await import(pathToFileURL(join(modules, 'filesystem-stub.js')).href)
   const updater = await import(pathToFileURL(join(modules, 'update.js')).href)
   const runner = await import(pathToFileURL(join(modules, 'installer-stub.js')).href)
   const replacement = await import(pathToFileURL(join(modules, 'replacement-stub.js')).href)
   process.stderr.write = function (chunk) { diagnostics += String(chunk); stderrHook?.(String(chunk)); return true }
+  const profileDir = profile => join(process.env.DSH_HOME, 'profiles', profile)
+  const setupFile = profile => join(profileDir(profile), '.dsh-tui', 'setup.json')
+  async function assertReleased(profile) {
+    const file = setupFile(profile)
+    assert.equal(existsSync(`${file}.lock`), false, `${profile}: setup lock released`)
+    let entered = false
+    await withFileLock(file, async () => { entered = true }, { waitMs: 0 })
+    assert.equal(entered, true, `${profile}: next writer can acquire immediately`)
+  }
+  async function leaseMarker(profile) {
+    const token = randomUUID()
+    const server = createServer(socket => { socket.on('error', () => {}); socket.end(`${token}\n`) })
+    await new Promise((resolve, reject) => {
+      server.once('error', reject)
+      server.listen(0, '127.0.0.1', () => { server.removeListener('error', reject); resolve() })
+    })
+    const owned = dirname(setupFile(profile))
+    mkdirSync(owned, { recursive: true })
+    writeFileSync(join(owned, 'running.json'), JSON.stringify([{ pid: process.pid, token, port: server.address().port }]))
+    return () => new Promise((resolve, reject) => server.close(error => error ? reject(error) : resolve()))
+  }
 
   const transient = 'ENOENT: scandir dsh-tui_tmp_123_0\n'
   const collision = 'EEXIST: rename dsh-tui_tmp_123_0\n'
@@ -153,6 +193,7 @@ export function readFileSync(...args) {
     if (test.steps.length === 1) assert.doesNotMatch(diagnostics, /retrying once|rerunning the update/)
     if (test.repair) assert.equal(runner.calls[1].args.at(-1), 'install')
     else assert.ok(runner.calls.every(call => call.args.includes('update')), `${test.name}: no repair invocation`)
+    await assertReleased(profile)
     process.stdout.write(`PASS: ${test.name}\n`)
   }
   // Aborts are injected at external boundaries, with production policy intact.
@@ -162,6 +203,7 @@ export function readFileSync(...args) {
     catch (error) { failures.push(error); process.stdout.write(`FAIL: ${name}: ${error.message}\n`) }
     finally {
       filesystem.configure(undefined)
+      filesystem.observeMutations(undefined)
       stderrHook = undefined
       globalThis.fetch = originalFetch
       process.argv = [...originalArgv]
@@ -173,6 +215,88 @@ export function readFileSync(...args) {
     assert.deepEqual(result, { updateCode: 130, restartCode: 130 }, name)
     assert.equal(replacement.spawnCount, 0, `${name}: replacement not started`)
   }
+  await check('live runtime blocks before installer, workspace writes, or cleanup', async () => {
+    const profile = 'live-runtime'
+    writeVersion('1.2.3')
+    replacement.reset()
+    diagnostics = ''
+    const close = await leaseMarker(profile)
+    const workspace = join(profileDir(profile), 'pnpm-workspace.yaml')
+    const marker = join(updater.profilePackageDir(profile), 'sentinel')
+    mkdirSync(dirname(marker), { recursive: true })
+    writeFileSync(marker, 'running runtime')
+    writeFileSync(workspace, 'packages: []\n# preserve this user workspace\n')
+    const before = readFileSync(workspace)
+    const mutations = []
+    filesystem.observeMutations((operation, path) => {
+      if (typeof path === 'string' && path.startsWith(`${profileDir(profile)}${sep}`)) mutations.push({ operation, path })
+    })
+    runner.configure([{ code: 1, stderr: collision }])
+    try {
+      const result = await updater.updateTuiAndRestart('fixture-session', profile, '9.9.9')
+      assert.deepEqual(result, { updateCode: 1, restartCode: 1 })
+      assert.equal(runner.calls.length, 0, 'live runtime excludes even the first installer')
+      assert.deepEqual(mutations, [], 'guard precedes workspace policy and stale cleanup')
+      assert.deepEqual(readFileSync(workspace), before)
+      assert.equal(readFileSync(marker, 'utf8'), 'running runtime')
+      assert.equal(replacement.spawnCount, 0)
+      assert.match(diagnostics, /Close the other running TUI sessions/)
+      await assertReleased(profile)
+    } finally { await close() }
+  })
+  await check('stale lease with a still-live PID and closed socket permits update', async () => {
+    const profile = 'stale-runtime'
+    writeVersion('1.2.3')
+    replacement.reset()
+    const close = await leaseMarker(profile)
+    await close()
+    runner.configure([{ code: 0 }])
+    const result = await updater.updateTuiAndRestart('fixture-session', profile, '1.2.3')
+    assert.deepEqual(result, { updateCode: 0, restartCode: 0 })
+    assert.equal(runner.calls.length, 1, 'PID existence alone does not retain a dead runtime lease')
+    assert.equal(replacement.spawnCount, 1)
+    await assertReleased(profile)
+  })
+  await check('one real setup lock spans policy writes, retry, stale cleanup, and repair', async () => {
+    const profile = 'lock-span'
+    const dir = profileDir(profile)
+    writeVersion('1.2.3')
+    replacement.reset()
+    const packageDir = updater.profilePackageDir(profile)
+    const stagingDir = join(dirname(packageDir), 'dsh-tui_tmp_123_0')
+    for (const path of [packageDir, stagingDir]) {
+      mkdirSync(path, { recursive: true })
+      writeFileSync(join(path, 'sentinel'), 'old install')
+    }
+    const observations = []
+    const observe = stage => {
+      const stat = statSync(`${setupFile(profile)}.lock`, { bigint: true })
+      observations.push({ stage, identity: [stat.dev, stat.ino, stat.birthtimeNs, stat.mtimeNs] })
+    }
+    filesystem.observeMutations((operation, path) => {
+      if (typeof path === 'string' && path.startsWith(`${dir}${sep}`)) observe(`${operation}:${relative(dir, path)}`)
+    })
+    const onRun = async () => {
+      observe(`installer ${runner.calls.length}`)
+      await assert.rejects(withFileLock(setupFile(profile), async () => assert.fail('competing writer entered during update'), { waitMs: 0 }), /timed out waiting for the writer lock/)
+    }
+    runner.configure([
+      { code: 1, stderr: transient, onRun },
+      { code: 1, stderr: collision, onRun },
+      { code: 0, onRun },
+      { code: 0, async onRun() { await onRun(); writeVersion('9.9.9') } },
+    ])
+    const result = await updater.updateTuiAndRestart('fixture-session', profile, '9.9.9')
+    assert.deepEqual(result, { updateCode: 0, restartCode: 0 })
+    assert.equal(runner.calls.length, 4)
+    assert.equal(runner.calls[3].args.at(-1), 'install', 'last operation is version repair')
+    assert.ok(observations.some(entry => entry.stage === 'writeFileSync:pnpm-workspace.yaml'), 'workspace policy actually changed')
+    assert.equal(observations.filter(entry => entry.stage.startsWith('rmSync:')).length, 2, 'actual stale install and staging cleanup observed')
+    for (const entry of observations) assert.deepEqual(entry.identity, observations[0].identity, `same uninterrupted lock at ${entry.stage}`)
+    assert.equal(existsSync(packageDir), false)
+    assert.equal(existsSync(stagingDir), false)
+    await assertReleased(profile)
+  })
   await check('normal update still restarts', async () => {
     writeVersion('1.2.3')
     runner.configure([{ code: 0 }])
@@ -180,6 +304,7 @@ export function readFileSync(...args) {
     const result = await updater.updateTuiAndRestart('fixture-session', 'normal', '1.2.3')
     assert.deepEqual(result, { updateCode: 0, restartCode: 0 })
     assert.equal(replacement.spawnCount, 1)
+    await assertReleased('normal')
   })
   for (const stage of ['installer running', 'last installer success', 'before retry', 'version verification', 'before launcher migration', 'after launcher migration', 'before restart']) {
     await check(`cancel ${stage}`, async () => {
@@ -217,11 +342,13 @@ export function readFileSync(...args) {
           })
         },
       }])
-      const result = await updater.updateTuiAndRestart('fixture-session', `cancel-${stage.replaceAll(' ', '-')}`, target, undefined, {}, controller.signal)
+      const profile = `cancel-${stage.replaceAll(' ', '-')}`
+      const result = await updater.updateTuiAndRestart('fixture-session', profile, target, undefined, {}, controller.signal)
       assert.equal(controller.signal.aborted, true, 'the intended cancellation boundary was reached')
       cancelled(result, stage)
       assert.equal(runner.calls.length, 1, 'cancel prevents retry and repair')
       if (stage === 'before launcher migration') assert.equal(readFileSync(launcher, 'utf8'), 'old launcher')
+      await assertReleased(profile)
     })
   }
 

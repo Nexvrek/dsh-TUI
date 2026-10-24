@@ -2,6 +2,7 @@
 import { createHash, randomUUID } from 'node:crypto'
 import { existsSync, readFileSync } from 'node:fs'
 import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
+import { createConnection } from 'node:net'
 import { dirname, join, resolve } from 'node:path'
 
 export const PACKAGE = '@deepseek-harness-tui/dsh-tui'
@@ -88,7 +89,7 @@ export function runtimeStatus(profileDir) {
   const packageRoot = packageDirectory(profileDir)
   const manifest = readJson(join(packageRoot, 'package.json'))
   const profile = readJson(join(profileDir, 'package.json'))
-  const result = { ready: false, version: manifest?.version, profileDir, packageRoot }
+  const result = { ready: false, version: typeof manifest?.version === 'string' ? manifest.version : undefined, profileDir, packageRoot }
   if (manifest === undefined || profile === undefined) return result
   try {
     const template = runtimeTemplate(packageRoot)
@@ -149,12 +150,32 @@ export function runtimeBundleOrder(bundles) {
   return next
 }
 
-export function liveRuntimeProcesses(profileDir) {
+/** A PID alone can belong to an unrelated process after an unclean exit. */
+export async function liveRuntimeProcesses(profileDir) {
   const value = readJson(join(ownedDirectory(profileDir), 'running.json')) ?? []
   if (!Array.isArray(value)) throw new Error('The TUI running-process record is invalid')
-  return value.filter(entry => {
-    if (!Number.isSafeInteger(entry?.pid) || entry.pid <= 0 || typeof entry.token !== 'string') return false
-    try { process.kill(entry.pid, 0); return true }
-    catch (error) { return error.code !== 'ESRCH' }
-  })
+  const live = await Promise.all(value.map(async entry => {
+    if (!Number.isSafeInteger(entry?.pid) || entry.pid <= 0 || typeof entry.token !== 'string'
+      || !Number.isSafeInteger(entry.port) || entry.port < 1 || entry.port > 65535) return false
+    try { process.kill(entry.pid, 0) }
+    catch (error) { if (error.code === 'ESRCH') return false }
+    return new Promise((resolve, reject) => {
+      const socket = createConnection({ host: '127.0.0.1', port: entry.port })
+      let response = ''
+      const finish = (error, matches = false) => {
+        socket.destroy()
+        if (error) reject(error)
+        else resolve(matches)
+      }
+      // A busy or suspended owner is not permission to replace its files.
+      socket.setTimeout(2000, () => finish(new Error(`Cannot verify TUI process ${entry.pid}; retry after it responds or exits`)))
+      socket.on('error', error => finish(error.code === 'ECONNREFUSED' ? undefined : error))
+      socket.on('data', data => {
+        response += data.toString('utf8')
+        if (response.includes('\n') || response.length > 128) finish(undefined, response === `${entry.token}\n`)
+      })
+      socket.on('end', () => finish(undefined, response === `${entry.token}\n`))
+    })
+  }))
+  return value.filter((entry, index) => live[index])
 }

@@ -29,7 +29,7 @@
  */
 import { spawn, spawnSync } from 'node:child_process'
 import { existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmSync } from 'node:fs'
-import { homedir } from 'node:os'
+import { constants as osConstants, homedir } from 'node:os'
 import { dirname, isAbsolute, join, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 
@@ -224,6 +224,24 @@ const MSG = {
     en: `[dsh-tui] Plugin install failed. Retry manually later:\n  dsh plugin --profile ${PROFILE} add -w ${PACKAGE}@${installVersion}`,
     zh: `[dsh-tui] 插件安装失败。可稍后手工重试：\n  dsh plugin --profile ${PROFILE} add -w ${PACKAGE}@${installVersion}`,
   },
+  managedRuntimeUnavailable: {
+    en: (root, profile, version) =>
+      `[dsh-tui] The profile copy has no complete compiled TUI runtime:\n  ${root}\n` +
+      `Install the matching published package:\n  dsh plugin --profile ${profile} add -w --force ${PACKAGE}@${version}\n` +
+      `For a source checkout, run pnpm install --frozen-lockfile and pnpm compile in that checkout.`,
+    zh: (root, profile, version) =>
+      `[dsh-tui] profile 内副本缺少完整的 TUI 编译产物：\n  ${root}\n` +
+      `请安装同版本的已发布包：\n  dsh plugin --profile ${profile} add -w --force ${PACKAGE}@${version}\n` +
+      `若使用源码，请在源码目录运行 pnpm install --frozen-lockfile 和 pnpm compile。`,
+  },
+  managedPreparationFailed: {
+    en: code => `[dsh-tui] TUI profile preparation failed (exit ${code}).`,
+    zh: code => `[dsh-tui] TUI profile 准备失败（退出码 ${code}）。`,
+  },
+  managedPreparationInterrupted: {
+    en: signal => `[dsh-tui] TUI profile preparation was interrupted (${signal}).`,
+    zh: signal => `[dsh-tui] TUI profile 准备被中断（${signal}）。`,
+  },
   bootstrapUnreadable: {
     en: dir =>
       `[dsh-tui] install reported success but the plugin package is still unreadable under:\n` +
@@ -386,11 +404,21 @@ const MSG = {
   },
   safeRescueCleanup: {
     en: path =>
-      `[dsh-tui] removed the half-installed profile (only dsh/pnpm-generated files were\n` +
-      `  present, checked before removing) so the next attempt starts clean:\n  ${path}`,
+      `[dsh-tui] removed the half-installed generated files, preserving runtime coordination\n` +
+      `  records, so the next attempt can reinstall:\n  ${path}`,
     zh: path =>
       `[dsh-tui] 已清理半装的 profile（删除前已确认目录里只有 dsh/pnpm 生成的文件），\n` +
-      `  下次尝试将从零开始：\n  ${path}`,
+      `  保留运行协调记录，下次尝试可重新安装：\n  ${path}`,
+  },
+  safeRescueGuardUnavailable: {
+    en: path =>
+      `[dsh-tui] Rescue refused: ${path} uses managed runtime state, but no usable\n` +
+      `  profile management helper is available to check running sessions. Update the launcher first:\n` +
+      `  npm install -g --legacy-peer-deps ${PACKAGE}@latest`,
+    zh: path =>
+      `[dsh-tui] 救援被拒绝：${path} 使用受管理的运行时状态，但缺少可用的 profile 管理模块，\n` +
+      `  无法确认是否仍有会话运行。请先更新启动器：\n` +
+      `  npm install -g --legacy-peer-deps ${PACKAGE}@latest`,
   },
   safeRescueRemoveFailed: {
     en: (path, reason) =>
@@ -1171,7 +1199,7 @@ const runSafeSession = async ({ pendingExitCode = 0, retryDsh, extraLines, rescu
 // 返回子进程结果；被门禁拒绝或创建失败返回 null（原因已就地打印）。
 const runRescue = async () => {
   for (const l of runDoctorChecks().lines) console.log(l)
-  const created = createRescueProfile()
+  const created = await createRescueProfile()
   if (created.kind !== 'created' && created.kind !== 'exists') {
     for (const l of created.lines) console.error(l)
     return null
@@ -1234,7 +1262,13 @@ const rescueDirStrays = () => {
  */
 const removeRescueDir = () => {
   try {
-    rmSync(rescueProfileDir, { recursive: true, force: true })
+    if (existsSync(join(rescueProfileDir, '.dsh-tui'))) {
+      // Keep the setup lock inode and owner records while the guarded rebuild
+      // removes the package tree. Deleting the lock would admit another writer.
+      for (const entry of readdirSync(rescueProfileDir)) {
+        if (entry !== '.dsh-tui') rmSync(join(rescueProfileDir, entry), { recursive: true, force: true })
+      }
+    } else rmSync(rescueProfileDir, { recursive: true, force: true })
     return undefined
   } catch (error) {
     return error
@@ -1250,6 +1284,14 @@ const removeRescueDir = () => {
 // 根 manifest 只覆盖「装了什么插件」这一维；补丁层是另一维，两者都要过。
 const rescueProfileState = () => {
   if (!existsSync(rescueProfileDir)) return { state: 'absent' }
+  // The update guard creates this directory before an absent profile is
+  // initialized, and a failed guarded install deliberately leaves it intact.
+  if (!existsSync(join(rescueProfileDir, 'package.json'))) {
+    try {
+      const entries = readdirSync(rescueProfileDir, { withFileTypes: true })
+      if (entries.length === 1 && entries[0].name === '.dsh-tui' && entries[0].isDirectory()) return { state: 'absent' }
+    } catch { /* An unreadable directory remains unrecognized below. */ }
+  }
   const inv = readProfileInventory(rescueProfileDir)
   if (inv.error) return { state: 'unrecognized' }
   const extras = [...inv.bundles, ...inv.deps].filter(name => !PROTECTED_PLUGINS.has(name))
@@ -1274,7 +1316,7 @@ const rescueProfileState = () => {
  *     would destroy user data.
  * @returns `{ kind: 'created' | 'exists' }`, or `{ kind: 'failed', lines }`.
  */
-const createRescueProfile = () => {
+const inspectRescueProfile = () => {
   if (existsSync(homePatchFile)) return { kind: 'failed', lines: [msg('safeRescueHomePatch')(homePatchFile)] }
   const state = rescueProfileState()
   if (state.state === 'unrecognized') return { kind: 'failed', lines: [msg('safeRescueUnrecognized')(rescueProfileDir)] }
@@ -1282,12 +1324,17 @@ const createRescueProfile = () => {
     return { kind: 'failed', lines: [msg('safeRescueUnclean')(rescueProfileDir, state.extras.join(', '))] }
   }
   if (state.state === 'patched') return { kind: 'failed', lines: [msg('safeRescuePatched')(rescuePatchFile)] }
+  return state
+}
+
+const installRescueProfile = () => {
+  // Another creator may have completed while this process waited for the lock.
+  const state = inspectRescueProfile()
+  if (state.kind === 'failed') return state
   // 就绪判定与 bootstrapProfile 同源：安装判定文件在 node_modules 深处
   // （真实 dsh plugin add 与测试 stub 都落这里），不是 profile 根 manifest。
   if (state.state === 'clean') {
     if (readJson(rescueInstalledPkg) !== undefined) {
-      try { prepareManagedProfile(rescueProfileDir, RESCUE_PROFILE) }
-      catch (error) { return { kind: 'failed', lines: [msg('safeRescueFailed')(error.message)] } }
       return { kind: 'exists' }
     }
     // clean 但没装成：pnpm 会把半装状态视为「已是最新」，原地重试永远
@@ -1325,9 +1372,51 @@ const createRescueProfile = () => {
     lines.push(failed === undefined ? msg('safeRescueCleanup')(rescueProfileDir) : msg('safeRescueRemoveFailed')(rescueProfileDir, failed.message))
     return { kind: 'failed', lines }
   }
-  try { prepareManagedProfile(rescueProfileDir, RESCUE_PROFILE) }
-  catch (error) { return { kind: 'failed', lines: [msg('safeRescueFailed')(error.message)] } }
   return { kind: 'created' }
+}
+
+const withRescueUpdate = async operation => {
+  // Migrated global launchers may contain only this bin; prefer any installed
+  // native helper while keeping genuinely legacy profiles independent of lib/.
+  for (const packageRoot of [ownDir, profilePkgDir, dirname(rescueInstalledPkg)]) {
+    const helper = join(packageRoot, 'src/dsh-adapter/market/prepare.mjs')
+    if (!existsSync(helper)) continue
+    let withRuntimeUpdate
+    try { ({ withRuntimeUpdate } = await import(pathToFileURL(helper).href)) }
+    catch { continue }
+    if (typeof withRuntimeUpdate === 'function') return withRuntimeUpdate(rescueProfileDir, operation)
+  }
+  const manifest = readJson(join(rescueProfileDir, 'package.json'))
+  if (existsSync(join(rescueProfileDir, '.dsh-tui'))
+    || ownPackage?.dshTui?.runtimeBundle !== undefined
+    || readJson(rescueInstalledPkg)?.dshTui?.runtimeBundle !== undefined
+    || manifest?.dependencies?.['@deepseek-harness-tui/dsh-tui-runtime'] !== undefined) {
+    throw new Error(msg('safeRescueGuardUnavailable')(rescueProfileDir))
+  }
+  return operation()
+}
+
+const createRescueProfile = async () => {
+  const initial = inspectRescueProfile()
+  if (initial.kind === 'failed') return initial
+  if (initial.state === 'clean' && readJson(rescueInstalledPkg) === undefined) {
+    const stray = rescueDirStrays()
+    if (stray.length > 0) return { kind: 'failed', lines: [msg('safeRescueStray')(rescueProfileDir, stray.join(', '))] }
+  }
+  try {
+    if (initial.state === 'clean' && readJson(rescueInstalledPkg) !== undefined) {
+      prepareManagedProfile(rescueProfileDir, RESCUE_PROFILE)
+      return { kind: 'exists' }
+    }
+    const created = await withRescueUpdate(installRescueProfile)
+    if (created.kind === 'failed') return created
+    // Preparation takes the same setup lock in its child process. Run it only
+    // after the cleanup/install transaction has released that lock.
+    prepareManagedProfile(rescueProfileDir, RESCUE_PROFILE)
+    return created
+  } catch (error) {
+    return { kind: 'failed', lines: [msg('safeRescueFailed')(error.message)] }
+  }
 }
 
 // 首次启动的结算：signal 自杀透传；error 打印 launchFailed 后接 fallback
@@ -1376,12 +1465,28 @@ const profileReady = () => {
 // Legacy releases have no managed runtime and retain their original boot path.
 const prepareManagedProfile = (directory = profileDir, profile = PROFILE) => {
   const packageRoot = join(directory, 'node_modules', '@deepseek-harness-tui', 'dsh-tui')
-  if (readJson(join(packageRoot, 'package.json'))?.dshTui?.runtimeBundle === undefined) return
+  const manifest = readJson(join(packageRoot, 'package.json'))
+  if (manifest?.dshTui?.runtimeBundle === undefined) return
+  // Git installs declare the bundle but contain no compiled application. Keep
+  // this file-only preflight independent of lib/; the CLI validates its contents.
+  const required = [manifest.main, 'lib/tui-runtime/package.json', 'lib/tui-runtime/cordis.patch.yml',
+    'lib/types/dsh-adapter/host-entry.js', 'lib/types/dsh-adapter/host-dsh.js',
+    ...['cli', 'prepare', 'runtime-profile'].map(name => `src/dsh-adapter/market/${name}.mjs`)]
+  if (required.some(path => typeof path !== 'string' || !existsSync(join(packageRoot, path)))) {
+    throw new Error(msg('managedRuntimeUnavailable')(packageRoot, profile, manifest.version ?? installVersion))
+  }
   const result = spawnSync(process.execPath, [join(packageRoot, 'src/dsh-adapter/market/cli.mjs'), profile], {
     stdio: 'inherit', env: process.env,
   })
   if (result.error) throw result.error
-  if (result.status !== 0) throw new Error(`TUI profile preparation failed (exit ${result.status ?? 1})`)
+  if (result.signal) {
+    throw Object.assign(new Error(msg('managedPreparationInterrupted')(result.signal)), {
+      exitCode: 128 + (osConstants.signals[result.signal] ?? 0), signal: result.signal,
+    })
+  }
+  if (result.status !== 0) {
+    throw Object.assign(new Error(msg('managedPreparationFailed')(result.status ?? 1)), { exitCode: result.status ?? 1 })
+  }
 }
 const bootstrapProfile = () => {
   const probe = spawnSync(...cmd('dsh', ['--version']), { stdio: 'pipe', ...shellOpt })
@@ -1486,7 +1591,7 @@ if (subcommand === 'safe') {
   if (!isInteractive()) {
     for (const line of renderSafeReport(extraLines)) console.log(line)
     if (!rescueOnly) process.exit(0)
-    const created = createRescueProfile()
+    const created = await createRescueProfile()
     if (created.kind !== 'created' && created.kind !== 'exists') {
       for (const l of created.lines) console.error(l)
       process.exit(1)
@@ -1598,7 +1703,12 @@ if (!runningInsideProfile && ownVersion !== undefined && process.env.DSH_TUI_NO_
   // 该判定不能只留在这里——委派出去的子进程就是 profile 副本，看不到外层
   // 启动器版本。
   if (!runningInsideProfile) checkProfileAlignment(installedVersion)
-  prepareManagedProfile()
+  try { prepareManagedProfile() }
+  catch (error) {
+    console.error(error.message)
+    if (!error.signal) console.error(msg('safeHint')(error.exitCode ?? 1))
+    process.exit(error.exitCode ?? 1)
+  }
 
   // --resume / 工作区目标拦截（launcher 契约，见 src/sessionHistory.ts）。
   // sourceBackend 只在**派生**目标时给出（读的是那个内核的上次会话）；显式敲的

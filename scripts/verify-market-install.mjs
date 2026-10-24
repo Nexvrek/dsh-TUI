@@ -10,7 +10,7 @@ import { AsyncLocalStorage } from 'node:async_hooks'
 import { createHash } from 'node:crypto'
 import { createServer, request as requestHttp } from 'node:http'
 import { createServer as createHttpsServer, request as requestHttps } from 'node:https'
-import { connect } from 'node:net'
+import { connect, createServer as createLeaseMarker } from 'node:net'
 import { spawn } from 'node:child_process'
 import { cp, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -50,7 +50,7 @@ function fixtureHmr(reconcile) {
 const waitFor = async (predicate, description, timeout = 30000) => {
   const until = Date.now() + timeout
   while (Date.now() < until) {
-    if (predicate()) return
+    if (await predicate()) return
     await new Promise(resolve => setTimeout(resolve, 100))
   }
   throw new Error(`Timed out: ${description}`)
@@ -273,7 +273,7 @@ async function terminalLaunch(source, target, fullscreen, repairEntry = false, d
   try {
     await waitFor(() => exit !== undefined || (readJson(join(home, '.dsh-tui/inject/servers.json')) ?? []).some(record => record.sessionId), 'adopted terminal session')
     assert.equal(exit, undefined, output.slice(-12000))
-    await waitFor(() => liveRuntimeProcesses(target).length > 0, 'runtime lease')
+    await waitFor(async () => (await liveRuntimeProcesses(target)).length > 0, 'runtime lease')
     assert.equal(runtimeStatus(target).ready, true, 'the application entry repairs an incomplete selection')
     await assert.rejects(prepareRuntime({ Context, Loader, source, version: '99.0.0' }), /Close the running TUI/)
     await waitFor(() => screen().includes('❯'), 'terminal prompt')
@@ -336,10 +336,14 @@ try {
       const selectedBeforeEnable = readJson(join(dir, 'package.json'))
       // A rejected preparation must leave the management service available.
       await mkdir(join(target, '.dsh-tui'), { recursive: true })
-      await writeFile(join(target, '.dsh-tui/running.json'), JSON.stringify([{ pid: process.pid, token: 'fixture-running-tui' }]))
-      const rejected = await manager.setBundleEnabled(PACKAGE, true)
-      assert.equal(rejected.application, 'failed', 'an unprepared environment cannot report enabled successfully')
-      assert.equal(ctx.get('tuiProfileManager').status().phase, 'failed')
+      const marker = createLeaseMarker(socket => { socket.on('error', () => {}); socket.end('fixture-running-tui\n') })
+      await new Promise(resolve => marker.listen(0, '127.0.0.1', resolve))
+      try {
+        await writeFile(join(target, '.dsh-tui/running.json'), JSON.stringify([{ pid: process.pid, token: 'fixture-running-tui', port: marker.address().port }]))
+        const rejected = await manager.setBundleEnabled(PACKAGE, true)
+        assert.equal(rejected.application, 'failed', 'an unprepared environment cannot report enabled successfully')
+        assert.equal(ctx.get('tuiProfileManager').status().phase, 'failed')
+      } finally { await new Promise(resolve => marker.close(resolve)) }
       await writeFile(join(target, '.dsh-tui/running.json'), '[]\n')
       await manager.setBundleEnabled(PACKAGE, false)
       const enabled = await manager.setBundleEnabled(PACKAGE, true)

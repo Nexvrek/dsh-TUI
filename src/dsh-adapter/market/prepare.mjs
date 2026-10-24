@@ -1,5 +1,6 @@
 /** Official package operations, isolated from the running application's Loader and events. */
 import { mkdir } from 'node:fs/promises'
+import { existsSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { dirname, join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -37,6 +38,44 @@ export async function managementModules(installAnchor, { optional = false } = {}
   return { PluginManager: manager.default, ...operations, ...atomic }
 }
 
+/** Hold the startup lock before any package mutation, including retries and repair. */
+export async function withRuntimeUpdate(profileDir, operation, signal) {
+  signal?.throwIfAborted()
+  const owned = ownedDirectory(profileDir)
+  let atomic
+  let atomicPath
+  try {
+    atomicPath = createRequire(import.meta.url).resolve('@deepseek-ai/dsh-atomic-write')
+  } catch (error) {
+    if (error.code !== 'MODULE_NOT_FOUND') throw error
+    // Optional peers need not be installed beside a published TUI. In /update
+    // the application resolver has already been disposed; rescue never had it.
+    // Resolve from the actual DSH CLI installation, as the runtime lease does.
+    const { findHostDsh } = await import(new URL('../../../lib/types/dsh-adapter/host-dsh.js', import.meta.url).href)
+    const found = findHostDsh()
+    if (found.packageDir !== undefined) {
+      try { atomicPath = createRequire(join(found.packageDir, 'package.json')).resolve('@deepseek-ai/dsh-atomic-write') }
+      catch (error) { if (error.code !== 'MODULE_NOT_FOUND') throw error }
+    }
+  }
+  if (atomicPath !== undefined) atomic = await import(pathToFileURL(atomicPath).href)
+  if (typeof atomic?.withFileLock !== 'function') {
+    if (['running.json', 'setup.json.lock'].some(name => existsSync(join(owned, name)))) {
+      throw new Error('Cannot coordinate this managed TUI profile with the installed DSH host; restore its atomic-write package before updating')
+    }
+    return operation()
+  }
+  await mkdir(owned, { recursive: true, mode: 0o700 })
+  return atomic.withFileLock(join(owned, 'setup.json'), async () => {
+    signal?.throwIfAborted()
+    if ((await liveRuntimeProcesses(profileDir)).length > 0) {
+      throw new Error('Close the other running TUI sessions before updating or rebuilding this profile')
+    }
+    signal?.throwIfAborted()
+    return operation()
+  }, { signal, waitMs: 120000 })
+}
+
 /** Prepare an installed package without requiring the newer in-process host boot APIs. */
 export async function prepareInstalledRuntime({ Context, Loader, writeProfileManifest, source, version, profile = PROFILE, signal }) {
   if (profile !== PROFILE && profile !== RESCUE_PROFILE) throw new Error('Unsupported TUI profile')
@@ -50,7 +89,7 @@ export async function prepareInstalledRuntime({ Context, Loader, writeProfileMan
   // Older DSH exposes profile writers and its CLI, but not the market APIs.
   // Keep using its public package operation; only replace our bundle layer.
   if (status.version !== version) throw new Error('Install the matching TUI package before preparing this legacy profile')
-  if (liveRuntimeProcesses(dir).length > 0) throw new Error('Close the running TUI before preparing or updating its environment')
+  if ((await liveRuntimeProcesses(dir)).length > 0) throw new Error('Close the running TUI before preparing or updating its environment')
   const recipe = await materializeRecipe(dir, packageDirectory(dir))
   const hostManifest = readJson(source.installAnchor)
   const bin = typeof hostManifest?.bin === 'string' ? hostManifest.bin : hostManifest?.bin?.dsh
@@ -98,7 +137,7 @@ export async function prepareRuntime({ Context, Loader, source, version, profile
     if (status.version !== undefined && compareVersions(status.version, version) > 0) {
       throw new Error('A newer TUI is installed but incomplete; repair it using that version instead of downgrading')
     }
-    if (liveRuntimeProcesses(dir).length > 0) throw new Error('Close the running TUI before preparing or updating its environment')
+    if ((await liveRuntimeProcesses(dir)).length > 0) throw new Error('Close the running TUI before preparing or updating its environment')
     const invocation = source.packageManager ?? { command: 'pnpm' }
     if (readJson(join(dir, 'package.json')) === undefined) {
       onPhase('initializing')

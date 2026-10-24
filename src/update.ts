@@ -19,6 +19,7 @@ import { DISABLE_KITTY_KEYBOARD, DISABLE_MODIFY_OTHER_KEYS, DISABLE_WIN32_INPUT_
 import { DBP, DFE, DISABLE_MOUSE_TRACKING, EXIT_ALT_SCREEN, SHOW_CURSOR } from './ink/termio/dec.js'
 import { detachHandoffStdin } from './ink/stdin-handoff.js'
 import { runInstallerProcess } from './updateProcess.js'
+import { withRuntimeUpdate } from '#tui-market/prepare'
 
 // Re-exported for scripts/verify-update.mjs and the bin launcher, which reads
 // the compiled copy at lib/types/utils/shellQuote.js.
@@ -1844,6 +1845,22 @@ export async function updateTui(
     return { code: 0, updatedFrom, installed: latestVersion }
   }
 
+  const profileDir = dirname(profileWorkspaceYamlPath(profile))
+  try {
+    return await withRuntimeUpdate(profileDir, () => updateProfileTui(profile, targetVersion, signal, updatedFrom), signal)
+  } catch (error) {
+    process.stderr.write(`dsh-tui: ${error instanceof Error ? error.message : String(error)}\n`)
+    return { code: signal?.aborted ? 130 : 1, updatedFrom }
+  }
+}
+
+/** Called only while the profile's startup/update lock is held. */
+async function updateProfileTui(
+  profile: string,
+  targetVersion: string | undefined,
+  signal: AbortSignal | undefined,
+  updatedFrom: string,
+): Promise<TuiUpdateOutcome> {
   const dsh = process.platform === 'win32' ? 'dsh.cmd' : 'dsh'
   const updateArgs = tuiUpdatePluginArgs(profile, targetVersion)
   // pnpm ≥11 hard-fails installs whose dependency tree carries un-allowlisted

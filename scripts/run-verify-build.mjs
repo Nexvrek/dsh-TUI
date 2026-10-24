@@ -53,6 +53,8 @@ const GATES = [
   'verify:oauth',
   'verify:patch-surface',
   'verify:market-runtime',
+  'verify:market-types',
+  'verify:publish-pack',
   'verify:web-coexistence',
   'verify:plugin-spec',
   'verify:plugin-grants',

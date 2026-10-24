@@ -34,8 +34,8 @@ const profile = hostProfile()
 if (profile === 'dsh-tui' || profile === 'dsh-tui-safe') {
   const home = process.env.DSH_HOME || join(homedir(), '.dsh')
   const dir = join(home, 'profiles', profile)
-  const installed = readJson(join(packageDirectory(dir), 'package.json'))
-  if (installed?.dshTui?.runtimeBundle !== undefined && !runtimeStatus(dir).ready) {
+  const installed = readJson<{ version?: unknown; dshTui?: { runtimeBundle?: unknown } }>(join(packageDirectory(dir), 'package.json'))
+  if (typeof installed?.version === 'string' && installed.dshTui?.runtimeBundle !== undefined && !runtimeStatus(dir).ready) {
     const found = findHostDsh()
     if ('packageDir' in found) {
       let host: Awaited<ReturnType<typeof loadHostProfileManagement>> | undefined

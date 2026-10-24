@@ -121,7 +121,15 @@ function copyUpdateModule(dstDir) {
   mkdirSync(join(dstDir, 'components'), { recursive: true })
   mkdirSync(join(dstDir, 'agent'), { recursive: true })
   mkdirSync(join(dstDir, 'backends', 'shared'), { recursive: true })
-  cpSync(compiledModulePath, join(dstDir, 'update.js'))
+  // Version-location fixtures intentionally use foreign/nearby manifests.
+  // Relocate the real native dependency with the copied module so those test
+  // manifests need not invent package import maps; no updater behavior is stubbed.
+  writeFileSync(join(dstDir, 'update.js'), readFileSync(compiledModulePath, 'utf8')
+    .replace("'#tui-market/prepare'", "'./market/prepare.mjs'"))
+  mkdirSync(join(dstDir, 'market'), { recursive: true })
+  for (const name of ['prepare.mjs', 'runtime-profile.mjs']) {
+    cpSync(new URL('../src/dsh-adapter/market/' + name, import.meta.url), join(dstDir, 'market', name))
+  }
   cpSync(new URL('../lib/types/updateProcess.js', import.meta.url), join(dstDir, 'updateProcess.js'))
   cpSync(new URL('../lib/types/windowsInstaller.js', import.meta.url), join(dstDir, 'windowsInstaller.js'))
   const packageRoot = dstDir.endsWith(join('lib', 'types')) ? join(dstDir, '..', '..') : join(dstDir, '..')

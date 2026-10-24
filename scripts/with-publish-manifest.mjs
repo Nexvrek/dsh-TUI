@@ -3,6 +3,7 @@ import { dirname, join, resolve } from 'node:path'
 import { tmpdir } from 'node:os'
 import { fileURLToPath } from 'node:url'
 import { spawnSync } from 'node:child_process'
+import { commandInvocation } from './dev-command.mjs'
 import { publishManifest } from './publish-manifest.mjs'
 
 const projectRoot = fileURLToPath(new URL('../', import.meta.url))
@@ -40,11 +41,21 @@ try {
   const npmArgs = [...args]
   if (!npmArgs.includes('--ignore-scripts')) npmArgs.push('--ignore-scripts')
   if (args[0] === 'pack') {
-    const destination = npmArgs.indexOf('--pack-destination')
-    if (destination >= 0) npmArgs[destination + 1] = resolve(projectRoot, npmArgs[destination + 1])
-    else if (!npmArgs.some(arg => arg.startsWith('--pack-destination='))) npmArgs.push('--pack-destination', projectRoot)
+    let destination = false
+    for (let i = 1; i < npmArgs.length; i++) {
+      if (npmArgs[i] === '--pack-destination') {
+        npmArgs[i + 1] = resolve(projectRoot, npmArgs[i + 1])
+        destination = true
+        i++
+      } else if (npmArgs[i].startsWith('--pack-destination=')) {
+        npmArgs[i] = `--pack-destination=${resolve(projectRoot, npmArgs[i].slice('--pack-destination='.length))}`
+        destination = true
+      }
+    }
+    if (!destination) npmArgs.push('--pack-destination', projectRoot)
   }
-  const result = spawnSync(command, npmArgs, {
+  const [executable, invocationArgs] = commandInvocation(command, npmArgs)
+  const result = spawnSync(executable, invocationArgs, {
     cwd: staging, encoding: 'utf8', shell: process.platform === 'win32', stdio: ['ignore', 'pipe', 'pipe'],
   })
   if (result.status === 0 && args[0] === 'pack' && args.includes('--json')) {

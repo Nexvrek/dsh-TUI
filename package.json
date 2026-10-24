@@ -131,7 +131,8 @@
     "presets",
     "guide",
     "market.patch.yml",
-    "src/dsh-adapter/market/*.mjs"
+    "src/dsh-adapter/market/*.mjs",
+    "src/dsh-adapter/market/*.d.mts"
   ],
   "engines": {
     "node": "^22.19 || >=24"
@@ -286,7 +287,9 @@
     "verify:plugin-field-picker": "node --import tsx/esm scripts/verify-plugin-field-picker.tsx",
     "verify:activity-ownership": "node --import tsx/esm scripts/verify-activity-ownership.ts",
     "verify:market-install": "node scripts/verify-market-install.mjs",
-    "verify:market-runtime": "node scripts/verify-market-runtime.mjs"
+    "verify:market-runtime": "node scripts/verify-market-runtime.mjs",
+    "verify:market-types": "node scripts/verify-market-types.mjs",
+    "verify:publish-pack": "node scripts/verify-publish-pack.mjs"
   },
   "peerDependencies": {
     "@anthropic-ai/claude-agent-sdk": "0.3.287",

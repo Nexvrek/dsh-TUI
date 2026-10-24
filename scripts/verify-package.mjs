@@ -60,6 +60,9 @@ addTarget(manifest.dsh.bundle.patch)
 for (const name of ['manager', 'prepare', 'ready', 'runtime-profile', 'lease', 'cli']) {
   addTarget(`src/dsh-adapter/market/${name}.mjs`)
 }
+for (const name of ['prepare', 'runtime-profile']) {
+  addTarget(`src/dsh-adapter/market/${name}.d.mts`)
+}
 addTarget('lib/tui-runtime/package.json')
 addTarget('lib/tui-runtime/cordis.patch.yml')
 runtimeTemplate(root)
@@ -106,7 +109,7 @@ for (const path of packed) {
     throw new Error(`npm package contains legacy compat shim (case-insensitive): ${path}`)
   }
 }
-if ([...packed].some(path => path.startsWith('src/') && !/^src\/dsh-adapter\/market\/[a-z-]+\.mjs$/u.test(path))) {
+if ([...packed].some(path => path.startsWith('src/') && !/^src\/dsh-adapter\/market\/[a-z-]+\.(?:mjs|d\.mts)$/u.test(path))) {
   throw new Error('npm package unexpectedly contains TypeScript sources')
 }
 // The vendored Codex protocol types are compile-time only (their emitted
