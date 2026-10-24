@@ -9,7 +9,7 @@
  */
 import assert from 'node:assert/strict'
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs'
-import { randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import { createServer } from 'node:net'
 import { tmpdir } from 'node:os'
 import { dirname, join, relative, resolve, sep } from 'node:path'
@@ -22,7 +22,7 @@ const sourceRoot = join(repo, 'src')
 const scratch = mkdtempSync(join(tmpdir(), 'dsh-update-cleanup-'))
 const pkg = join(scratch, 'package')
 const modules = join(pkg, 'lib', 'types')
-const savedEnvironment = new Map(['DSH_HOME', 'DSH_TUI_STANDALONE', 'DSH_TUI_STANDALONE_BINARY', 'DSH_TUI_STANDALONE_CACHE', 'HOME', 'USERPROFILE'].map(key => [key, process.env[key]]))
+const savedEnvironment = new Map(['DSH_HOME', 'DSH_TUI_STANDALONE', 'DSH_TUI_STANDALONE_BINARY', 'DSH_TUI_STANDALONE_CACHE', 'DSH_TUI_HOST_ENTRY_PATH', 'DSH_TUI_HOST_ENTRY', 'HOME', 'USERPROFILE'].map(key => [key, process.env[key]]))
 const originalStderr = process.stderr.write
 const originalFetch = globalThis.fetch
 const originalArgv = [...process.argv]
@@ -37,6 +37,8 @@ try {
   process.env.DSH_HOME = join(scratch, 'profiles-home')
   delete process.env.DSH_TUI_STANDALONE
   delete process.env.DSH_TUI_STANDALONE_BINARY
+  delete process.env.DSH_TUI_HOST_ENTRY_PATH
+  delete process.env.DSH_TUI_HOST_ENTRY
   symlinkSync(join(repo, 'node_modules'), join(pkg, 'node_modules'), process.platform === 'win32' ? 'junction' : 'dir')
   const native = join(pkg, 'src', 'dsh-adapter', 'market')
   mkdirSync(native, { recursive: true })
@@ -80,6 +82,9 @@ try {
   }
   copyModule(join(sourceRoot, 'update.ts'))
   writeFileSync(join(modules, 'installer-stub.js'), `
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 let plan = []
 export const calls = []
 export function configure(steps) { plan = steps; calls.length = 0 }
@@ -88,6 +93,17 @@ export async function runInstallerProcess(command, args, options) {
   calls.push({ command, args: [...args] })
   if (!step) throw new Error('Unexpected installer invocation: ' + JSON.stringify(args))
   await step.onRun?.(options)
+  if (step.code === 0 && !step.cleanup) {
+    const source = fileURLToPath(new URL('../../', import.meta.url))
+    const current = JSON.parse(readFileSync(join(source, 'package.json'), 'utf8'))
+    const profile = args[args.indexOf('--profile') + 1]
+    const target = join(process.env.DSH_HOME, 'profiles', profile, 'node_modules', current.name)
+    mkdirSync(join(target, 'bin'), { recursive: true })
+    writeFileSync(join(target, 'package.json'), JSON.stringify({ name: current.name, version: step.version ?? current.version, type: 'module' }))
+    const bin = join(source, 'bin/dsh-tui.js')
+    writeFileSync(join(target, 'bin/dsh-tui.js'), existsSync(bin) ? readFileSync(bin) : '// installed launcher')
+    await step.onInstalled?.(target, options)
+  }
   if (step.stderr) options.onStderr?.(step.stderr)
   if (step.cleanup) options.onEvent?.({ category: options.category, stage: 'cleanup-error', code: step.code, message: 'fixture: owned job cleanup unconfirmed' })
   options.onEvent?.({ category: options.category, stage: 'close', code: step.code })
@@ -98,9 +114,11 @@ export async function runInstallerProcess(command, args, options) {
 export { execFileSync } from 'node:child_process'
 import { EventEmitter } from 'node:events'
 export let spawnCount = 0
-export function reset() { spawnCount = 0 }
-export function spawn() {
+export let lastSpawn
+export function reset() { spawnCount = 0; lastSpawn = undefined }
+export function spawn(command, args, options) {
   spawnCount++
+  lastSpawn = { command, args, options }
   const child = new EventEmitter()
   child.pid = 999999
   child.stderr = new EventEmitter()
@@ -209,6 +227,9 @@ export function ${name}(...args) {
       process.argv = [...originalArgv]
       delete process.env.DSH_TUI_STANDALONE
       delete process.env.DSH_TUI_STANDALONE_BINARY
+      delete process.env.DSH_TUI_HOST_ENTRY_PATH
+      delete process.env.DSH_TUI_HOST_ENTRY
+      delete globalThis[Symbol.for('dsh-tui-update-cleanup-prepare')]
     }
   }
   const cancelled = (result, name) => {
@@ -293,7 +314,7 @@ export function ${name}(...args) {
     assert.ok(observations.some(entry => entry.stage === 'writeFileSync:pnpm-workspace.yaml'), 'workspace policy actually changed')
     assert.equal(observations.filter(entry => entry.stage.startsWith('rmSync:')).length, 2, 'actual stale install and staging cleanup observed')
     for (const entry of observations) assert.deepEqual(entry.identity, observations[0].identity, `same uninterrupted lock at ${entry.stage}`)
-    assert.equal(existsSync(packageDir), false)
+    assert.equal(existsSync(join(packageDir, 'sentinel')), false, 'the new install did not retain stale package contents')
     assert.equal(existsSync(stagingDir), false)
     await assertReleased(profile)
   })
@@ -306,6 +327,75 @@ export function ${name}(...args) {
     assert.equal(replacement.spawnCount, 1)
     await assertReleased('normal')
   })
+  for (const entryPresent of [true, false]) {
+    await check(entryPresent ? 'restart selects the new profile entry while the old store remains' : 'missing new entry prevents restarting the old store', async () => {
+      const profile = `entry-${entryPresent}`
+      writeVersion('1.2.3')
+      replacement.reset()
+      const oldEntry = join(pkg, 'lib/types/dsh-adapter/host-entry.js')
+      mkdirSync(dirname(oldEntry), { recursive: true })
+      writeFileSync(oldEntry, '// retained old store entry')
+      process.env.DSH_TUI_HOST_ENTRY_PATH = oldEntry
+      process.argv = [process.execPath, oldEntry, '--profile', profile, '--fullscreen']
+      const newEntry = join(updater.profilePackageDir(profile), 'lib/types/dsh-adapter/host-entry.js')
+      runner.configure([{ code: 0, onInstalled() {
+        if (entryPresent) { mkdirSync(dirname(newEntry), { recursive: true }); writeFileSync(newEntry, '// new entry') }
+      } }])
+      const result = await updater.updateTuiAndRestart('fixture-session', profile, '1.2.3')
+      assert.deepEqual(result, { updateCode: 0, restartCode: entryPresent ? 0 : 1 })
+      assert.equal(replacement.spawnCount, entryPresent ? 1 : 0)
+      if (entryPresent) {
+        assert.equal(replacement.lastSpawn.args[0], newEntry)
+        assert.equal(replacement.lastSpawn.options.env.DSH_TUI_HOST_ENTRY_PATH, newEntry)
+        assert.ok(replacement.lastSpawn.args.includes('--fullscreen'))
+        assert.ok(!replacement.lastSpawn.args.includes(oldEntry))
+      }
+      assert.equal(readFileSync(oldEntry, 'utf8'), '// retained old store entry')
+      await assertReleased(profile)
+    })
+  }
+  for (const cancel of [false, true]) {
+    await check(cancel ? 'cancel preparation releases the setup lock without restart' : 'preparation failure rejects a successful public install without restart', async () => {
+      const profile = 'dsh-tui'
+      writeVersion('1.2.3')
+      replacement.reset()
+      const controller = new AbortController()
+      globalThis[Symbol.for('dsh-tui-update-cleanup-prepare')] = async () => {
+        assert.ok(existsSync(`${setupFile(profile)}.lock`), 'preparation still holds the update lock')
+        await assert.rejects(withFileLock(setupFile(profile), async () => assert.fail('preparation released the update lock'), { waitMs: 0 }), /timed out waiting for the writer lock/)
+        if (cancel) { controller.abort(); return {} }
+        throw new Error('fixture host preparation failed')
+      }
+      runner.configure([{ code: 0, onInstalled(target) {
+        const current = JSON.parse(readFileSync(join(target, 'package.json'), 'utf8'))
+        current.main = './index.js'
+        current.dshTui = { runtimeBundle: './lib/tui-runtime' }
+        writeFileSync(join(target, 'package.json'), JSON.stringify(current))
+        writeFileSync(join(target, 'index.js'), 'export {}')
+        mkdirSync(join(target, 'lib/tui-runtime'), { recursive: true })
+        mkdirSync(join(target, 'lib/types/dsh-adapter'), { recursive: true })
+        writeFileSync(join(target, 'lib/types/dsh-adapter/host-entry.js'), 'export {}')
+        writeFileSync(join(target, 'lib/types/dsh-adapter/host-dsh.js'), `
+export function findHostDsh() { return { packageDir: ${JSON.stringify(target)} } }
+export const loadHostProfileManagement = (...args) => globalThis[Symbol.for('dsh-tui-update-cleanup-prepare')](...args)
+`)
+        const patch = '[]\n'
+        writeFileSync(join(target, 'lib/tui-runtime/cordis.patch.yml'), patch)
+        writeFileSync(join(target, 'lib/tui-runtime/package.json'), JSON.stringify({
+          name: '@deepseek-harness-tui/dsh-tui-runtime', version: '1.2.3',
+          dependencies: { '@deepseek-harness-tui/dsh-tui': '1.2.3' }, dsh: { bundle: { patch: './cordis.patch.yml' } },
+          dshTui: { patchSha256: createHash('sha256').update(patch).digest('hex') },
+        }))
+      } }])
+      const result = await updater.updateTuiAndRestart('fixture-session', profile, '1.2.3', undefined, {}, controller.signal)
+      assert.deepEqual(result, { updateCode: cancel ? 130 : 1, restartCode: cancel ? 130 : 1 })
+      assert.equal(runner.calls.length, 1)
+      assert.equal(replacement.spawnCount, 0)
+      assert.equal(controller.signal.aborted, cancel)
+      await assertReleased(profile)
+      rmSync(updater.profilePackageDir(profile), { recursive: true, force: true })
+    })
+  }
   for (const stage of ['installer running', 'last installer success', 'before retry', 'version verification', 'before launcher migration', 'after launcher migration', 'before restart']) {
     await check(`cancel ${stage}`, async () => {
       writeVersion('1.2.3')
@@ -335,7 +425,7 @@ export function ${name}(...args) {
           assert.equal(options.signal, controller.signal, 'installer receives caller signal')
           if (['installer running', 'last installer success', 'before retry'].includes(stage)) controller.abort()
           else filesystem.configure(path => {
-            if (path !== manifest) return
+            if (path !== join(updater.profilePackageDir(`cancel-${stage.replaceAll(' ', '-')}`), 'package.json')) return
             reads++
             if (stage === 'version verification' && reads === 1) controller.abort()
             if (stage === 'before launcher migration' && reads === 2) controller.abort()

@@ -69,4 +69,5 @@ export interface LiveRuntimeProcess {
   port: number
 }
 
-export function liveRuntimeProcesses(profileDir: string): Promise<LiveRuntimeProcess[]>
+/** Only lease bookkeeping may retain unverified owners; updates must use the default. */
+export function liveRuntimeProcesses(profileDir: string, options?: { keepUnverified?: boolean }): Promise<LiveRuntimeProcess[]>

@@ -50,4 +50,12 @@ export interface PrepareInstalledRuntimeOptions extends Omit<PrepareRuntimeOptio
 
 export function prepareRuntime(options: PrepareRuntimeOptions): Promise<ReadyRuntimeStatus>
 export function prepareInstalledRuntime(options: PrepareInstalledRuntimeOptions): Promise<ReadyRuntimeStatus>
-export function withRuntimeUpdate<T>(profileDir: string, operation: () => T | Promise<T>, signal?: AbortSignal): Promise<T>
+
+/** Preparation to await inside the update callback, while its profile lock remains held. */
+export interface RuntimeUpdateTransaction {
+  /** Read the just-installed package; pre-market releases have no runtime to prepare. */
+  prepareInstalledRuntime(): Promise<ReadyRuntimeStatus | undefined>
+  prepareInstalledRuntime(options: PrepareInstalledRuntimeOptions): Promise<ReadyRuntimeStatus>
+}
+
+export function withRuntimeUpdate<T>(profileDir: string, operation: (transaction: RuntimeUpdateTransaction) => T | Promise<T>, signal?: AbortSignal): Promise<T>

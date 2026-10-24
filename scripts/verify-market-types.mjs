@@ -100,6 +100,10 @@ optional.withFileLock('/tmp/lock', async () => 1)
 if (optional !== undefined) await optional.withFileLock('/tmp/lock', async () => 1)
 
 const live = await liveRuntimeProcesses('/tmp/profile')
+const retained = await liveRuntimeProcesses('/tmp/profile', { keepUnverified: true })
+const retainedPid: number = retained[0].pid
+// @ts-expect-error retaining unverified owners takes a boolean
+liveRuntimeProcesses('/tmp/profile', { keepUnverified: 'true' })
 const ownerPid: number = live[0].pid
 const ownerPort: number = live[0].port
 const ownerToken: string = live[0].token
@@ -109,6 +113,18 @@ liveRuntimeProcesses('/tmp/profile').filter(() => true)
 const badOwnerToken: number = live[0].token
 const updated: string = await withRuntimeUpdate('/tmp/profile', () => 'updated')
 const updatedAsync: number = await withRuntimeUpdate('/tmp/profile', async () => 1, new AbortController().signal)
+const preparedDuringUpdate: ReadyRuntimeStatus = await withRuntimeUpdate('/tmp/profile', transaction =>
+  transaction.prepareInstalledRuntime({ ...options, writeProfileManifest }))
+const autoPrepared: ReadyRuntimeStatus | undefined = await withRuntimeUpdate('/tmp/profile', transaction =>
+  transaction.prepareInstalledRuntime())
+withRuntimeUpdate('/tmp/profile', async transaction => {
+  // @ts-expect-error an installed pre-market release has no private runtime
+  const alwaysPrepared: ReadyRuntimeStatus = await transaction.prepareInstalledRuntime()
+})
+withRuntimeUpdate('/tmp/profile', transaction => {
+  // @ts-expect-error a held transaction still requires complete preparation options
+  transaction.prepareInstalledRuntime({ version: 42 })
+})
 // @ts-expect-error profile mutation must be a callable operation
 withRuntimeUpdate('/tmp/profile', 42)
 // @ts-expect-error cancellation requires an AbortSignal

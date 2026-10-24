@@ -288,6 +288,8 @@
     "verify:activity-ownership": "node --import tsx/esm scripts/verify-activity-ownership.ts",
     "verify:market-install": "node scripts/verify-market-install.mjs",
     "verify:market-runtime": "node scripts/verify-market-runtime.mjs",
+    "verify:market-legacy-lock": "node scripts/verify-market-legacy-lock.mjs",
+    "verify:update-runtime": "node scripts/verify-update-runtime.mjs",
     "verify:market-types": "node scripts/verify-market-types.mjs",
     "verify:publish-pack": "node scripts/verify-publish-pack.mjs"
   },

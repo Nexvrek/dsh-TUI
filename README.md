@@ -175,6 +175,8 @@ Manual alternative: `dsh plugin --profile dsh-tui add @deepseek-harness-tui/dsh-
 
 On older hosts without the management APIs, use `dsh-tui` first to prepare an existing installation or source-development profile; fresh installs must satisfy the package's declared host peer ranges. After preparation, `dsh --profile dsh-tui` also works. Use the same `DSH_HOME` for installation and startup.
 
+`/update` and `dsh-tui update` prepare and select the matching runtime before reporting success. Close other TUI sessions using the same profile before updating, including suspended sessions. Suspending one session still allows other sessions to start and exit. The in-app update restarts from the newly installed profile copy.
+
 > **New-user note**: pnpm ≥11 blocks dependencies with install scripts by
 > default and reports `ERR_PNPM_IGNORED_BUILDS`. Updates skip foreign-platform
 > natives — the `@img/sharp-*` packages and the Claude SDK's per-platform

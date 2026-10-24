@@ -51,7 +51,7 @@ export async function apply(ctx) {
   const closeMarker = () => new Promise(resolve => marker.close(resolve))
   const record = join(owned, 'running.json')
   const update = operation => withFileLock(join(owned, 'setup.json'), async () => {
-    const entries = operation(await liveRuntimeProcesses(dir))
+    const entries = operation(await liveRuntimeProcesses(dir, { keepUnverified: true }))
     await writeFileAtomic(record, `${JSON.stringify(entries)}\n`, { mode: 0o600 })
   }, { waitMs: 120000 })
   try {

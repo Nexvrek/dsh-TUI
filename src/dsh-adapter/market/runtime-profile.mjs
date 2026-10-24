@@ -151,7 +151,7 @@ export function runtimeBundleOrder(bundles) {
 }
 
 /** A PID alone can belong to an unrelated process after an unclean exit. */
-export async function liveRuntimeProcesses(profileDir) {
+export async function liveRuntimeProcesses(profileDir, { keepUnverified = false } = {}) {
   const value = readJson(join(ownedDirectory(profileDir), 'running.json')) ?? []
   if (!Array.isArray(value)) throw new Error('The TUI running-process record is invalid')
   const live = await Promise.all(value.map(async entry => {
@@ -164,8 +164,10 @@ export async function liveRuntimeProcesses(profileDir) {
       let response = ''
       const finish = (error, matches = false) => {
         socket.destroy()
-        if (error) reject(error)
-        else resolve(matches)
+        // Lease bookkeeping may retain an unresponsive owner while adding or
+        // removing itself. Package mutations still fail on uncertain ownership.
+        if (error && !keepUnverified) reject(error)
+        else resolve(error ? true : matches)
       }
       // A busy or suspended owner is not permission to replace its files.
       socket.setTimeout(2000, () => finish(new Error(`Cannot verify TUI process ${entry.pid}; retry after it responds or exits`)))

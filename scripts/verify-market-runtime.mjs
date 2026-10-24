@@ -174,12 +174,43 @@ try {
     const [entry] = await liveRuntimeProcesses(dir)
     assert.equal(entry.pid, owner.pid)
     await assert.rejects(withRuntimeUpdate(dir, () => { mutations++ }), /Close the other running TUI/)
+    if (process.platform !== 'win32') {
+      const manifestBeforePause = await readFile(join(dir, 'package.json'), 'utf8')
+      let disposeWhilePaused
+      owner.kill('SIGSTOP')
+      try {
+        await assert.rejects(withRuntimeUpdate(dir, () => { mutations++ }), /Cannot verify TUI process/)
+        assert.equal(mutations, 0, 'a paused owner cannot authorize package writes')
+        assert.deepEqual(readJson(join(ownedDirectory(dir), 'running.json')), [entry], 'a failed update leaves ownership records intact')
+        disposeWhilePaused = await acquire()
+        const running = readJson(join(ownedDirectory(dir), 'running.json'))
+        assert.equal(running.length, 2, 'another session can register beside a paused owner')
+        assert.deepEqual(running.find(record => record.token === entry.token), entry, 'registration preserves the unverified owner')
+        await disposeWhilePaused()
+        disposeWhilePaused = undefined
+        assert.deepEqual(readJson(join(ownedDirectory(dir), 'running.json')), [entry], 'session exit removes only its own lease while another owner is paused')
+        assert.equal(await readFile(join(dir, 'package.json'), 'utf8'), manifestBeforePause, 'paused-owner checks and lease bookkeeping never change the profile manifest')
+      } finally {
+        owner.kill('SIGCONT')
+        await disposeWhilePaused?.()
+      }
+      assert.deepEqual(await liveRuntimeProcesses(dir), [entry], 'a resumed owner is verifiable again')
+      const resumedPeer = await acquire()
+      await resumedPeer()
+      assert.deepEqual(readJson(join(ownedDirectory(dir), 'running.json')), [entry], 'normal cleanup after resume retains the original session')
+    }
     const exited = once(owner, 'exit')
     owner.kill('SIGKILL')
     await exited
     // Recreate the dangerous state: the recorded PID exists, but its owner died.
     await put(join(ownedDirectory(dir), 'running.json'), [{ ...entry, pid: process.pid }])
     assert.deepEqual(await liveRuntimeProcesses(dir), [], 'a reused live PID cannot inherit a dead lease')
+    const afterDeath = await acquire()
+    const afterDeathRecords = readJson(join(ownedDirectory(dir), 'running.json'))
+    assert.equal(afterDeathRecords.length, 1, 'lease bookkeeping still removes a confirmed dead owner')
+    assert.notEqual(afterDeathRecords[0].token, entry.token)
+    await afterDeath()
+    assert.deepEqual(readJson(join(ownedDirectory(dir), 'running.json')), [])
     assert.equal(await withRuntimeUpdate(dir, () => ++mutations), 1)
     const unrelated = createServer(socket => { socket.on('error', () => {}); socket.end('different-owner\n') })
     await new Promise(resolve => unrelated.listen(0, '127.0.0.1', resolve))
@@ -187,6 +218,24 @@ try {
       await put(join(ownedDirectory(dir), 'running.json'), [{ ...entry, pid: process.pid, port: unrelated.address().port }])
       assert.deepEqual(await liveRuntimeProcesses(dir), [], 'even a reused live port must prove the original token')
     } finally { await new Promise(resolve => unrelated.close(resolve)) }
+    const sockets = new Set()
+    const silent = createServer(socket => {
+      sockets.add(socket)
+      socket.on('error', () => {})
+      socket.once('close', () => sockets.delete(socket))
+    })
+    await new Promise(resolve => silent.listen(0, '127.0.0.1', resolve))
+    try {
+      const unverified = { ...entry, pid: process.pid, port: silent.address().port }
+      await put(join(ownedDirectory(dir), 'running.json'), [unverified])
+      assert.deepEqual(await liveRuntimeProcesses(dir, { keepUnverified: true }), [unverified], 'bookkeeping retains a silent service instead of discarding uncertain ownership')
+      await assert.rejects(withRuntimeUpdate(dir, () => { mutations++ }), /Cannot verify TUI process/)
+      assert.equal(mutations, 1, 'a silent service still blocks package mutations')
+      assert.deepEqual(readJson(join(ownedDirectory(dir), 'running.json')), [unverified])
+    } finally {
+      for (const socket of sockets) socket.destroy()
+      await new Promise(resolve => silent.close(resolve))
+    }
     await put(join(ownedDirectory(dir), 'running.json'), [{ pid: process.pid, token: 'old-pid-only-record' }])
     assert.deepEqual(await liveRuntimeProcesses(dir), [], 'unverifiable old PID-only records cannot lock a profile forever')
   } finally { if (owner.exitCode === null && owner.signalCode === null) owner.kill('SIGKILL') }
@@ -244,5 +293,5 @@ try {
   await cancelling
   assert.equal(writes, 2, 'cancellation must not be reported as a prepared profile')
   assert.equal(runtimeStatus(dir).ready, false)
-  console.log('market runtime OK (direct/legacy/managed leases, content-addressed recipes, legacy layer ordering, warm reuse, install failure and cancellation)')
+  console.log('market runtime OK (direct/legacy/managed leases, paused-owner bookkeeping, conservative update guards, content-addressed recipes, legacy layer ordering, warm reuse, install failure and cancellation)')
 } finally { await rm(scratch, { recursive: true, force: true }) }
