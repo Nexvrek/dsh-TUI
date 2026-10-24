@@ -53,6 +53,7 @@ const GATES = [
   'verify:oauth',
   'verify:patch-surface',
   'verify:market-runtime',
+  'verify:market-hmr',
   'verify:market-legacy-lock',
   'verify:update-runtime',
   'verify:market-types',

@@ -19,6 +19,37 @@ import ts from 'typescript'
 import { commandInvocation } from './dev-command.mjs'
 import { materializeRecipe, PACKAGE, RUNTIME_BUNDLE, runtimeStatus } from '../src/dsh-adapter/market/runtime-profile.mjs'
 
+function fixtureInvocation(command, args, platform = process.platform) {
+  const cmdSuffix = /\.cmd$/iu.test(command)
+  const bareName = !/[\\/.]/u.test(command)
+  if (platform !== 'win32' || (!cmdSuffix && !bareName)) return [command, args, false]
+  // The shared helper appends .cmd and quotes a complete shell command.
+  const [executable, invocation] = commandInvocation(cmdSuffix ? command.slice(0, -4) : command, args, platform)
+  return [executable, invocation, true]
+}
+
+function verifyCommandRouting() {
+  const args = ['--flag', String.raw`C:\work tree\中文 & input.mjs`]
+  const node = String.raw`C:\Program Files\nodejs\node.exe`
+  const pnpm = String.raw`C:\Package Tools\pnpm.cmd`
+  assert.deepEqual(fixtureInvocation(node, args, 'win32'), [node, args, false], 'native executable paths bypass the shell')
+  assert.deepEqual(fixtureInvocation('node.exe', args, 'win32'), ['node.exe', args, false])
+  for (const command of ['npm', 'pnpm.cmd', pnpm]) {
+    const [executable, invocation, shell] = fixtureInvocation(command, args, 'win32')
+    assert.equal(shell, true, '.cmd launchers require the Windows shell')
+    assert.deepEqual(invocation, [], 'the helper quotes arguments into the shell command')
+    assert.match(executable, /\.cmd /u)
+    assert.doesNotMatch(executable, /\.cmd\.cmd/u)
+    assert.match(executable, /\^&/u)
+    assert.doesNotMatch(executable, /work tree/u, 'spaces in shell arguments are escaped')
+    if (command === pnpm) assert.ok(executable.startsWith(String.raw`C:\Package^ Tools\pnpm.cmd `))
+  }
+  for (const command of ['npm', '/opt/Node Tools/node', '/opt/Package Tools/pnpm.cmd']) {
+    assert.deepEqual(fixtureInvocation(command, args, 'linux'), [command, args, false])
+  }
+  console.log('PASS: command routing assertions (Windows shell/native paths, Linux passthrough)')
+}
+
 if (process.argv[2] === '--update') {
   // Only the public mirror comparison is redirected; every fetch still reaches
   // the real local registry. The installer also uses that registry directly.
@@ -28,6 +59,7 @@ if (process.argv[2] === '--update') {
   assert.equal(updater.installedTuiVersion(), process.env.DSH_UPDATE_RUNNING_VERSION, 'update loads the requested physical package')
   process.exitCode = await updater.cliUpdate('dsh-tui')
 } else {
+  verifyCommandRouting()
   await verify()
 }
 
@@ -45,9 +77,9 @@ async function verify() {
   const pnpmPrefix = pnpmCommand === process.execPath ? [pnpm] : []
   let server
   const run = (command, args, options = {}) => new Promise((resolveRun, reject) => {
-    const [executable, invocation] = commandInvocation(command, args)
+    const [executable, invocation, shell] = fixtureInvocation(command, args)
     const child = spawn(executable, invocation, {
-      cwd: scratch, encoding: 'utf8', shell: process.platform === 'win32',
+      cwd: scratch, encoding: 'utf8', shell,
       stdio: ['ignore', 'pipe', 'pipe'], timeout: 60000, ...options,
     })
     let output = ''
@@ -156,6 +188,7 @@ import { spawn } from 'node:child_process'
 import { appendFileSync, existsSync, readFileSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import { commandInvocation } from ${JSON.stringify(pathToFileURL(join(repo, 'scripts/dev-command.mjs')).href)}
+${fixtureInvocation.toString()}
 const args = process.argv.slice(2)
 const controlFile = join(process.cwd(), '.fixture-update.json')
 if (existsSync(controlFile)) {
@@ -165,8 +198,8 @@ if (existsSync(controlFile)) {
   appendFileSync(control.trace, JSON.stringify({ args, lock: [stat.dev, stat.ino, stat.birthtimeNs, stat.mtimeNs].map(String), old: version(control.oldRoot), direct: version(join(process.cwd(), 'node_modules', ${JSON.stringify(PACKAGE)})) }) + '\\n')
   if (control.failPrepare && args[0] === 'add' && args.some(arg => arg.startsWith('file:'))) process.exit(37)
 }
-const [command, invocation] = commandInvocation(${JSON.stringify(pnpmCommand)}, [...${JSON.stringify(pnpmPrefix)}, ...args, ${JSON.stringify(`--registry=${registry}`)}])
-const child = spawn(command, invocation, { stdio: 'inherit', shell: process.platform === 'win32', timeout: 30000, env: { ...process.env, CI: '1', PNPM_MAX_WORKERS: '1', npm_config_update_notifier: 'false' } })
+const [command, invocation, shell] = fixtureInvocation(${JSON.stringify(pnpmCommand)}, [...${JSON.stringify(pnpmPrefix)}, ...args, ${JSON.stringify(`--registry=${registry}`)}])
+const child = spawn(command, invocation, { stdio: 'inherit', shell, timeout: 30000, env: { ...process.env, CI: '1', PNPM_MAX_WORKERS: '1', npm_config_update_notifier: 'false' } })
 child.once('error', error => { console.error(error); process.exitCode = 1 })
 child.once('exit', code => { process.exitCode = code ?? 1 })
 `)

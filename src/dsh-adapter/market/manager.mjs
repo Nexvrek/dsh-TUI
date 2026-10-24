@@ -113,13 +113,26 @@ export async function apply(ctx) {
   if (ownProfile && !service.status().ready) {
     const ready = ctx.get('appReady')
     const hmr = ctx.get('hmr')
+    const exit = ctx.get('appExit')
     if (ready === undefined || hmr === undefined) throw new Error('Run dsh-tui once to prepare this profile before starting it directly')
     ctx.effect(() => ready.onReady(() => {
       const timer = setTimeout(() => {
-        void service.prepare().then(() => hmr.runExclusive(() => hmr.reconcileProfile())).catch(error => {
+        void hmr.runExclusive(async () => {
+          await service.prepare()
+          return hmr.reconcileProfile()
+        }).then(result => {
+          const reason = result.restartReason ?? result.pending?.[0]?.reason
+          if (reason === undefined) return
+          // Recomposition may already have disposed this entry. Its completed
+          // restart requirement still belongs to the running application.
+          process.stderr.write(process.env.DSH_TUI_LANG === 'en'
+            ? `[dsh-tui] The TUI profile is prepared, but DSH requires a restart to load its updated packages (${reason}).\nRun again with the same DSH_HOME: dsh --profile ${profile}\n`
+            : `[dsh-tui] TUI profile 已准备完成；DSH 需要重启才能加载更新后的包（${reason}）。\n保持相同的 DSH_HOME，重新运行：dsh --profile ${profile}\n`)
+          exit?.(1)
+        }).catch(error => {
           if (disposed) return
           ctx.logger.error(error)
-          ctx.get('appExit')?.(1)
+          exit?.(1)
         })
       }, 0)
       ctx.effect(() => () => clearTimeout(timer))

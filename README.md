@@ -177,6 +177,8 @@ On older hosts without the management APIs, use `dsh-tui` first to prepare an ex
 
 `/update` and `dsh-tui update` prepare and select the matching runtime before reporting success. Close other TUI sessions using the same profile before updating, including suspended sessions. Suspending one session still allows other sessions to start and exit. The in-app update restarts from the newly installed profile copy.
 
+On a first launch directly through `dsh --profile dsh-tui`, DSH may require a restart when a package's physical location changes. Preparation then exits nonzero with a command to run again using the same `DSH_HOME`; the prepared profile is retained. Launching through `dsh-tui` prepares the profile before boot.
+
 > **New-user note**: pnpm ≥11 blocks dependencies with install scripts by
 > default and reports `ERR_PNPM_IGNORED_BUILDS`. Updates skip foreign-platform
 > natives — the `@img/sharp-*` packages and the Claude SDK's per-platform

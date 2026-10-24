@@ -162,6 +162,8 @@ dst
 
 `/update` 与 `dsh-tui update` 会在匹配的运行时准备并选用完成后才报告成功。更新前请关闭使用同一 profile 的其他 TUI 会话，包括已挂起的会话；挂起一个会话不会阻止其他会话正常启动和退出。界面内更新会从 profile 中新安装的副本重启。
 
+首次直接用 `dsh --profile dsh-tui` 启动时，若包的物理路径变化，DSH 可能要求重启。此时会保留已准备的 profile，以非零码退出，并提示使用相同的 `DSH_HOME` 再次运行启动命令。通过 `dsh-tui` 启动会在进入宿主前完成准备。
+
 > **新用户提示**：pnpm ≥11 默认拦截带安装脚本的依赖，报 `ERR_PNPM_IGNORED_BUILDS`。更新时还会忽略异平台原生包（`@img/sharp-*` 与 Claude SDK 的 `@anthropic-ai/claude-agent-sdk-*`），只取本机平台的二进制。`/update` 与 `dsh-tui update` 都会自动写好这两份配置，无需手工处理。更新**从不**顺手安装 Claude SDK：只有你在内核选择器里选中该后端时才会装，且只装当前平台对应的版本。细节见[安装与快速开始](docs/getting-started.md#pnpm-安装脚本拦截与异平台原生包)。
 
 TUI 启动后会在后台检查新版本，不阻塞首帧。有更新时输入 `/update` 一键升级，自动重启并恢复当前会话。profile 叠加机制、源码构建与常见问题见[安装与快速开始](docs/getting-started.md)。

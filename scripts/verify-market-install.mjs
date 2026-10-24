@@ -37,10 +37,13 @@ let pnpmInvocation = pnpm === undefined ? undefined
   : /\.[cm]js$/u.test(pnpm) ? { command: process.execPath, args: [pnpm] } : { command: pnpm, args: [] }
 const results = []
 // Mirror the official HMR transaction contract instead of accepting unsafe calls.
-function fixtureHmr(reconcile) {
+function fixtureHmr(reconcile, beforeExclusive = () => {}) {
   const executing = new AsyncLocalStorage()
   return {
-    runExclusive: callback => executing.run(true, callback),
+    runExclusive: callback => {
+      beforeExclusive()
+      return executing.run(true, callback)
+    },
     reconcileProfile: async (requiredIds = []) => {
       assert.equal(executing.getStore(), true, 'HMR profile reconciliation must run inside runExclusive')
       return reconcile(requiredIds)
@@ -206,6 +209,8 @@ async function directProfileStartup(source, target) {
     assert.equal(runtimeStatus(target).ready, true, 'prepare finishes before reconciling the direct profile')
     reconciled++
     return { warnings: [], pending: [] }
+  }, () => {
+    assert.equal(runtimeStatus(target).ready, false, 'direct-profile preparation begins inside the HMR transaction')
   }))
   try {
     await ctx.plugin(Loader)
@@ -252,7 +257,7 @@ async function terminalLaunch(source, target, fullscreen, repairEntry = false, d
   const entry = directProfile
     ? [join(found.packageDir, readJson(join(found.packageDir, 'package.json')).bin.dsh), '--profile', PROFILE]
     : [join(target, 'node_modules', ...PACKAGE.split('/'), repairEntry ? 'lib/types/dsh-adapter/host-entry.js' : 'bin/dsh-tui.js')]
-  const child = pty.spawn(process.execPath, entry, {
+  const spawnOptions = {
     cwd: scratch, cols: columns, rows: 28, name: 'xterm-256color',
     env: { ...process.env, HOME: home, USERPROFILE: home, DSH_HOME: source.home,
       // Keep the installed store when isolating terminal state under another HOME.
@@ -263,15 +268,39 @@ async function terminalLaunch(source, target, fullscreen, repairEntry = false, d
       ...(fullscreen ? {} : { DSH_TUI_HOST_ENTRY: '0', DSH_TUI_NO_LAUNCHPAD: '1' }),
       DSH_TELEMETRY_DISABLED: '1', DEEPSEEK_API_KEY: 'fixture-unused-no-model-requests', TERM: 'xterm-256color',
     },
-  })
+  }
   let output = ''
   let exit
+  let child
+  const exitCodes = []
+  const launch = () => {
+    exit = undefined
+    const current = pty.spawn(process.execPath, entry, spawnOptions)
+    child = current
+    current.onData(data => { output += data; if (child === current) terminal.write(data) })
+    current.onExit(event => { if (child === current) exit = event })
+  }
   terminal.onData(data => { if (exit === undefined) child.write(data) })
-  child.onData(data => { output += data; terminal.write(data) })
-  child.onExit(event => { exit = event })
+  launch()
   const screen = () => Array.from({ length: 28 }, (_, i) => terminal.buffer.active.getLine(terminal.buffer.active.baseY + i)?.translateToString(true) ?? '').join('\n')
+  const adopted = () => exit !== undefined || (readJson(join(home, '.dsh-tui/inject/servers.json')) ?? []).some(record => record.sessionId)
   try {
-    await waitFor(() => exit !== undefined || (readJson(join(home, '.dsh-tui/inject/servers.json')) ?? []).some(record => record.sessionId), 'adopted terminal session')
+    await waitFor(adopted, 'adopted terminal session')
+    if (directProfile && exit?.exitCode === 1) {
+      // A tarball's public package and the private bundle's registry pin can
+      // have distinct physical paths. Only the explicit, ready restart
+      // outcome may retry once; a timeout or an unrelated failure still fails.
+      const expected = '[dsh-tui] The TUI profile is prepared, but DSH requires a restart to load its updated packages (package-moved).\n'
+        + `Run again with the same DSH_HOME: dsh --profile ${PROFILE}\n`
+      assert.ok(output.replace(/\r\n/gu, '\n').includes(expected), output.slice(-12000))
+      assert.equal(runtimeStatus(target).ready, true, 'a controlled first-launch restart requires a prepared profile')
+      exitCodes.push(exit.exitCode)
+      await writeFile(join(home, 'first-launch.log'), output)
+      console.log('market-install: fresh official profile → explicit package-moved restart (exit 1)')
+      terminal.reset()
+      launch()
+      await waitFor(adopted, 'adopted terminal session after controlled restart')
+    }
     assert.equal(exit, undefined, output.slice(-12000))
     await waitFor(async () => (await liveRuntimeProcesses(target)).length > 0, 'runtime lease')
     assert.equal(runtimeStatus(target).ready, true, 'the application entry repairs an incomplete selection')
@@ -284,9 +313,11 @@ async function terminalLaunch(source, target, fullscreen, repairEntry = false, d
     child.write('\r')
     await waitFor(() => exit !== undefined, 'terminal exit')
     assert.equal(exit.exitCode, 0, output.slice(-12000))
+    exitCodes.push(exit.exitCode)
     assert.deepEqual(readJson(join(target, '.dsh-tui/running.json')), [], 'normal exit releases its lease')
     assert.ok(output.includes('\x1b[?25h'), 'exit restores the terminal cursor')
     console.log(`market-install: ${directProfile ? 'fresh official profile' : 'terminal'} ${fullscreen ? 'fullscreen 100' : 'inline 45'} columns → /quit OK`)
+    return { controlledRestart: exitCodes.length === 2, exitCodes }
   } finally {
     if (exit === undefined) child.kill()
     await writeFile(join(home, 'terminal.log'), output)
@@ -399,8 +430,8 @@ try {
       env: { ...process.env, ...gitEnv, DSH_HOME: home, DSH_TELEMETRY_DISABLED: '1' },
     })
     assert.equal(runtimeStatus(target).ready, false, 'the first official launch begins before runtime preparation')
-    await terminalLaunch({ home, installAnchor: join(root, 'package.json'), packageManager: pnpmInvocation }, target, true, false, true)
-    results.push({ source: 'direct-profile', freshInstall: true, terminal: ['official HMR first launch fullscreen 100'], profileDir: target })
+    const terminal = await terminalLaunch({ home, installAnchor: join(root, 'package.json'), packageManager: pnpmInvocation }, target, true, false, true)
+    results.push({ source: 'direct-profile', freshInstall: true, terminal: ['official HMR first launch fullscreen 100'], ...terminal, profileDir: target })
   }
   if (pnpmVersion.startsWith('11.')) assert.ok(githubArchiveRequests > 0, 'pnpm 11 exercised the GitHub source archive transport')
   await writeFile(join(scratch, 'result.json'), JSON.stringify({ passed: true, pnpmVersion, githubArchiveRequests, results }, null, 2))
