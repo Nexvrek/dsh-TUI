@@ -17,8 +17,10 @@ const CHIP_GAP = 2
  * only the swatch carries the series color.
  */
 function chip(item: TuiLegendItem | undefined, index: number, width: number): ChartRun[] {
-  const label = chartText(item?.label)
-  const value = chartText(item?.value)
+  // A chip never shows more than the row: its texts read only that much source.
+  const units = width * 4 + 16
+  const label = chartText(item?.label, units)
+  const value = chartText(item?.value, units)
   const valueWidth = value === '' ? 0 : stringWidth(value)
   const runs: ChartRun[] = []
   pushRun(runs, SWATCH, 1, { color: chartColorKey(item?.color, seriesColor(index)) })
@@ -35,38 +37,42 @@ function chip(item: TuiLegendItem | undefined, index: number, width: number): Ch
  * Lay out legend chips left to right, wrapping by display cells; every row is
  * padded to exactly `width`. With `maxRows`, chips past the last row collapse
  * into a trailing `+N` chip (chips are pulled off that row until it fits),
- * and a `maxRows` of 0 lays out nothing;
- * items past {@link MAX_CHART_ITEMS} are never laid out and count into it.
+ * and a `maxRows` of 0 lays out nothing; chips are built only until the last
+ * allowed row overflows, and the rest — like items past
+ * {@link MAX_CHART_ITEMS} — are only counted into the `+N`.
  */
 export function layoutLegend(props: TuiLegendProps): ChartRun[][] {
   const width = cellCount(props.width)
   const all = Array.isArray(props.items) ? props.items : []
-  const items = all.slice(0, MAX_CHART_ITEMS)
-  const dropped = all.length - items.length
+  // Read in place up to the cap (a copy would touch every item first).
+  const count = Math.min(all.length, MAX_CHART_ITEMS)
   // An explicit limit that comes to no rows (0, or a bad number like every
   // chart count) means no rows — only an omitted one is unbounded.
-  if (width === 0 || items.length === 0 || (props.maxRows !== undefined && cellCount(props.maxRows) === 0)) return []
-  const chips = items.map((item, index) => chip(item, index, width))
+  if (width === 0 || count === 0 || (props.maxRows !== undefined && cellCount(props.maxRows) === 0)) return []
+  const maxRows = cellCount(props.maxRows)
+  const rowLimit = maxRows > 0 ? maxRows : Number.POSITIVE_INFINITY
   const rows: ChartRun[][][] = [[]]
   let used = 0
-  for (const runs of chips) {
+  let placed = 0
+  for (let index = 0; index < count; index += 1) {
+    const runs = chip(all[index], index, width)
     const size = rowWidth(runs)
     const current = rows[rows.length - 1]!
     if (current.length > 0 && used + CHIP_GAP + size > width) {
+      // The last allowed row is full: everything from here only counts.
+      if (rows.length >= rowLimit) break
       rows.push([runs])
       used = size
     } else {
       used += (current.length > 0 ? CHIP_GAP : 0) + size
       current.push(runs)
     }
+    placed += 1
   }
 
-  const maxRows = cellCount(props.maxRows)
-  const clipped = maxRows > 0 && rows.length > maxRows
-  if (clipped || dropped > 0) {
-    const kept = clipped ? rows.slice(0, maxRows) : rows.slice()
-    let hidden = dropped
-    for (const row of rows.slice(kept.length)) hidden += row.length
+  if (placed < all.length) {
+    const kept = rows
+    let hidden = all.length - placed
     const last = kept[kept.length - 1]!
     const chipsWidth = (row: ChartRun[][]): number =>
       row.reduce((sum, runs, at) => sum + (at > 0 ? CHIP_GAP : 0) + rowWidth(runs), 0)
@@ -80,8 +86,6 @@ export function layoutLegend(props: TuiLegendProps): ChartRun[][] {
     const fitted = fitCells(more, width)
     pushRun(overflow, fitted, stringWidth(fitted), { color: 'inactive' })
     last.push(overflow)
-    rows.length = 0
-    rows.push(...kept)
   }
 
   return rows.map(row => {

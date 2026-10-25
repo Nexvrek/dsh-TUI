@@ -207,6 +207,12 @@ const fieldAt = (section: TuiSettingsSection | undefined, path: string): TuiSett
     check(tags.format?.({ when: new Date(0) }) === JSON.stringify({ when: new Date(0) }), 'toJSON values serialize like JSON.stringify')
     check(tags.format?.({ a: undefined, b: 1, c: [undefined] }) === '{"b":1,"c":[null]}', 'undefined members follow JSON.stringify')
   }
+  // A huge or non-string manager title gives a bounded card title.
+  {
+    const titled = (title: unknown) => pluginConfigSections({ ...input([descriptor('third', Schema.object({ flag: Schema.boolean() }).toJSON())]), entry: () => ({ moduleName: 'third-party-plugin', title } as never) })[0]?.title ?? ''
+    check(titled('T'.repeat(3_000_000)).length <= 400, 'a multi-megabyte plugin title is cut before it is sanitized')
+    check(titled(42) === 'third-party-plugin', `a non-string title falls back to the package name: ${titled(42)}`)
+  }
   // An oversized editable string is shown read-only (bounded summary), never
   // turned into a draft that would copy or escape it whole.
   {

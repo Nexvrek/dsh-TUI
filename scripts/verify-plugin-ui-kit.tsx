@@ -139,7 +139,8 @@ check('allocateCells: an all-zero total allocates nothing; bad numbers count as 
   assert.deepEqual(allocateCells([-5, Number.NaN, 4, Number.POSITIVE_INFINITY], 4), [0, 0, 4, 0])
   assert.deepEqual(allocateCells([3, 1], -2), [0, 0])
   assert.deepEqual(allocateCells([3, 1], Number.NaN), [0, 0])
-  assert.equal(sum(allocateCells([1, 2], Number.POSITIVE_INFINITY)), MAX_CHART_CELLS, 'runaway budget is capped')
+  assert.equal(sum(allocateCells([1, 2], 1e9)), MAX_CHART_CELLS, 'a runaway finite budget is capped')
+  assert.equal(sum(allocateCells([1, 2], Number.POSITIVE_INFINITY)), 0, 'a non-finite budget counts as 0, like every chart number')
   assert.equal(sum(allocateCells([1, 2], 7.9)), 7, 'fractional budget floors')
 })
 
@@ -177,6 +178,25 @@ check('Legend: an explicit zero-row limit lays out nothing; an omitted one is un
   assert.deepEqual(legend.layoutLegend({ width: 20, items, maxRows: -3 }), [])
   assert.ok(legend.layoutLegend({ width: 20, items }).length > 1)
   assert.equal(legend.layoutLegend({ width: 20, items, maxRows: 1 }).length, 1)
+})
+
+check('an infinite chart size draws nothing, like every non-finite chart number', () => {
+  assert.deepEqual(stacked.layoutStackedBar({ width: Number.POSITIVE_INFINITY, segments: [{ value: 1, color: 0 }] }), [])
+  assert.deepEqual(column.layoutColumnChart({ height: Number.POSITIVE_INFINITY, columns: [{ segments: [{ value: 1, color: 0 }] }] }), [])
+  assert.deepEqual(sparkline.layoutSparkline({ width: Number.POSITIVE_INFINITY, values: [1, 2] }), [])
+  assert.equal(rowWidth(stacked.layoutStackedBar({ width: 1e9, segments: [{ value: 1, color: 0 }] })), MAX_CHART_CELLS, 'a runaway finite width is still capped')
+})
+
+check('Legend: chips past the last allowed row are counted, never built', () => {
+  const items: { color: number; label: string }[] = Array.from({ length: 10_000 }, (_, index) => ({ color: index, label: 'L' + index }))
+  let lateRead = false
+  Object.defineProperty(items, 5_000, { get() { lateRead = true; return { color: 0, label: 'trap' } } })
+  const rows = legend.layoutLegend({ width: 20, items, maxRows: 1 })
+  assert.ok(!lateRead, 'an item past the first row is never formatted')
+  assert.equal(rows.length, 1)
+  const more = /\+(\d+)/u.exec(text(rows[0]!))
+  const shown = (text(rows[0]!).match(/■/gu)?.length ?? 0)
+  assert.ok(more !== null && Number(more[1]) + shown === 10_000, `+N still counts every hidden item (${more?.[1]} + ${shown})`)
 })
 
 check('Sparkline: a negative explicit ceiling counts as 0, like every chart number', () => {

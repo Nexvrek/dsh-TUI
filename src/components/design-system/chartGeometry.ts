@@ -9,8 +9,8 @@
 
 /**
  * Upper bound on any cell or row count a chart will build. A plugin passing a
- * runaway width (or `Infinity`) must not make a render allocate a gigabyte
- * string; no terminal is anywhere near this wide.
+ * runaway finite width must not make a render allocate a gigabyte string; no
+ * terminal is anywhere near this wide (a non-finite one counts as 0).
  */
 export const MAX_CHART_CELLS = 2000
 
@@ -35,9 +35,11 @@ export function chartValue(value: unknown): number {
   return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : 0
 }
 
-/** A cell/row count: a non-negative integer, capped at {@link MAX_CHART_CELLS}. */
+/** A cell/row count: a non-negative integer, capped at {@link MAX_CHART_CELLS}.
+ *  Like every chart number, a non-finite one (NaN, ±Infinity) counts as 0 —
+ *  an invalid size draws nothing rather than the largest chart. */
 export function cellCount(value: unknown): number {
-  if (typeof value !== 'number' || Number.isNaN(value) || value <= 0) return 0
+  if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) return 0
   return Math.min(MAX_CHART_CELLS, Math.floor(value))
 }
 

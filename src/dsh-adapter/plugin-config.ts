@@ -784,7 +784,10 @@ function sectionFor(descriptor: unknown, input: PluginConfigInput, seen: Set<str
   if (fields.every(field => field.path[0]?.startsWith('\u0000') === true)) return undefined
 
   const pkg = modulePackage(entry.moduleName)
-  const title = cleanStatusFieldText(entry.title ?? pkg?.name ?? ns, TITLE_CELLS) || cleanStatusFieldText(ns, TITLE_CELLS)
+  // A manager title is plugin data: only a string counts, cut to a bounded
+  // source before it is sanitized.
+  const named = typeof entry.title === 'string' ? entry.title : pkg?.name ?? ns
+  const title = cleanStatusFieldText(boundedText(named), TITLE_CELLS) || cleanStatusFieldText(ns, TITLE_CELLS)
   return {
     ns,
     title,
