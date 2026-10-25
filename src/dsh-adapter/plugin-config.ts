@@ -70,6 +70,10 @@ export const PLUGIN_CONFIG_LIMITS = Object.freeze({
   options: 48,
   /** Schema nodes read per form. */
   nodes: 4096,
+  /** Schema members (dict entries, list items — dangling or repeated
+   *  references included) examined per form: a wide node is cut here even
+   *  when it adds no nodes. Also bounds the live schema's other-keys walk. */
+  members: 16_384,
   /** Non-live keys named in the "other fields" row. */
   otherKeys: 64,
 })
@@ -101,6 +105,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
  */
 export function readSchema(json: unknown): SchemaNode | undefined {
   let budget = PLUGIN_CONFIG_LIMITS.nodes
+  let members = PLUGIN_CONFIG_LIMITS.members
   const byUid = new Map<string, SchemaNode | null>()
   const byObject = new WeakMap<object, SchemaNode | null>()
   const refs = isRecord(json) && isRecord(json.refs) ? json.refs : undefined
@@ -124,8 +129,12 @@ export function readSchema(json: unknown): SchemaNode | undefined {
         if (dict === undefined) {
           dict = []
           if (isRecord(raw.dict)) {
-            for (const [key, child] of Object.entries(raw.dict)) {
-              const resolved = resolve(child)
+            // Lazily, against the member budget: never every entry up front.
+            for (const key in raw.dict) {
+              if (!Object.hasOwn(raw.dict, key)) continue
+              if (members <= 0) break
+              members -= 1
+              const resolved = resolve(raw.dict[key])
               if (resolved !== undefined) dict.push([key, resolved])
             }
           }
@@ -136,8 +145,9 @@ export function readSchema(json: unknown): SchemaNode | undefined {
         if (list === undefined) {
           list = []
           if (Array.isArray(raw.list)) {
-            for (const child of raw.list) {
-              const resolved = resolve(child)
+            for (let index = 0; index < raw.list.length && members > 0; index += 1) {
+              members -= 1
+              const resolved = resolve(raw.list[index])
               if (resolved !== undefined) list.push(resolved)
             }
           }
@@ -729,21 +739,29 @@ const SNAPSHOT_TTL_MS = 1000
 function otherConfigKeys(config: unknown, served: ReadonlySet<string>): string[] {
   const keys: string[] = []
   // Each schema once: a repeated intersect member would otherwise be walked
-  // again per reference (exponential on a self-listing intersection).
+  // again per reference (exponential on a self-listing intersection); every
+  // member examined spends the same budget a serialized form gets.
   const expanded = new Set<unknown>()
+  let members = PLUGIN_CONFIG_LIMITS.members
   const visit = (schema: unknown, depth: number): void => {
     if (depth > 8 || (typeof schema !== 'function' && !isRecord(schema)) || expanded.has(schema)) return
     expanded.add(schema)
     const node = schema as { type?: unknown; dict?: unknown; list?: unknown }
     if (node.type === 'object' && isRecord(node.dict)) {
-      for (const [key, child] of Object.entries(node.dict)) {
-        if (served.has(key) || keys.includes(key) || keys.length >= PLUGIN_CONFIG_LIMITS.otherKeys) continue
-        const meta = (child as { meta?: unknown } | undefined)?.meta
+      for (const key in node.dict) {
+        if (!Object.hasOwn(node.dict, key)) continue
+        if (members <= 0 || keys.length >= PLUGIN_CONFIG_LIMITS.otherKeys) return
+        members -= 1
+        if (served.has(key) || keys.includes(key)) continue
+        const meta = (node.dict[key] as { meta?: unknown } | undefined)?.meta
         if (isRecord(meta) && meta.hidden === true) continue
         keys.push(key)
       }
     } else if (node.type === 'intersect' && Array.isArray(node.list)) {
-      for (const member of node.list) visit(member, depth + 1)
+      for (let index = 0; index < node.list.length && members > 0; index += 1) {
+        members -= 1
+        visit(node.list[index], depth + 1)
+      }
     }
   }
   try {

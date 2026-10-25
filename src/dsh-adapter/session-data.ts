@@ -166,6 +166,52 @@ function abortError(): Error {
   return error
 }
 
+/** Rows sorted in one synchronous step by {@link sortYielding}. */
+const SORT_RUN = 256
+
+/**
+ * A stable sort that keeps the listing's slice guarantee: runs of
+ * {@link SORT_RUN} rows are sorted natively, then merged pass by pass, and
+ * the work yields to the event loop whenever a {@link LIST_SLICE_MS} slice is
+ * used up — a long history must not freeze input for one O(n log n) step.
+ */
+async function sortYielding<T>(items: readonly T[], compare: (a: T, b: T) => number, signal: AbortSignal): Promise<T[]> {
+  let deadline = performance.now() + LIST_SLICE_MS
+  const pause = async (): Promise<void> => {
+    if (performance.now() < deadline) return
+    await yieldTurn()
+    if (signal.aborted) throw abortError()
+    deadline = performance.now() + LIST_SLICE_MS
+  }
+  let source: T[] = []
+  for (let start = 0; start < items.length; start += SORT_RUN) {
+    for (const item of items.slice(start, start + SORT_RUN).sort(compare)) source.push(item)
+    await pause()
+  }
+  let target = new Array<T>(source.length)
+  for (let width = SORT_RUN; width < source.length; width *= 2) {
+    for (let left = 0; left < source.length; left += 2 * width) {
+      const middle = Math.min(left + width, source.length)
+      const end = Math.min(left + 2 * width, source.length)
+      let i = left
+      let j = middle
+      let k = left
+      while (i < middle && j < end) {
+        // Ties take the left run: equal rows keep their order.
+        target[k++] = compare(source[j]!, source[i]!) < 0 ? source[j++]! : source[i++]!
+        if ((k & 1023) === 0) await pause()
+      }
+      while (i < middle) target[k++] = source[i++]!
+      while (j < end) target[k++] = source[j++]!
+      await pause()
+    }
+    const merged = target
+    target = source
+    source = merged
+  }
+  return source
+}
+
 async function listHeaders(sources: SessionListSources, signal: AbortSignal): Promise<ListedSession[]> {
   const query = sources.query
   if (typeof query?.listSessions === 'function') {
@@ -280,8 +326,7 @@ export async function listSessionRows(
     }
   }
   // Stable: equal activity keeps the host's own order; unknown sorts last.
-  rows.sort((a, b) => (b.updatedAt ?? -1) - (a.updatedAt ?? -1))
-  return Object.freeze(rows)
+  return Object.freeze(await sortYielding(rows, (a, b) => (b.updatedAt ?? -1) - (a.updatedAt ?? -1), signal))
 }
 
 /**

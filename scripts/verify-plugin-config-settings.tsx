@@ -187,6 +187,21 @@ const fieldAt = (section: TuiSettingsSection | undefined, path: string): TuiSett
     check(tags.format?.({ when: new Date(0) }) === JSON.stringify({ when: new Date(0) }), 'toJSON values serialize like JSON.stringify')
     check(tags.format?.({ a: undefined, b: 1, c: [undefined] }) === '{"b":1,"c":[null]}', 'undefined members follow JSON.stringify')
   }
+  // A very wide dict or list is cut at the member budget, read lazily: a
+  // member past it is never touched (the traps record a read).
+  {
+    const wideDict: Record<string, unknown> = {}
+    for (let index = 0; index < 100_000; index += 1) wideDict['k' + index] = 2
+    let dictRead = false
+    Object.defineProperty(wideDict, 'k50000', { get() { dictRead = true; return 2 }, enumerable: true })
+    const wideSections = pluginConfigSections(input([descriptor('third', { uid: 1, refs: { 1: { type: 'object', dict: wideDict }, 2: { type: 'boolean' } } })]))
+    check(!dictRead && wideSections[0]!.fields.length === PLUGIN_CONFIG_LIMITS.fields + 1, 'a wide dict is read lazily up to the member budget')
+    const wideList: unknown[] = Array.from({ length: 100_000 }, () => 99)
+    let listRead = false
+    Object.defineProperty(wideList, 50_000, { get() { listRead = true; return 2 } })
+    pluginConfigSections(input([descriptor('third', { uid: 1, refs: { 1: { type: 'intersect', list: wideList }, 2: { type: 'object', dict: { flag: 3 } }, 3: { type: 'boolean' } } })]))
+    check(!listRead, 'dangling list members spend the member budget too')
+  }
   // An intersection that lists itself eight times: re-expanding every
   // reference to the depth cap is ~8^9 calls; each node is expanded once.
   const selfListing = { uid: 1, refs: { 1: { type: 'intersect', list: [1, 1, 1, 1, 1, 1, 1, 1, 2] }, 2: { type: 'object', dict: { flag: 3 } }, 3: { type: 'boolean' } } }

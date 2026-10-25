@@ -610,6 +610,26 @@ try {
     assert.deepEqual(protoProjections['__proto__'], protoValue)
     assert.equal(Object.getPrototypeOf(protoProjections), Object.prototype, 'the record keeps its prototype')
     assert.equal((protoProjections as { inherited?: unknown }).inherited, undefined, 'no field the caller never requested')
+    // A long history is ordered in yieldable slices: no native sort ever sees
+    // more than one run, and the result is the same stable order.
+    {
+      const many = Array.from({ length: 20_000 }, (_, index) => ({ header: { id: 'h' + index, cwd: '/w/h', createdAt: (index * 7919) % 1_000 } }))
+      const nativeSort = Array.prototype.sort
+      let largest = 0
+      Array.prototype.sort = function patched<T>(this: T[], compare?: (a: T, b: T) => number): T[] {
+        largest = Math.max(largest, this.length)
+        return nativeSort.call(this, compare) as T[]
+      }
+      let sorted: readonly TuiSessionListRow[]
+      try {
+        sorted = await listSessionRows({ query: { listSessions: async () => many } }, [], new AbortController().signal)
+      } finally {
+        Array.prototype.sort = nativeSort
+      }
+      const expected = many.map(entry => entry.header).slice().sort((a, b) => b.createdAt - a.createdAt).map(header => header.id)
+      assert.deepEqual(sorted.map(row => row.id), expected, 'the yielding sort keeps the stable newest-first order')
+      assert.ok(largest <= 256, `no single native sort over the whole history (largest ${largest})`)
+    }
     const aborted = new AbortController()
     aborted.abort()
     await assert.rejects(listSessionRows({ query: { listSessions: async () => [] } }, [], aborted.signal), /superseded/)
