@@ -2146,7 +2146,7 @@ interface TuiSessionListWatch {
 | 全进程被订阅的不同投影 key | 64 个（已被订阅的 key 仍可共享） | 同上 |
 | 每个 activation 的会话列表 watch | 2 个 | 同上 |
 | key | 非空字符串，≤128 字符，不含控制字符 | warn + `undefined` |
-| 列表每行请求的投影 key | ≤8 个，各自同上校验 | warn + `undefined` |
+| 列表每行请求的投影 key | ≤8 个（数组超过 8 项即拒绝，先于逐项校验），各自同上校验 | warn + `undefined` |
 
 ### 非 DSH 后端
 

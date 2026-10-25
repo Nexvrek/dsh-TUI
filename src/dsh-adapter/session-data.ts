@@ -681,6 +681,12 @@ export class TuiSessionDataRuntime extends Service {
       return undefined
     }
     const requested = (raw as { projections?: unknown } | undefined)?.projections
+    // The cap is checked on the array itself first: a huge list is refused
+    // before any of it is validated or copied (duplicates count toward it).
+    if (Array.isArray(requested) && requested.length > MAX_SESSION_LIST_PROJECTION_KEYS) {
+      caller.logger.warn(`dsh-tui: tuiSessionData.watchSessionList rejected projections — at most ${MAX_SESSION_LIST_PROJECTION_KEYS} keys`)
+      return undefined
+    }
     if (requested !== undefined && (!Array.isArray(requested) || !requested.every(validKey))) {
       caller.logger.warn(`dsh-tui: tuiSessionData.watchSessionList rejected projections — an array of non-empty keys of at most ${MAX_PROJECTION_KEY_LENGTH} characters`)
       return undefined

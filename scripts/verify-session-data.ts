@@ -570,6 +570,13 @@ try {
   assert.equal(sessionData(e.ctx).watchSessionList(), undefined, 'a third list watch is refused')
   assert.ok(ledgerRecords().some(record => record.result === 'failed' && record.resource?.id === 'session-list'))
   assert.equal(sessionData(e.ctx).watchSessionList({ projections: [''] }), undefined, 'invalid projection keys are refused')
+  {
+    const many: string[] = Array.from({ length: 1_000_000 }, () => 'k')
+    let scanned = false
+    Object.defineProperty(many, 500_000, { get() { scanned = true; return 'k' } })
+    assert.equal(sessionData(e.ctx).watchSessionList({ projections: many }), undefined, 'an oversized projection list is refused')
+    assert.ok(!scanned, '… before any of it is validated or copied')
+  }
   assert.equal(sessionData(e.ctx).watchSessionList('nope' as never), undefined, 'invalid options are refused')
   await e.dispose()
   assert.deepEqual(list.read(), [], 'a released list reads []')

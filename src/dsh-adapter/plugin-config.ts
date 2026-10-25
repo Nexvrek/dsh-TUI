@@ -81,6 +81,8 @@ export const PLUGIN_CONFIG_LIMITS = Object.freeze({
   otherKeys: 64,
   /** Loader / config-editor rows examined per read, matching or not. */
   entries: 4096,
+  /** Secrets-sidecar entries indexed per form. */
+  secrets: 256,
 })
 
 const LABEL_CELLS = 40
@@ -211,8 +213,14 @@ function isObjectLike(node: SchemaNode): boolean {
 
 // ── Text helpers ─────────────────────────────────────────────────────────
 
-/** How a string field with an empty-string preset spells that preset. */
+/** How a string field with an empty-string preset spells that preset. The
+ *  token stays reversible: in such a field any text made of backslashes and
+ *  then `""` carries one extra leading backslash, so a literal `""` (shown
+ *  `\""`) still round-trips. */
 const EMPTY_STRING_TOKEN = '""'
+const ESCAPED_TOKEN = /^\\*""$/u
+/** Deepest secret path the sidecar index keeps (form fields nest one level). */
+const SECRET_PATH_DEPTH = 8
 /** Badges one field shows in its hint. */
 const MAX_BADGES = 8
 /** Locale entries {@link localizedText} reads from one map. */
@@ -399,7 +407,8 @@ interface ConstChoice {
 function constChoice(node: SchemaNode, lang: Lang): ConstChoice | undefined {
   if (!scalar(node.value)) return undefined
   const described = localizedText(node.meta.description, lang)
-  const label = cleanStatusFieldText(described ?? (node.value === null ? 'null' : String(node.value)), LABEL_CELLS)
+  // The label comes from a bounded prefix; the value stays whole for writes.
+  const label = cleanStatusFieldText(described ?? boundedText(node.value === null ? 'null' : String(node.value)), LABEL_CELLS)
   return { value: node.value, label: label === '' ? '""' : label }
 }
 
@@ -562,10 +571,18 @@ function sectionFor(descriptor: unknown, input: PluginConfigInput, seen: Set<str
 
   const patch = cleanRenderText(input.documentPath ?? '', HINT_CELLS) || t('settings-plugin-profile-patch')
   const readOnlyAll = input.writable === false
-  const secrets = Array.isArray(descriptor.secrets) ? descriptor.secrets : []
-  const secretSet = (path: readonly string[]): boolean => secrets.some(secret =>
-    isRecord(secret) && Array.isArray(secret.path) && secret.path.length === path.length
-    && secret.path.every((key, index) => key === path[index]) && secret.set === true)
+  // The secrets sidecar, indexed once (a bounded number of entries, each a
+  // short path) instead of scanned again for every secret field.
+  const setSecrets = new Set<string>()
+  if (Array.isArray(descriptor.secrets)) {
+    const examined = Math.min(descriptor.secrets.length, PLUGIN_CONFIG_LIMITS.secrets)
+    for (let index = 0; index < examined; index += 1) {
+      const secret: unknown = descriptor.secrets[index]
+      if (!isRecord(secret) || secret.set !== true || !Array.isArray(secret.path) || secret.path.length > SECRET_PATH_DEPTH) continue
+      if (secret.path.every(key => typeof key === 'string' && key.length <= LOCALIZED_TEXT_UNITS)) setSecrets.add(JSON.stringify(secret.path))
+    }
+  }
+  const secretSet = (path: readonly string[]): boolean => setSecrets.has(JSON.stringify(path))
 
   const fields: TuiSettingsField[] = []
   const groups: TuiSettingsGroup[] = []
@@ -682,9 +699,18 @@ function sectionFor(descriptor: unknown, input: PluginConfigInput, seen: Set<str
     const multiline = classified.multiline
     // An empty text clears the override, so an empty-string preset needs a
     // token of its own: `""` stands for it in the options, the shown value
-    // and the parse (typing `""` in such a field means the empty string).
+    // and the parse; a literal `""` is shown (and typed) as `\""`.
     const emptyPreset = classified.choices?.some(choice => choice.value === '') === true
-    const encode = (current: string): string => emptyPreset && current === '' ? EMPTY_STRING_TOKEN : multiline ? escapeText(current) : current
+    const encode = (current: string): string => {
+      const text = multiline ? escapeText(current) : current
+      if (!emptyPreset) return text
+      if (current === '') return EMPTY_STRING_TOKEN
+      return ESCAPED_TOKEN.test(text) ? '\\' + text : text
+    }
+    const decode = (text: string): string => {
+      const unescaped = emptyPreset && ESCAPED_TOKEN.test(text) ? text.slice(1) : text
+      return multiline ? unescapeText(unescaped) : unescaped
+    }
     const options = classified.choices?.map(choice => ({ value: encode(String(choice.value)), label: choice.label }))
     push({
       ...base,
@@ -698,7 +724,7 @@ function sectionFor(descriptor: unknown, input: PluginConfigInput, seen: Set<str
       parse(text: string): TuiSettingsFieldWrite | undefined {
         if (text === '') return { kind: 'clear' }
         if (emptyPreset && text === EMPTY_STRING_TOKEN) return { kind: 'set', value: '' }
-        return { kind: 'set', value: multiline ? unescapeText(text) : text }
+        return { kind: 'set', value: decode(text) }
       },
       hint: hintOf([...badges, description, defaultHint, multiline ? t('settings-plugin-multiline') : undefined, lockNote, keyHint]),
     })

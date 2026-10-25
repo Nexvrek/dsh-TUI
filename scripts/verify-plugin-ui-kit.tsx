@@ -179,6 +179,19 @@ check('Legend: an explicit zero-row limit lays out nothing; an omitted one is un
   assert.equal(legend.layoutLegend({ width: 20, items, maxRows: 1 }).length, 1)
 })
 
+check('Heatmap: the whole grid shares one value budget', () => {
+  const { MAX_CHART_ITEMS } = geometry
+  const rows: number[][] = Array.from({ length: 200 }, () => Array.from({ length: 2_000 }, (_, x) => x % 2))
+  // Only row lengths are scanned (at most 200 of them); a dropped row's values
+  // are never read.
+  let lateValueRead = false
+  Object.defineProperty(rows[150]!, 0, { get() { lateValueRead = true; return 1 } })
+  const laid = heatmap.layoutHeatmap({ rows, cell: 1 })
+  assert.ok(!lateValueRead, 'values of rows past the budget are never read')
+  assert.ok(laid.length * 2_000 <= MAX_CHART_ITEMS && laid.length >= 1, `at most ${MAX_CHART_ITEMS} values laid out (${laid.length} rows)`)
+  assert.equal(heatmap.layoutHeatmap({ rows: [[1, 2], [3]], cell: 2 }).length, 2, 'a small grid is unchanged')
+})
+
 check('chart inputs past MAX_CHART_ITEMS are never read', () => {
   const { MAX_CHART_ITEMS } = geometry
   /** `count` entries from `make`, with a trap at `trap` that records a read. */

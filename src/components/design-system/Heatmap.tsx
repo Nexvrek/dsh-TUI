@@ -1,6 +1,6 @@
 import React from 'react'
 import { chartColorKey, seriesColor } from './chartColor.js'
-import { cellCount, chartValue, MAX_CHART_CELLS, quantize } from './chartGeometry.js'
+import { cellCount, chartValue, MAX_CHART_CELLS, MAX_CHART_ITEMS, quantize } from './chartGeometry.js'
 import { ChartRows, pushRun, type ChartRun } from './chartRows.js'
 import type { TuiHeatmapProps } from './chartTypes.js'
 
@@ -17,16 +17,19 @@ const MAX_GRID_ROWS = 200
  * climbs `░▒▓█` in the series color over `levels` equal steps of `(0, max]`
  * (`levels` above four share the four glyphs). The selected cell keeps its
  * glyph but swaps to `text` on `selectionBg`, which stays visible even on a
- * full `█`.
+ * full `█`. The whole grid reads at most {@link MAX_CHART_ITEMS} values: rows
+ * past that budget (at the grid's width) are left out.
  */
 export function layoutHeatmap(props: TuiHeatmapProps): ChartRun[][] {
   const cell = props.cell === 1 ? 1 : 2
-  const grid = (Array.isArray(props.rows) ? props.rows : [])
-    .slice(0, MAX_GRID_ROWS)
-    .map(row => (Array.isArray(row) ? row : []).slice(0, Math.floor(MAX_CHART_CELLS / cell)))
+  const rows = (Array.isArray(props.rows) ? props.rows : []).slice(0, MAX_GRID_ROWS)
+  const perRow = Math.floor(MAX_CHART_CELLS / cell)
   let columns = 0
-  for (const row of grid) columns = Math.max(columns, row.length)
-  if (grid.length === 0 || columns === 0) return []
+  for (const row of rows) columns = Math.max(columns, Math.min(perRow, Array.isArray(row) ? row.length : 0))
+  if (rows.length === 0 || columns === 0) return []
+  // One budget for the grid, as for every chart's data: not the full width
+  // again for every row.
+  const grid = rows.slice(0, Math.max(1, Math.floor(MAX_CHART_ITEMS / columns))).map(row => (Array.isArray(row) ? row : []).slice(0, columns))
 
   let scale = 0
   if (typeof props.max === 'number' && Number.isFinite(props.max)) scale = chartValue(props.max)

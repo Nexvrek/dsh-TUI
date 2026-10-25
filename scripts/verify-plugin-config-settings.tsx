@@ -204,6 +204,11 @@ const fieldAt = (section: TuiSettingsSection | undefined, path: string): TuiSett
     check(JSON.stringify(sep.parse?.(emptyOption!.value)) === JSON.stringify({ kind: 'set', value: '' }), 'picking it sets the empty string')
     check(JSON.stringify(sep.parse?.('')) === JSON.stringify({ kind: 'clear' }), 'an empty text still clears the override')
     check(sep.format?.('') === emptyOption!.value && sep.format?.(', ') === ', ', 'a stored empty string shows as that preset')
+    // The token is reversible: literal `""` (and `\""` …) values round-trip.
+    for (const literal of ['""', '\\""', '\\\\""', 'x""']) {
+      const shown = sep.format?.(literal) ?? ''
+      check(JSON.stringify(sep.parse?.(shown)) === JSON.stringify({ kind: 'set', value: literal }), `literal ${JSON.stringify(literal)} round-trips through ${JSON.stringify(shown)}`)
+    }
     const plain = fieldAt(presetSections[0], 'plain')
     check(JSON.stringify(plain.parse?.('""')) === JSON.stringify({ kind: 'set', value: '""' }), 'a field without an empty preset keeps `""` literal')
   }
@@ -220,6 +225,27 @@ const fieldAt = (section: TuiSettingsSection | undefined, path: string): TuiSett
     check(!badgeRead && (flagHint.match(/\[/gu)?.length ?? 0) <= 8, `badges are capped before they are read: ${flagHint.slice(0, 80)}`)
     const keyed = metaSections[0]!.fields.find(field => field.path[0] === hugeKey)
     check(keyed !== undefined && keyed.label.length <= 400, 'a huge key labels a bounded row')
+  }
+  // A huge preset literal labels its option from a bounded prefix and still
+  // writes the whole value.
+  {
+    const hugePreset = 'p'.repeat(3_000_000)
+    const presetField = fieldAt(pluginConfigSections(input([descriptor('third', Schema.object({ mode: Schema.union([Schema.const(hugePreset), Schema.const('b')]) }).toJSON())]))[0], 'mode')
+    const hugeOption = presetField.options?.[0]
+    check(hugeOption !== undefined && hugeOption.label.length <= 400, `a huge preset gets a bounded label (${hugeOption?.label.length})`)
+    check((presetField.parse?.(hugeOption!.value) as { value?: unknown } | undefined)?.value === hugePreset, 'and still writes the whole value')
+  }
+  // The secrets sidecar is indexed once and capped: an entry past the cap is
+  // never read, and the real one still marks its field configured.
+  {
+    const sidecar: unknown[] = Array.from({ length: 100_000 }, () => ({ path: ['other'], set: false }))
+    sidecar[3] = { path: ['token'], set: true }
+    let sidecarRead = false
+    Object.defineProperty(sidecar, 50_000, { get() { sidecarRead = true; return { path: ['token'], set: true } } })
+    const secretSections = pluginConfigSections(input([descriptor('third', Schema.object({ token: Schema.string().role('secret'), other: Schema.string().role('secret') }).toJSON(), { secrets: sidecar })]))
+    const tokenShown = fieldAt(secretSections[0], 'token').format?.(undefined) ?? ''
+    const otherShown = fieldAt(secretSections[0], 'other').format?.(undefined) ?? ''
+    check(!sidecarRead && tokenShown !== otherShown && tokenShown.includes('●'), `the sidecar is indexed up to its cap: ${JSON.stringify([tokenShown, otherShown])}`)
   }
   // Ineligible forms spend the examination budget too: a huge describe()
   // result is cut there even though it yields no pages (the trap is past it).
