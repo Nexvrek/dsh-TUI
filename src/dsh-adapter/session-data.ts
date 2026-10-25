@@ -249,11 +249,17 @@ async function listHeaders(sources: SessionListSources, signal: AbortSignal, clo
     return listed
   }
   if (sources.persistence === undefined) return []
-  const listed: ListedSession[] = (await enumerateSessions(sources.persistence, signal, clock))
-    .map(entry => ({ header: entry.header, raw: entry.raw }))
+  const stored = await enumerateSessions(sources.persistence, signal, clock)
+  // Wrappers and the id set in one sliced pass, not two whole-list copies.
+  const listed: ListedSession[] = []
+  const seen = new Set<string>()
+  for (const entry of stored) {
+    listed.push({ header: entry.header, raw: entry.raw })
+    seen.add(entry.header.id)
+    if (clock.due()) await clock.next()
+  }
   // The query service merges attached sessions the store has not written
   // yet; without it, add them from the live table.
-  const seen = new Set(listed.map(entry => entry.header.id))
   for (const session of sources.sessions?.list?.() ?? []) {
     const raw = (session as { header?: unknown } | null)?.header
     const header = readHeader(raw)
@@ -285,10 +291,21 @@ function lastPromptAt(value: unknown): number | undefined {
   return typeof at === 'number' && Number.isFinite(at) ? at : undefined
 }
 
+/** A cwd's workspace name, read from a bounded tail of the path (never half a
+ *  surrogate pair): `basename` must not scan a malformed multi-megabyte path. */
+function workspaceName(cwd: string): string {
+  const tailUnits = TITLE_SOURCE_UNITS * 2
+  if (cwd.length <= tailUnits) return boundTitleSource(basename(cwd))
+  let tail = cwd.slice(cwd.length - tailUnits)
+  const first = tail.charCodeAt(0)
+  if (first >= 0xdc00 && first <= 0xdfff) tail = tail.slice(1)
+  return boundTitleSource(basename(tail))
+}
+
 function rowTitle(header: RawSessionHeader, title: unknown): string {
   const durable = typeof title === 'string' ? cleanRenderText(boundTitleSource(title), TITLE_CELLS) : ''
   if (durable !== '') return durable
-  return cleanRenderText(boundTitleSource(basename(header.cwd ?? '')), TITLE_CELLS) || header.id.slice(0, 8)
+  return cleanRenderText(workspaceName(header.cwd ?? ''), TITLE_CELLS) || header.id.slice(0, 8)
 }
 
 /**

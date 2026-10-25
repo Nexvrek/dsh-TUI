@@ -9,6 +9,7 @@ import { PanelCodeBlock, PanelMarkdown } from '../components/sidePanel/panelMark
 import type { TuiPluginStorage } from './plugin-storage.js'
 import {
   HOST_FILE_PREVIEW_SCENE_ID,
+  isPluginScene,
   openHostFilePreview,
   sceneOwnerRecordOf,
   sceneParamsKeyOf,
@@ -101,7 +102,11 @@ function PluginSceneHost({ scene, channel, context }: PluginSceneHostProps): Rea
     const owner = (): SceneOwnerRecord | undefined => sceneOwnerRecordOf(scene)
     const warn = (message: string) => { owner()?.caller.logger.warn(message) }
     return {
-      snapshot: () => buildPanelSnapshot(channel, activity, { approvals, questions }),
+      // Revoked with the registration like every verb: a plugin scene that
+      // kept `host` past its unload reads an empty snapshot.
+      snapshot: () => isPluginScene(scene) && owner() === undefined
+        ? buildPanelSnapshot(undefined, undefined, { approvals: 0, questions: 0 })
+        : buildPanelSnapshot(channel, activity, { approvals, questions }),
       get storage() { return sceneStorage(owner()) },
       openSession: sessionId => {
         const record = owner()

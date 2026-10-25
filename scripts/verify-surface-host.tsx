@@ -170,6 +170,32 @@ if (process.platform !== 'win32') {
   check('params: a disposed composition leaves no preview params behind', surface.getSurfaceParams(previewKeyA) === undefined)
 }
 
+// A throwing scene listener never escapes the verb that moved the scene, and
+// the listeners after it are still told.
+{
+  const rootC = new Context()
+  rootC.logger.warn = () => undefined
+  await rootC.plugin(scenesMod.TuiSceneRuntime)
+  let pluginScenes: InstanceType<typeof scenesMod.TuiSceneRuntime> | undefined
+  rootC.inject(['tuiScenes'], ctx => { pluginScenes = ctx.get('tuiScenes') as InstanceType<typeof scenesMod.TuiSceneRuntime> })
+  await new Promise(resolve => setImmediate(resolve))
+  pluginScenes!.register({ id: 'loud', component: () => null })
+  pluginScenes!.open('loud')
+  pluginScenes!.subscribe(() => { throw new Error('listener boom') })
+  let later = 0
+  scenesMod.getHostSceneRuntime(rootC.get('tuiScenes') as never)!.subscribe(() => { later += 1 })
+  let opened: unknown
+  let threw: unknown
+  try {
+    opened = scenesMod.openHostFilePreview(rootC.get('tuiScenes') as never, { path: '/w/file.txt' })
+  } catch (error) {
+    threw = error
+  }
+  check('scenes: a throwing listener does not escape openFile', threw === undefined && opened === true, String(threw))
+  check('scenes: … and the listeners after it are still told', later === 1, String(later))
+  rootC.registry.delete(scenesMod.TuiSceneRuntime as never)
+}
+
 // ── scene host through the outlet ─────────────────────────────────────────
 const root = new Context()
 await root.plugin(scenesMod.TuiSceneRuntime)
@@ -356,7 +382,8 @@ check('scene: params cleared on dispose', surface.getSurfaceParams(scenesMod.sce
 check('scene: a disposed registration\'s host refuses every verb',
   await host.openSession('s2') === false && resumed.length === 0
   && host.openFile('sample.ts') === false && sceneHost.active === undefined
-  && host.copy('stale') === false && host.openScene('probe') === false && host.storage === undefined,
+  && host.copy('stale') === false && host.openScene('probe') === false && host.storage === undefined
+  && host.snapshot().sessionId === '' && host.snapshot().usage.occupancy === undefined,
   'resumed=' + JSON.stringify(resumed) + ' active=' + String(sceneHost.active?.id))
 
 // A plugin's explicit open replaces the preview's return target.

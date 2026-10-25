@@ -124,6 +124,15 @@ export interface SceneOwnerRecord {
 }
 
 const sceneOwnerRecords = new WeakMap<TuiSceneDescriptor, SceneOwnerRecord>()
+/** Descriptors a plugin activation registered — kept after disposal, so a
+ *  host the scene retained knows it has been revoked (host scenes never had
+ *  an owner record to lose). */
+const pluginSceneDescriptors = new WeakSet<TuiSceneDescriptor>()
+
+/** Whether a plugin registered this scene (as opposed to the host). */
+export function isPluginScene(scene: TuiSceneDescriptor): boolean {
+  return pluginSceneDescriptors.has(scene)
+}
 
 /** The registering activation of a scene descriptor; undefined for host scenes,
  *  host-facade registrations (they have no plugin identity to act as) and a
@@ -251,6 +260,7 @@ export class TuiSceneRuntime extends Service {
     sceneScopes.set(normalized, state)
     state.owners.set(id, activationOwner)
     sceneOwnerRecords.set(normalized, { caller, owner: activationOwner })
+    pluginSceneDescriptors.add(normalized)
     caller.get('tuiEffectLedger')?.record(
       { operation: 'create', resource: { kind: 'scene', id }, result: 'applied' },
       identity,
@@ -441,9 +451,16 @@ function subscribeScenes(runtime: TuiSceneRuntime, listener: () => void, owner?:
 
 function notifyScenes(state: SceneState, previousOwner?: object): void {
   const currentOwner = state.current === undefined ? undefined : state.owners.get(state.current.id)
-  for (const entry of state.listeners) {
+  for (const entry of [...state.listeners]) {
     if (entry.owner !== undefined && entry.owner !== currentOwner && entry.owner !== previousOwner) continue
-    entry.listener()
+    try {
+      entry.listener()
+    } catch (error) {
+      // One listener's failure must neither escape into the verb that moved
+      // the scene (open, close, openFile — they report with booleans) nor
+      // starve the listeners after it.
+      state.logger.warn(`dsh-tui: a tuiScenes listener failed: ${error instanceof Error ? error.message : String(error)}`)
+    }
   }
 }
 

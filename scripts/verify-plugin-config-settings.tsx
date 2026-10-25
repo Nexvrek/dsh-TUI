@@ -192,6 +192,35 @@ const fieldAt = (section: TuiSettingsSection | undefined, path: string): TuiSett
     check(tags.format?.({ when: new Date(0) }) === JSON.stringify({ when: new Date(0) }), 'toJSON values serialize like JSON.stringify')
     check(tags.format?.({ a: undefined, b: 1, c: [undefined] }) === '{"b":1,"c":[null]}', 'undefined members follow JSON.stringify')
   }
+  // An empty-string preset beside a free-form string is a value, not a reset.
+  {
+    const presetSections = pluginConfigSections(input([descriptor('third', Schema.object({
+      sep: Schema.union([Schema.const('').description('none'), Schema.const(', '), Schema.string()]),
+      plain: Schema.string(),
+    }).toJSON())]))
+    const sep = fieldAt(presetSections[0], 'sep')
+    const emptyOption = sep.options?.find(option => option.label === 'none')
+    check(emptyOption !== undefined && emptyOption.value !== '', `the empty preset has a token of its own: ${JSON.stringify(sep.options)}`)
+    check(JSON.stringify(sep.parse?.(emptyOption!.value)) === JSON.stringify({ kind: 'set', value: '' }), 'picking it sets the empty string')
+    check(JSON.stringify(sep.parse?.('')) === JSON.stringify({ kind: 'clear' }), 'an empty text still clears the override')
+    check(sep.format?.('') === emptyOption!.value && sep.format?.(', ') === ', ', 'a stored empty string shows as that preset')
+    const plain = fieldAt(presetSections[0], 'plain')
+    check(JSON.stringify(plain.parse?.('""')) === JSON.stringify({ kind: 'set', value: '""' }), 'a field without an empty preset keeps `""` literal')
+  }
+  // The other metadata is bounded too: badges are capped (the trap past the
+  // cap is never read) and long badge, default and key texts are cut before
+  // they are sanitized.
+  {
+    const badges: unknown[] = Array.from({ length: 100_000 }, () => ({ text: 'b'.repeat(2_000_000 / 100_000) }))
+    let badgeRead = false
+    Object.defineProperty(badges, 500, { get() { badgeRead = true; return { text: 'trap' } } })
+    const hugeKey = 'k'.repeat(3_000_000)
+    const metaSections = pluginConfigSections(input([descriptor('third', { uid: 1, refs: { 1: { type: 'object', dict: { flag: 2, [hugeKey]: 3 } }, 2: { type: 'boolean', meta: { badges, default: 'd'.repeat(3_000_000) } }, 3: { type: 'boolean' } } })]))
+    const flagHint = fieldAt(metaSections[0], 'flag').hint ?? ''
+    check(!badgeRead && (flagHint.match(/\[/gu)?.length ?? 0) <= 8, `badges are capped before they are read: ${flagHint.slice(0, 80)}`)
+    const keyed = metaSections[0]!.fields.find(field => field.path[0] === hugeKey)
+    check(keyed !== undefined && keyed.label.length <= 400, 'a huge key labels a bounded row')
+  }
   // Ineligible forms spend the examination budget too: a huge describe()
   // result is cut there even though it yields no pages (the trap is past it).
   {

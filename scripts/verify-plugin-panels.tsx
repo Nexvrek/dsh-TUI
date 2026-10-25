@@ -1161,7 +1161,8 @@ check('wp11 stale host: every verb of the old registration\'s host refuses',
   await probeHost.openSession('s-stale') === false && resumeCalls.length === resumesBeforeStale
   && probeHost.openFile('fixture.txt') === false && probeHost.copy('stale') === false
   && probeHost.openScene('c-scene') === false && probeHost.openPanel(probeId) === false
-  && probeHost.toast('stale') === false && probeHost.focus() === false && probeHost.storage === undefined,
+  && probeHost.toast('stale') === false && probeHost.focus() === false && probeHost.storage === undefined
+  && probeHost.snapshot().sessionId === '' && probeHost.snapshot().usage.occupancy === undefined,
   'resumes=' + JSON.stringify(resumeCalls.slice(resumesBeforeStale)))
 probeHost.notify('error', 9)
 check('wp11 stale host: … and cannot badge the new registration', panelStore.get(probeId)?.badge?.unread !== 9)

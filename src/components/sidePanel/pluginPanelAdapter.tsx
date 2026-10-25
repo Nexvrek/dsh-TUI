@@ -98,7 +98,10 @@ export function makePluginPanelComponent(
     const questions = runtimeCtx?.attention?.questions ?? 0
     const host = React.useMemo<TuiPanelHostApi>(() => ({
       // 结构拷贝、只策展白名单字段——不含转录正文/凭证/文件内容。
-      snapshot: () => buildPanelSnapshot(channel, activity, { approvals, questions }),
+      // Revoked with the registration like every verb below.
+      snapshot: () => isLivePanelRegistration(registration)
+        ? buildPanelSnapshot(channel, activity, { approvals, questions })
+        : buildPanelSnapshot(undefined, undefined, { approvals: 0, questions: 0 }),
       focused,
       notify: (level, unread = 0) => { if (isLivePanelRegistration(registration)) panelStore.setBadge(panelId, { level, unread }) },
       clearBadge: () => { if (isLivePanelRegistration(registration)) panelStore.clearBadge(panelId) },

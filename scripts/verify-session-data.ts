@@ -657,6 +657,10 @@ try {
         query: { listSessions: async () => [{ header: { id: 'flood-cwd', cwd: '/w/' + 'b' + '\u0301'.repeat(3_000_000), createdAt: 1 } }] },
       }, [], new AbortController().signal)
       assert.ok(cwdRow !== undefined && cwdRow.title.length <= 1600, `a workspace-name title is cut too (${cwdRow?.title.length})`)
+      const [deepRow] = await listSessionRows({
+        query: { listSessions: async () => [{ header: { id: 'deep-cwd', cwd: '/deep/' + 'x'.repeat(5_000_000) + '/proj', createdAt: 1 } }] },
+      }, [], new AbortController().signal)
+      assert.equal(deepRow?.title, 'proj', 'the workspace name comes from the path tail, however long the path')
     }
     const aborted = new AbortController()
     aborted.abort()

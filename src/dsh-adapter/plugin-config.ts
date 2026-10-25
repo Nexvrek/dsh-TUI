@@ -211,6 +211,10 @@ function isObjectLike(node: SchemaNode): boolean {
 
 // ── Text helpers ─────────────────────────────────────────────────────────
 
+/** How a string field with an empty-string preset spells that preset. */
+const EMPTY_STRING_TOKEN = '""'
+/** Badges one field shows in its hint. */
+const MAX_BADGES = 8
 /** Locale entries {@link localizedText} reads from one map. */
 const LOCALE_ENTRIES = 64
 /** Source length of the text it returns: far past any description a row
@@ -339,7 +343,7 @@ function boundedJson(value: unknown, limit: number): string | undefined {
 /** A short render-safe rendition of any value (read-only rows, defaults). */
 function summarize(value: unknown, cells = VALUE_CELLS): string {
   if (value === undefined) return ''
-  if (typeof value === 'string') return cleanRenderText(escapeText(value), cells)
+  if (typeof value === 'string') return cleanRenderText(escapeText(boundedText(value)), cells)
   if (typeof value === 'number' || typeof value === 'boolean' || value === null) return String(value)
   // A display cell is at least one character of JSON in practice; four per
   // cell leaves room for zero-width text without serializing a whole value.
@@ -576,7 +580,7 @@ function sectionFor(descriptor: unknown, input: PluginConfigInput, seen: Set<str
 
   const label = (key: string, node: SchemaNode): { label: string; description?: string } => {
     const described = localizedText(node.meta.description, input.lang)
-    const keyLabel = cleanStatusFieldText(key, LABEL_CELLS) || '""'
+    const keyLabel = cleanStatusFieldText(boundedText(key), LABEL_CELLS) || '""'
     if (described === undefined) return { label: keyLabel }
     const firstLine = cleanStatusFieldText(described.split(/\r?\n/u)[0] ?? '', HINT_CELLS)
     const full = cleanRenderText(described, HINT_CELLS)
@@ -595,10 +599,15 @@ function sectionFor(descriptor: unknown, input: PluginConfigInput, seen: Set<str
     const inherited = getAt(descriptor.base, path)
     const classified = classify(node, input.lang, value, inherited)
     const { label: text, description } = label(key, node)
-    const keyHint = text === cleanStatusFieldText(key, LABEL_CELLS) && path.length === 1 ? undefined : t('settings-plugin-key', { key: cleanRenderText(path.join('.'), LABEL_CELLS) })
-    const badges = Array.isArray(node.meta.badges)
-      ? node.meta.badges.flatMap(badge => isRecord(badge) && typeof badge.text === 'string' ? [`[${cleanStatusFieldText(badge.text, 16)}]`] : [])
-      : []
+    const keyHint = text === cleanStatusFieldText(boundedText(key), LABEL_CELLS) && path.length === 1 ? undefined : t('settings-plugin-key', { key: cleanRenderText(boundedText(path.join('.')), LABEL_CELLS) })
+    // At most a few badges, each text bounded before it is sanitized.
+    const badges: string[] = []
+    if (Array.isArray(node.meta.badges)) {
+      for (let index = 0; index < Math.min(node.meta.badges.length, MAX_BADGES); index += 1) {
+        const badge: unknown = node.meta.badges[index]
+        if (isRecord(badge) && typeof badge.text === 'string') badges.push(`[${cleanStatusFieldText(boundedText(badge.text), 16)}]`)
+      }
+    }
     const defaultHint = node.meta.default === undefined || classified.kind === 'secret' || classified.kind === 'object'
       ? undefined
       : t('settings-plugin-default', { value: node.meta.default === '' ? '""' : summarize(node.meta.default, 24) })
@@ -671,7 +680,11 @@ function sectionFor(descriptor: unknown, input: PluginConfigInput, seen: Set<str
     // Strings: verbatim, or a reversible escaped line when the value can hold
     // line breaks / control characters the single-line editor cannot show.
     const multiline = classified.multiline
-    const encode = (current: string): string => multiline ? escapeText(current) : current
+    // An empty text clears the override, so an empty-string preset needs a
+    // token of its own: `""` stands for it in the options, the shown value
+    // and the parse (typing `""` in such a field means the empty string).
+    const emptyPreset = classified.choices?.some(choice => choice.value === '') === true
+    const encode = (current: string): string => emptyPreset && current === '' ? EMPTY_STRING_TOKEN : multiline ? escapeText(current) : current
     const options = classified.choices?.map(choice => ({ value: encode(String(choice.value)), label: choice.label }))
     push({
       ...base,
@@ -684,6 +697,7 @@ function sectionFor(descriptor: unknown, input: PluginConfigInput, seen: Set<str
       },
       parse(text: string): TuiSettingsFieldWrite | undefined {
         if (text === '') return { kind: 'clear' }
+        if (emptyPreset && text === EMPTY_STRING_TOKEN) return { kind: 'set', value: '' }
         return { kind: 'set', value: multiline ? unescapeText(text) : text }
       },
       hint: hintOf([...badges, description, defaultHint, multiline ? t('settings-plugin-multiline') : undefined, lockNote, keyHint]),
