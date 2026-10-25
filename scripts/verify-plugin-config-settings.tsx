@@ -55,7 +55,7 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { Context as CordisContext } from '@deepseek-ai/cordis'
 import type { TuiSettingsField, TuiSettingsSection } from '../src/adapter/ports/channel-settings.js'
 
-const { pluginConfigSections, readSchema, escapeText, unescapeText, modulePackage, isHostOwnedModule, createPluginConfigSource, PLUGIN_CONFIG_LIMITS } = PluginConfig
+const { pluginConfigSections, readSchema, escapeText, unescapeText, modulePackage, isHostOwnedModule, createPluginConfigSource, localizedText, PLUGIN_CONFIG_LIMITS } = PluginConfig
 
 let checks = 0
 function check(condition: unknown, message: string): asserts condition {
@@ -186,6 +186,27 @@ const fieldAt = (section: TuiSettingsSection | undefined, path: string): TuiSett
     check(tags.format?.(['a', 'b']) === '["a","b"]', 'a small array still shows as JSON')
     check(tags.format?.({ when: new Date(0) }) === JSON.stringify({ when: new Date(0) }), 'toJSON values serialize like JSON.stringify')
     check(tags.format?.({ a: undefined, b: 1, c: [undefined] }) === '{"b":1,"c":[null]}', 'undefined members follow JSON.stringify')
+  }
+  // Ineligible forms spend the examination budget too: a huge describe()
+  // result is cut there even though it yields no pages (the trap is past it).
+  {
+    const forms: unknown[] = Array.from({ length: 100_000 }, () => null)
+    forms[10] = descriptor('third', Schema.object({ flag: Schema.boolean() }).toJSON())
+    let formRead = false
+    Object.defineProperty(forms, 50_000, { get() { formRead = true; return null } })
+    const formSections = pluginConfigSections(input(forms))
+    check(!formRead && formSections.length === 1 && formSections[0]!.ns === 'third', 'descriptor scans stop at their own budget, eligible pages before it still render')
+  }
+  // Description metadata is bounded too: a wide locale map is read lazily
+  // (the trap past the entry budget is never touched) and a huge text is cut.
+  {
+    const locales: Record<string, unknown> = {}
+    for (let index = 0; index < 100_000; index += 1) locales['x-' + index] = 'text ' + index
+    let localeRead = false
+    Object.defineProperty(locales, 'x-50000', { get() { localeRead = true; return 'trap' }, enumerable: true })
+    check(localizedText(locales, 'en') === 'text 0' && !localeRead, 'a wide locale map is read up to its entry budget')
+    check((localizedText('d'.repeat(5_000_000), 'en') ?? '').length <= 4096, 'a huge description is cut before it is processed')
+    check(localizedText({ zh: '中', en: 'English' }, 'en') === 'English' && localizedText({ 'zh-CN': '启用', '': 'Enabled' }, 'zh') === '启用', 'locale choice is unchanged')
   }
   // A very wide dict or list is cut at the member budget, read lazily: a
   // member past it is never touched (the traps record a read).

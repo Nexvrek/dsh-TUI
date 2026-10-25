@@ -64,6 +64,9 @@ export const PLUGIN_CONFIG_PAGE: TuiSettingsPage = Object.freeze({
 export const PLUGIN_CONFIG_LIMITS = Object.freeze({
   /** Generated sections per screen. */
   plugins: 32,
+  /** Host forms examined per screen, eligible or not (malformed, claimed,
+   *  first-party): the work bound beside the page cap. */
+  descriptors: 256,
   /** Rows per section (overflow collapses into one read-only row). */
   fields: 64,
   /** Choices per select. */
@@ -206,11 +209,33 @@ function isObjectLike(node: SchemaNode): boolean {
 
 // ── Text helpers ─────────────────────────────────────────────────────────
 
-/** Pick a schemastery description (a string, or `.i18n()` locale map). */
+/** Locale entries {@link localizedText} reads from one map. */
+const LOCALE_ENTRIES = 64
+/** Source length of the text it returns: far past any description a row
+ *  shows, cut before anything splits, sanitizes or measures it. */
+const LOCALIZED_TEXT_UNITS = 4096
+
+function boundedText(text: string): string {
+  if (text.length <= LOCALIZED_TEXT_UNITS) return text
+  const last = text.charCodeAt(LOCALIZED_TEXT_UNITS - 1)
+  return text.slice(0, last >= 0xd800 && last <= 0xdbff ? LOCALIZED_TEXT_UNITS - 1 : LOCALIZED_TEXT_UNITS)
+}
+
+/** Pick a schemastery description (a string, or `.i18n()` locale map). The
+ *  map is read lazily up to {@link LOCALE_ENTRIES} own entries, and the text
+ *  is cut to {@link LOCALIZED_TEXT_UNITS} code units. */
 export function localizedText(value: unknown, lang: Lang): string | undefined {
-  if (typeof value === 'string') return value
+  if (typeof value === 'string') return boundedText(value)
   if (!isRecord(value)) return undefined
-  const entries = Object.entries(value).filter((entry): entry is [string, string] => typeof entry[1] === 'string' && entry[1].trim() !== '')
+  const entries: [string, string][] = []
+  let examined = 0
+  for (const key in value) {
+    if (!Object.hasOwn(value, key)) continue
+    if (++examined > LOCALE_ENTRIES) break
+    const raw = value[key]
+    const text = typeof raw === 'string' ? boundedText(raw) : undefined
+    if (text !== undefined && text.trim() !== '') entries.push([key, text])
+  }
   const other: Lang = lang === 'zh' ? 'en' : 'zh'
   const tests: ((key: string) => boolean)[] = [
     key => key === lang,
@@ -492,10 +517,11 @@ export function isHostOwnedModule(moduleName: string): boolean {
 export function pluginConfigSections(input: PluginConfigInput): TuiSettingsSection[] {
   const sections: TuiSettingsSection[] = []
   const seen = new Set<string>()
-  for (const descriptor of input.descriptors) {
+  const examined = Math.min(input.descriptors.length, PLUGIN_CONFIG_LIMITS.descriptors)
+  for (let index = 0; index < examined; index += 1) {
     if (sections.length >= PLUGIN_CONFIG_LIMITS.plugins) break
     try {
-      const section = sectionFor(descriptor, input, seen)
+      const section = sectionFor(input.descriptors[index], input, seen)
       if (section !== undefined) sections.push(section)
     } catch {
       // A malformed form costs its own page, never the screen.
@@ -859,13 +885,16 @@ export function createPluginConfigSource(ctx: Context, changed: () => void): Plu
     if (snapshot !== undefined && snapshot.generation === generation && snapshot.settings === settings && now - snapshot.at < SNAPSHOT_TTL_MS) {
       return snapshot
     }
-    let descriptors: unknown
+    let described: unknown
     try {
-      descriptors = settings.describe({ redactSecrets: true })
+      described = settings.describe({ redactSecrets: true })
     } catch {
       return undefined
     }
-    if (!Array.isArray(descriptors)) return undefined
+    if (!Array.isArray(described)) return undefined
+    // The same examination budget the sections get: no schema of a form past
+    // it is ever parsed.
+    const descriptors: readonly unknown[] = described.slice(0, PLUGIN_CONFIG_LIMITS.descriptors)
     const wanted = new Map<string, readonly string[]>()
     for (const descriptor of descriptors) {
       if (!isRecord(descriptor) || typeof descriptor.ns !== 'string') continue

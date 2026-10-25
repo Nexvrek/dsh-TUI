@@ -630,6 +630,20 @@ try {
       assert.deepEqual(sorted.map(row => row.id), expected, 'the yielding sort keeps the stable newest-first order')
       assert.ok(largest <= 256, `no single native sort over the whole history (largest ${largest})`)
     }
+    // Normalizing a huge host answer is sliced too, and a superseding abort is
+    // seen at the first slice boundary — long before the trap near the end.
+    for (const shape of ['query', 'persistence'] as const) {
+      const records: unknown[] = Array.from({ length: 500_000 }, (_, index) => ({ header: { id: 'n' + index, cwd: '/w/n', createdAt: index } }))
+      let late = false
+      Object.defineProperty(records, 450_000, { get() { late = true; return { header: { id: 'late', cwd: '/w', createdAt: 1 } } } })
+      const controller = new AbortController()
+      const listing = listSessionRows(shape === 'query'
+        ? { query: { listSessions: async () => records } }
+        : { persistence: { listSnapshots: async () => records } } as never, [], controller.signal)
+      setImmediate(() => { controller.abort() })
+      await assert.rejects(listing, /superseded/, `${shape}: the abort ends the read`)
+      assert.ok(!late, `${shape}: header normalization yields and stops at the abort`)
+    }
     const aborted = new AbortController()
     aborted.abort()
     await assert.rejects(listSessionRows({ query: { listSessions: async () => [] } }, [], aborted.signal), /superseded/)

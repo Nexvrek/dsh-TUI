@@ -40,7 +40,7 @@ import { assertCapabilityShadowPolicy, type AdapterRuntimeOptions } from '../ada
 import { adapterRuntimeFor } from '../adapter/kernel/runtime-context.js'
 import { sessionProjectionHubFor, type SessionProjectionHub } from './session-projection-hub.js'
 import { readHeader, type RawSessionHeader } from './sessions/header.js'
-import { enumerateSessions, type SessionSource } from './sessions/list.js'
+import { enumerateSessions, type ListingClock, type SessionSource } from './sessions/list.js'
 
 /** Live projection watches one activation may hold. */
 export const MAX_PROJECTION_WATCHES_PER_ACTIVATION = 8
@@ -166,6 +166,21 @@ function abortError(): Error {
   return error
 }
 
+/** The listing's slice clock: a {@link LIST_SLICE_MS} slice of work, then
+ *  the turn goes back to the event loop (render, input), and a superseded
+ *  read stops there. */
+function sliceClock(signal: AbortSignal): ListingClock {
+  let deadline = performance.now() + LIST_SLICE_MS
+  return {
+    due: () => performance.now() >= deadline,
+    async next() {
+      await yieldTurn()
+      if (signal.aborted) throw abortError()
+      deadline = performance.now() + LIST_SLICE_MS
+    },
+  }
+}
+
 /** Rows sorted in one synchronous step by {@link sortYielding}. */
 const SORT_RUN = 256
 
@@ -175,13 +190,9 @@ const SORT_RUN = 256
  * the work yields to the event loop whenever a {@link LIST_SLICE_MS} slice is
  * used up — a long history must not freeze input for one O(n log n) step.
  */
-async function sortYielding<T>(items: readonly T[], compare: (a: T, b: T) => number, signal: AbortSignal): Promise<T[]> {
-  let deadline = performance.now() + LIST_SLICE_MS
+async function sortYielding<T>(items: readonly T[], compare: (a: T, b: T) => number, clock: ListingClock): Promise<T[]> {
   const pause = async (): Promise<void> => {
-    if (performance.now() < deadline) return
-    await yieldTurn()
-    if (signal.aborted) throw abortError()
-    deadline = performance.now() + LIST_SLICE_MS
+    if (clock.due()) await clock.next()
   }
   let source: T[] = []
   for (let start = 0; start < items.length; start += SORT_RUN) {
@@ -212,20 +223,22 @@ async function sortYielding<T>(items: readonly T[], compare: (a: T, b: T) => num
   return source
 }
 
-async function listHeaders(sources: SessionListSources, signal: AbortSignal): Promise<ListedSession[]> {
+async function listHeaders(sources: SessionListSources, signal: AbortSignal, clock: ListingClock): Promise<ListedSession[]> {
   const query = sources.query
   if (typeof query?.listSessions === 'function') {
     const records = await query.listSessions(signal)
+    if (signal.aborted) throw abortError()
     const listed: ListedSession[] = []
     for (const record of records) {
       const raw = record !== null && typeof record === 'object' ? (record as { header?: unknown }).header : undefined
       const header = readHeader(raw)
       if (header !== undefined) listed.push({ header, raw })
+      if (clock.due()) await clock.next()
     }
     return listed
   }
   if (sources.persistence === undefined) return []
-  const listed: ListedSession[] = (await enumerateSessions(sources.persistence, signal))
+  const listed: ListedSession[] = (await enumerateSessions(sources.persistence, signal, clock))
     .map(entry => ({ header: entry.header, raw: entry.raw }))
   // The query service merges attached sessions the store has not written
   // yet; without it, add them from the live table.
@@ -233,9 +246,11 @@ async function listHeaders(sources: SessionListSources, signal: AbortSignal): Pr
   for (const session of sources.sessions?.list?.() ?? []) {
     const raw = (session as { header?: unknown } | null)?.header
     const header = readHeader(raw)
-    if (header === undefined || seen.has(header.id)) continue
-    seen.add(header.id)
-    listed.push({ header, raw })
+    if (header !== undefined && !seen.has(header.id)) {
+      seen.add(header.id)
+      listed.push({ header, raw })
+    }
+    if (clock.due()) await clock.next()
   }
   return listed
 }
@@ -284,11 +299,13 @@ export async function listSessionRows(
   signal: AbortSignal,
   onProjectionError?: (error: unknown, sessionId: string) => void,
 ): Promise<readonly TuiSessionListRow[]> {
-  const listed = await listHeaders(sources, signal)
+  // One clock for the whole read: header normalization, rows and ordering
+  // all work in slices and observe a superseding abort between them.
+  const clock = sliceClock(signal)
+  const listed = await listHeaders(sources, signal, clock)
   if (signal.aborted) throw abortError()
   const readKeys = [...new Set([...keys, TITLE_KEY, LIST_METADATA_KEY])]
   const rows: TuiSessionListRow[] = []
-  let deadline = performance.now() + LIST_SLICE_MS
   for (const entry of listed) {
     const { header } = entry
     const live = sources.sessions?.get?.(header.id)
@@ -319,14 +336,10 @@ export async function listSessionRows(
         projections: Object.freeze(projections),
       }))
     }
-    if (performance.now() >= deadline) {
-      await yieldTurn()
-      if (signal.aborted) throw abortError()
-      deadline = performance.now() + LIST_SLICE_MS
-    }
+    if (clock.due()) await clock.next()
   }
   // Stable: equal activity keeps the host's own order; unknown sorts last.
-  return Object.freeze(await sortYielding(rows, (a, b) => (b.updatedAt ?? -1) - (a.updatedAt ?? -1), signal))
+  return Object.freeze(await sortYielding(rows, (a, b) => (b.updatedAt ?? -1) - (a.updatedAt ?? -1), clock))
 }
 
 /**
