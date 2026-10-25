@@ -123,7 +123,10 @@ function CompactRow({ entry, width, channel, activity, approvals = 0, questions 
   const snapshot = React.useMemo(
     () => (): TuiPanelCompactSnapshot => {
       used.current = true
-      const latest = sources.current
+      // Revoked with the registration, like a full panel's host: a snapshot
+      // kept past the panel's unload (a timer, a promise) reads empty.
+      const live = panelStore.get(entry.definition.id)?.registrationId === entry.registrationId
+      const latest = live ? sources.current : { channel: undefined, activity: undefined, approvals: 0, questions: 0 }
       const { version: _version, ...snapshot } = buildPanelSnapshot(latest.channel, latest.activity, { approvals: latest.approvals, questions: latest.questions })
       return Object.freeze(snapshot)
     },

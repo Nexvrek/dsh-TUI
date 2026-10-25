@@ -1314,8 +1314,10 @@ disposeC2?.()
 disposeC3?.()
 let usingRenders = 0
 let quietRenders = 0
+let usingSnapshot: (() => unknown) | undefined
 const usingRow = (props: import('../src/panels.js').TuiPanelCompactProps): ReactNode => {
   usingRenders += 1
+  usingSnapshot = props.snapshot
   const occupancy = props.snapshot().usage.occupancy
   const pct = occupancy?.contextWindow === undefined ? '-' : String(Math.round((occupancy.usedTokens / occupancy.contextWindow) * 100))
   return React.createElement(props.ui.Text, null, 'memo-using ' + pct + '% b=' + String(props.badge?.unread ?? 0))
@@ -1388,7 +1390,10 @@ await streamDelta()
 await streamDelta()
 check('wp11 compact: the same badge keeps the row memoized', quietRenders === quietAfterBadge && usingRenders === usingBefore + 1)
 await memoApp.unmount()
+check('wp11 compact: a live row\'s snapshot reads the session', (usingSnapshot?.() as { sessionId?: string } | undefined)?.sessionId === 'm1')
 disposeUsing?.()
+check('wp11 compact: a snapshot kept past the unregister reads empty', (usingSnapshot?.() as { sessionId?: string; usage?: { occupancy?: unknown } } | undefined)?.sessionId === ''
+  && (usingSnapshot?.() as { usage?: { occupancy?: unknown } }).usage?.occupancy === undefined)
 disposeQuiet?.()
 
 disposeC1?.()

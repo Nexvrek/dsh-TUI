@@ -207,6 +207,14 @@ const fieldAt = (section: TuiSettingsSection | undefined, path: string): TuiSett
     check(tags.format?.({ when: new Date(0) }) === JSON.stringify({ when: new Date(0) }), 'toJSON values serialize like JSON.stringify')
     check(tags.format?.({ a: undefined, b: 1, c: [undefined] }) === '{"b":1,"c":[null]}', 'undefined members follow JSON.stringify')
   }
+  // A control-bearing preset makes the field use the escaped editor: the draft
+  // that preset fills in shows `\n`, never a raw line break or control.
+  {
+    const ctrlField = fieldAt(pluginConfigSections(input([descriptor('third', Schema.object({ sep: Schema.union([Schema.const('a\nb'), Schema.string()]) }).toJSON())]))[0], 'sep')
+    const ctrlOption = ctrlField.options?.[0]
+    check(ctrlOption !== undefined && ctrlOption.value === 'a\\nb' && !/[\u0000-\u001f]/u.test(ctrlOption.value), `a control-bearing preset is offered escaped: ${JSON.stringify(ctrlOption)}`)
+    check(JSON.stringify(ctrlField.parse?.(ctrlOption!.value)) === JSON.stringify({ kind: 'set', value: 'a\nb' }), 'and still writes the real value')
+  }
   // A huge or non-string manager title gives a bounded card title.
   {
     const titled = (title: unknown) => pluginConfigSections({ ...input([descriptor('third', Schema.object({ flag: Schema.boolean() }).toJSON())]), entry: () => ({ moduleName: 'third-party-plugin', title } as never) })[0]?.title ?? ''

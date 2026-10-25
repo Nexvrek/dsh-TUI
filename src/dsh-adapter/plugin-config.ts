@@ -457,8 +457,10 @@ function classify(node: SchemaNode, lang: Lang, value: unknown, fallback: unknow
       if (others.length === 1 && others[0]!.type === 'string' && others[0]!.meta.role !== 'secret'
         && resolved.length <= PLUGIN_CONFIG_LIMITS.options && resolved.every(choice => typeof choice.value === 'string')) {
         if (oversizedText([value, fallback, node.meta.default, ...resolved.map(choice => choice.value)])) return { kind: 'readonly' }
+        // A preset is a value the draft can hold too: a control-bearing one
+        // needs the escaped editor as much as a control-bearing current value.
         const multiline = others[0]!.meta.role === 'textarea'
-          || [value, fallback, node.meta.default].some(candidate => typeof candidate === 'string' && ESCAPABLE.test(candidate))
+          || [value, fallback, node.meta.default, ...resolved.map(choice => choice.value)].some(candidate => typeof candidate === 'string' && ESCAPABLE.test(candidate))
         return { kind: 'string', multiline, choices: resolved }
       }
       return { kind: 'readonly' }
