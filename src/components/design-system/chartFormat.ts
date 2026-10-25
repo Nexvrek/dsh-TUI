@@ -79,9 +79,13 @@ export function padCells(text: string, cells: number, align: 'left' | 'right' = 
   return align === 'right' ? pad + fitted : fitted + pad
 }
 
+/** Source code units {@link singleCell} reads: far past any one-cell
+ *  grapheme, so thousands of markers never each sanitize a long string. */
+const SINGLE_CELL_UNITS = 64
+
 /** The first grapheme of `text` when it is exactly one cell wide, else ''. */
 export function singleCell(text: unknown): string {
-  const clean = chartText(text)
+  const clean = chartText(text, SINGLE_CELL_UNITS)
   if (clean === '') return ''
   const first = getGraphemeSegmenter().segment(clean)[Symbol.iterator]().next()
   if (first.done === true) return ''

@@ -180,6 +180,13 @@ check('Legend: an explicit zero-row limit lays out nothing; an omitted one is un
   assert.equal(legend.layoutLegend({ width: 20, items, maxRows: 1 }).length, 1)
 })
 
+check('singleCell reads a bounded prefix: a huge marker costs one cell of work', () => {
+  assert.equal(singleCell('▲' + 'x'.repeat(5_000_000)), '▲', 'the first one-cell grapheme of a huge string')
+  assert.equal(singleCell('\u001b[31m▲'), '▲', 'escapes are still stripped first')
+  const rows = column.layoutColumnChart({ height: 2, columns: Array.from({ length: 50 }, () => ({ marker: '◆' + 'y'.repeat(100_000), segments: [{ value: 1, color: 0 }] })) })
+  assert.ok(text(rows[0]!).startsWith('◆'), 'markers from huge strings still render')
+})
+
 check('an infinite chart size draws nothing, like every non-finite chart number', () => {
   assert.deepEqual(stacked.layoutStackedBar({ width: Number.POSITIVE_INFINITY, segments: [{ value: 1, color: 0 }] }), [])
   assert.deepEqual(column.layoutColumnChart({ height: Number.POSITIVE_INFINITY, columns: [{ segments: [{ value: 1, color: 0 }] }] }), [])

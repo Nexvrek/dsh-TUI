@@ -773,7 +773,7 @@ function sectionFor(descriptor: unknown, input: PluginConfigInput, seen: Set<str
   }
   const otherKeys = (entry.otherKeys ?? []).slice(0, PLUGIN_CONFIG_LIMITS.otherKeys)
   if (otherKeys.length > 0) {
-    const named = otherKeys.slice(0, 8).map(key => cleanStatusFieldText(key, 32)).filter(key => key !== '')
+    const named = otherKeys.slice(0, 8).map(key => cleanStatusFieldText(boundedText(key), 32)).filter(key => key !== '')
     fields.push({
       path: Object.freeze(['\u0000other']),
       label: t('settings-plugin-other-fields'),
