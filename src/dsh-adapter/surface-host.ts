@@ -246,13 +246,23 @@ export function getSurfaceParams(key: string): TuiJsonValue | undefined {
  * only when the value changed: deep-equal params keep the previous identity,
  * so a plugin effect keyed on them does not re-run on a repeated open.
  */
+/** JSON with object keys sorted, so deep-equal params compare alike whatever
+ *  order their properties were inserted in (params are size- and
+ *  depth-bounded, so is the sort). */
+function canonicalJson(value: TuiJsonValue): string {
+  if (value === null || typeof value !== 'object') return JSON.stringify(value)
+  if (Array.isArray(value)) return '[' + value.map(item => canonicalJson(item)).join(',') + ']'
+  const record = value as Readonly<Record<string, TuiJsonValue>>
+  return '{' + Object.keys(record).sort().map(key => JSON.stringify(key) + ':' + canonicalJson(record[key]!)).join(',') + '}'
+}
+
 export function setSurfaceParams(key: string, value: TuiJsonValue | undefined): void {
   const current = paramsSlots.get(key)
   if (value === undefined) {
     if (current === undefined) return
     paramsSlots.delete(key)
   } else {
-    const json = JSON.stringify(value)
+    const json = canonicalJson(value)
     if (current !== undefined && current.json === json) return
     paramsSlots.set(key, { value, json })
   }

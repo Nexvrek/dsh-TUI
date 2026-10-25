@@ -10,6 +10,11 @@ import type { TuiTableCell, TuiTableColumn, TuiTableProps } from './chartTypes.j
 const COLUMN_GAP = 1
 /** Most data rows a table will build (a caller shows a window of a longer list). */
 const MAX_TABLE_ROWS = 1000
+/** Source code units a cell's text may read per cell of its column, plus a
+ *  floor: the cell and row budgets multiply, so each cell's text is bounded
+ *  by what its column can show rather than by the global per-string cap. */
+const CELL_UNITS_PER_CELL = 4
+const CELL_UNITS_FLOOR = 16
 
 /**
  * Column widths for a table `width` cells wide: fixed `width` columns first,
@@ -48,9 +53,14 @@ export function tableColumnWidths(columns: readonly TuiTableColumn[], width: num
   return widths
 }
 
-function cellParts(cell: TuiTableCell | undefined): { text: string; color?: unknown; bold?: boolean } {
-  if (typeof cell === 'object' && cell !== null) return { text: chartText(cell.text), color: cell.color, bold: cell.bold === true }
-  return { text: chartText(cell) }
+function cellParts(cell: TuiTableCell | undefined, units: number): { text: string; color?: unknown; bold?: boolean } {
+  if (typeof cell === 'object' && cell !== null) return { text: chartText(cell.text, units), color: cell.color, bold: cell.bold === true }
+  return { text: chartText(cell, units) }
+}
+
+/** The source budget of one cell of a `width`-cell column. */
+function cellUnits(width: number): number {
+  return width * CELL_UNITS_PER_CELL + CELL_UNITS_FLOOR
 }
 
 /**
@@ -71,7 +81,7 @@ export function layoutTable(props: TuiTableProps): ChartRun[][] {
   const columns = (Array.isArray(props.columns) ? props.columns : []).slice(0, Math.floor(width / COLUMN_GAP) + 1)
   if (width === 0 || columns.length === 0) return []
   const widths = tableColumnWidths(columns, width)
-  const showHeader = props.header ?? columns.some(column => chartText(column?.title) !== '')
+  const showHeader = props.header ?? columns.some((column, index) => chartText(column?.title, cellUnits(widths[index]!)) !== '')
 
   const line = (
     cell: (column: TuiTableColumn, index: number) => { text: string; color?: unknown; bold?: boolean },
@@ -90,7 +100,7 @@ export function layoutTable(props: TuiTableProps): ChartRun[][] {
   }
 
   const rows: ChartRun[][] = []
-  if (showHeader) rows.push(line(column => ({ text: chartText(column?.title) }), { color: 'inactive', bold: true }, undefined))
+  if (showHeader) rows.push(line((column, index) => ({ text: chartText(column?.title, cellUnits(widths[index]!)) }), { color: 'inactive', bold: true }, undefined))
   // One cell budget for the whole table (MAX_CHART_ITEMS, as for every chart's
   // data), on top of the row cap: wide tables get fewer rows.
   const rowBudget = Math.min(MAX_TABLE_ROWS, Math.max(1, Math.floor(MAX_CHART_ITEMS / columns.length)))
@@ -98,7 +108,7 @@ export function layoutTable(props: TuiTableProps): ChartRun[][] {
   entries.forEach((entry, at) => {
     const record: Readonly<Record<string, TuiTableCell | undefined>> = typeof entry === 'object' && entry !== null ? entry : {}
     const band = at === props.selected ? 'selectionBg' as const : undefined
-    rows.push(line(column => cellParts(Object.hasOwn(record, column?.key) ? record[column.key] : undefined), {}, band))
+    rows.push(line((column, index) => cellParts(Object.hasOwn(record, column?.key) ? record[column.key] : undefined, cellUnits(widths[index]!)), {}, band))
   })
   return rows
 }

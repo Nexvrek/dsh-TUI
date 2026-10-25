@@ -57,6 +57,9 @@ export function getPath(value: unknown, path: readonly string[]): unknown {
       continue
     }
     if (typeof current !== 'object' || current === null) return undefined
+    // Own data only: a config key such as `constructor` or `toString` that
+    // the value does not carry must read as absent, not as Object.prototype's.
+    if (!Object.hasOwn(current, key)) return undefined
     current = (current as Record<string, unknown>)[key]
   }
   return current
@@ -72,7 +75,7 @@ export function hasPath(value: unknown, path: readonly string[]): boolean {
   const key = path[path.length - 1] as string
   if (Array.isArray(parent)) return Number(key) < parent.length
   if (typeof parent !== 'object' || parent === null) return false
-  return key in parent
+  return Object.hasOwn(parent, key)
 }
 
 /** Default draft text for a kind; the empty string when the section carries none. */

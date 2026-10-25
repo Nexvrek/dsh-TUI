@@ -970,6 +970,22 @@ reopen()
 probeHost.openPanel(probeId, { tab: 'files' })
 await sleep(30) // 固定窗:探针 深相等的重开不得换掉参数身份（断言不变量）
 check('wp3 params: deep-equal re-open keeps the params identity', probeParams === sameIdentity)
+{
+  // Deep-equal regardless of key order: no new identity, no notification.
+  const canonKey = 'verify:canonical-params'
+  const first = surface.freezeSurfaceParams({ a: 1, nested: { x: 1, y: [1, { p: 1, q: 2 }] } })
+  const reordered = surface.freezeSurfaceParams({ nested: { y: [1, { q: 2, p: 1 }], x: 1 }, a: 1 })
+  surface.setSurfaceParams(canonKey, first.ok ? first.value : undefined)
+  let notified = 0
+  const off = surface.subscribeSurfaceParams(canonKey, () => { notified += 1 })
+  const kept = surface.getSurfaceParams(canonKey)
+  surface.setSurfaceParams(canonKey, reordered.ok ? reordered.value : undefined)
+  check('wp3 params: a reordered deep-equal value keeps the identity and notifies nobody', surface.getSurfaceParams(canonKey) === kept && notified === 0)
+  surface.setSurfaceParams(canonKey, surface.freezeSurfaceParams({ a: 2 }).ok ? { a: 2 } : undefined)
+  check('wp3 params: a different value still replaces and notifies', notified === 1)
+  off()
+  surface.clearSurfaceParams(canonKey)
+}
 check('wp3 params: rate limit still applies to host.openPanel', probeHost.openPanel(probeId, { tab: 'x' }) === false)
 {
   // The window is the activation's: opening a second own panel right after

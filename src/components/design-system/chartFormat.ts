@@ -32,15 +32,16 @@ const CHART_TEXT_UNITS = MAX_CHART_CELLS * 8
  * Plugin text → one display-safe line: ANSI/OSC sequences removed, control
  * characters and whitespace runs folded to single spaces. Finite numbers
  * print plainly; anything else (non-finite numbers, objects) is empty. Only
- * the first {@link CHART_TEXT_UNITS} code units are read (never half a
- * surrogate pair); a cut shows as a trailing `…`.
+ * the first `units` code units are read (at most {@link CHART_TEXT_UNITS},
+ * never half a surrogate pair); a cut shows as a trailing `…`.
  */
-export function chartText(value: unknown): string {
+export function chartText(value: unknown, units: number = CHART_TEXT_UNITS): string {
   if (typeof value === 'number') return Number.isFinite(value) ? String(value) : ''
   if (typeof value !== 'string') return ''
-  if (value.length <= CHART_TEXT_UNITS) return cleanRenderText(value, Number.POSITIVE_INFINITY)
-  const last = value.charCodeAt(CHART_TEXT_UNITS - 1)
-  const end = last >= 0xd800 && last <= 0xdbff ? CHART_TEXT_UNITS - 1 : CHART_TEXT_UNITS
+  const budget = Math.max(0, Math.min(CHART_TEXT_UNITS, Math.floor(units)))
+  if (value.length <= budget) return cleanRenderText(value, Number.POSITIVE_INFINITY)
+  const last = budget === 0 ? 0 : value.charCodeAt(budget - 1)
+  const end = last >= 0xd800 && last <= 0xdbff ? budget - 1 : budget
   return cleanRenderText(value.slice(0, end), Number.POSITIVE_INFINITY) + ELLIPSIS
 }
 

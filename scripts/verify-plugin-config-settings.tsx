@@ -88,6 +88,21 @@ const fieldAt = (section: TuiSettingsSection | undefined, path: string): TuiSett
     `only the edited path is written: ${JSON.stringify(writes)}`)
 }
 
+// ── Inherited names are ordinary absent keys, never overrides ─────────────
+{
+  const host = { listNamespaces: () => [], write: async () => {}, credentialConfigured: async () => false, writeCredential: async () => {} }
+  const view = { ns: 'proto-keys', value: { a: {} }, base: {}, user: { a: {} }, revision: 1 }
+  const fields: TuiSettingsField[] = [
+    { path: ['constructor'], label: 'constructor', kind: 'text' },
+    { path: ['a', 'toString'], label: 'a.toString', kind: 'text' },
+  ]
+  const form = new SettingsForm(host as never, view as never, fields)
+  for (const field of fields) {
+    const state = form.field(field)
+    check(state.text === '' && state.overridden === false, `${field.path.join('.')} reads as absent, not an Object.prototype member: ${JSON.stringify(state)}`)
+  }
+}
+
 // ── Pure mapping over real schemastery envelopes ──────────────────────────
 {
   check(escapeText('a\nb\\c\t\u001b[31m\u202e') === 'a\\nb\\\\c\\t\\u001b[31m\\u202e', 'escaped strings are one printable line')
@@ -191,6 +206,15 @@ const fieldAt = (section: TuiSettingsSection | undefined, path: string): TuiSett
     check(modestShown.includes('30') && !modestShown.includes('+'), `a modest map still shows its exact key count: ${JSON.stringify(modestShown)}`)
     check(tags.format?.({ when: new Date(0) }) === JSON.stringify({ when: new Date(0) }), 'toJSON values serialize like JSON.stringify')
     check(tags.format?.({ a: undefined, b: 1, c: [undefined] }) === '{"b":1,"c":[null]}', 'undefined members follow JSON.stringify')
+  }
+  // An oversized editable string is shown read-only (bounded summary), never
+  // turned into a draft that would copy or escape it whole.
+  {
+    const huge = 'v'.repeat(3_000_000)
+    const bigSections = pluginConfigSections(input([descriptor('third', Schema.object({ note: Schema.string(), small: Schema.string() }).toJSON(), { value: { note: huge, small: 'ok' }, user: { note: huge, small: 'ok' } })]))
+    const note = fieldAt(bigSections[0], 'note')
+    check(note.readOnly === true && (note.format?.(huge) ?? '').length <= 400, 'a multi-megabyte string field is read-only with a bounded summary')
+    check(fieldAt(bigSections[0], 'small').readOnly !== true, 'an ordinary string field stays editable')
   }
   // An empty-string preset beside a free-form string is a value, not a reset.
   {
@@ -580,6 +604,20 @@ try {
   managerPlugins = originalPlugins
   root.emit('plugin-manager/changed' as never)
   check(await settled(() => titleOf() === 'Context fixture'), 'the manager listing it again restores its title')
+  // A huge catalog is scanned only until every asked-for namespace is found
+  // (the trap past the match is never read).
+  {
+    const catalog: unknown[] = Array.from({ length: 100_000 }, (_, index) => ({ entryId: 'other-' + index, patchId: 'other-' + index, meta: { title: 'Other' } }))
+    catalog[2] = { ...(originalPlugins[0] as object), meta: { title: { en: 'Catalog fixture', zh: '目录样例' } } }
+    let catalogRead = false
+    Object.defineProperty(catalog, 50_000, { get() { catalogRead = true; return { entryId: 'x', patchId: 'x' } } })
+    managerPlugins = catalog
+    root.emit('plugin-manager/changed' as never)
+    check(await settled(() => titleOf() === 'Catalog fixture') && !catalogRead, `a huge catalog stops scanning at the match: ${titleOf()}`)
+    managerPlugins = originalPlugins
+    root.emit('plugin-manager/changed' as never)
+    await settled(() => titleOf() === 'Context fixture')
+  }
   unsubscribe()
 
   // Registered/curated precedence at the channel level: the claim suppresses the page.

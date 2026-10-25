@@ -371,6 +371,25 @@ host.openFile('rtl‮evil.ts')
 check('preview: a bidi override in the file name is shown as U+FFFD in the header, never obeyed',
   await settled(() => lines()[0]?.includes('rtl�evil.ts') === true) && !lines()[0]!.includes('‮'), lines()[0] ?? '')
 {
+  // Switching files never paints the previous contents under the new name:
+  // every parsed frame is checked while the preview moves from A to B (short
+  // names: the header truncates long paths in the middle).
+  writeFileSync(join(dir, 'A1.txt'), 'ALPHA-MARKER line\n')
+  // Large enough that its read spans frames: a stale body would be painted.
+  writeFileSync(join(dir, 'B2.txt'), 'BETA-MARKER line\n' + 'filler line of text\n'.repeat(75_000))
+  host.openFile('A1.txt')
+  await settled(() => lines().some(line => line.includes('ALPHA-MARKER')))
+  let staleFrame = false
+  const watch = term.onWriteParsed(() => {
+    const screen = lines()
+    if (screen[0]?.includes('B2.txt') === true && screen.some(line => line.includes('ALPHA-MARKER'))) staleFrame = true
+  })
+  host.openFile('B2.txt')
+  const switched = await settled(() => lines().some(line => line.includes('BETA-MARKER')))
+  watch.dispose()
+  check('preview: a file switch never shows the previous contents under the new name', switched && !staleFrame, lines().join('|'))
+}
+{
   // Holding Right on a huge single line stops at the scroll bound instead of
   // segmenting ever more of the line on every press.
   const { FILE_PREVIEW_MAX_LEFT } = previewMod

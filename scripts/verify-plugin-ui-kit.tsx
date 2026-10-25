@@ -179,6 +179,20 @@ check('Legend: an explicit zero-row limit lays out nothing; an omitted one is un
   assert.equal(legend.layoutLegend({ width: 20, items, maxRows: 1 }).length, 1)
 })
 
+check('Sparkline: a negative explicit ceiling counts as 0, like every chart number', () => {
+  const negative = sparkline.layoutSparkline({ width: 3, values: [1, 2, 3], max: -5 })
+  const zero = sparkline.layoutSparkline({ width: 3, values: [1, 2, 3], max: 0 })
+  assert.deepEqual(negative, zero)
+})
+
+check('Table: a cell reads only what its column can show (4 source units per cell)', () => {
+  // Leading padding past the column's source budget is cut before it is
+  // sanitized: the visible tail never makes the cell read its whole text.
+  const rows = table.layoutTable({ columns: [{ key: 'a', width: 5 }], rows: [{ a: ' '.repeat(100) + 'HELLO' }, { a: 'HELLO' }], width: 5, header: false })
+  assert.equal(text(rows[0]!).trim(), '…', 'the padded cell is cut at its source budget')
+  assert.equal(text(rows[1]!), 'HELLO', 'an ordinary cell is unchanged')
+})
+
 check('Table: rows and columns share one cell budget', () => {
   const { MAX_CHART_ITEMS } = geometry
   const columns = Array.from({ length: 2_000 }, (_, index) => ({ key: 'c' + index, width: 0 }))

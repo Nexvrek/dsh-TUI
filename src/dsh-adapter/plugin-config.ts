@@ -413,6 +413,13 @@ function constChoice(node: SchemaNode, lang: Lang): ConstChoice | undefined {
   return { value: node.value, label: label === '' ? '""' : label }
 }
 
+/** Whether a string an editable field would hold is past what an editor takes
+ *  ({@link LOCALIZED_TEXT_UNITS}): such a field is shown read-only (its
+ *  summary is bounded) rather than as a draft that copies or escapes it whole. */
+function oversizedText(candidates: readonly unknown[]): boolean {
+  return candidates.some(candidate => typeof candidate === 'string' && candidate.length > LOCALIZED_TEXT_UNITS)
+}
+
 function classify(node: SchemaNode, lang: Lang, value: unknown, fallback: unknown): Classified {
   if (node.meta.role === 'secret') return { kind: 'secret' }
   switch (node.type) {
@@ -430,6 +437,7 @@ function classify(node: SchemaNode, lang: Lang, value: unknown, fallback: unknow
       }
     }
     case 'string': {
+      if (oversizedText([value, fallback, node.meta.default])) return { kind: 'readonly' }
       const multiline = node.meta.role === 'textarea'
         || [value, fallback, node.meta.default].some(candidate => typeof candidate === 'string' && ESCAPABLE.test(candidate))
       return { kind: 'string', multiline }
@@ -448,6 +456,7 @@ function classify(node: SchemaNode, lang: Lang, value: unknown, fallback: unknow
       // A literal list with a free-form string escape hatch: text with presets.
       if (others.length === 1 && others[0]!.type === 'string' && others[0]!.meta.role !== 'secret'
         && resolved.length <= PLUGIN_CONFIG_LIMITS.options && resolved.every(choice => typeof choice.value === 'string')) {
+        if (oversizedText([value, fallback, node.meta.default, ...resolved.map(choice => choice.value)])) return { kind: 'readonly' }
         const multiline = others[0]!.meta.role === 'textarea'
           || [value, fallback, node.meta.default].some(candidate => typeof candidate === 'string' && ESCAPABLE.test(candidate))
         return { kind: 'string', multiline, choices: resolved }
@@ -1014,13 +1023,25 @@ export function createPluginConfigSource(ctx: Context, changed: () => void): Plu
       .then(() => manager.listPlugins())
       .then(list => {
         if (asked !== titlesGeneration) return
-        // The manager lists every plugin: its answer replaces the cache, so
-        // a plugin it no longer lists keeps no stale title.
-        const next = new Map<string, unknown>()
-        for (const info of Array.isArray(list) ? list : []) {
+        // Only the namespaces asked about are taken from the answer (a plugin
+        // it no longer lists loses its title; the others keep theirs), over a
+        // bounded scan that stops once every one is matched by its patch id.
+        const wanted = new Set(pending)
+        const next = new Map([...infos].filter(([ns]) => !wanted.has(ns)))
+        const records = Array.isArray(list) ? list : []
+        const examined = Math.min(records.length, PLUGIN_CONFIG_LIMITS.entries)
+        // A patch id beats an entry id for the same namespace, as before.
+        const matchedByPatch = new Set<string>()
+        for (let index = 0; index < examined && matchedByPatch.size < wanted.size; index += 1) {
+          const info: unknown = records[index]
+          if (info === null || typeof info !== 'object') continue
           const record = info as { patchId?: unknown; entryId?: unknown }
-          if (typeof record.patchId === 'string') next.set(record.patchId, info)
-          else if (typeof record.entryId === 'string' && !next.has(record.entryId)) next.set(record.entryId, info)
+          if (typeof record.patchId === 'string' && wanted.has(record.patchId)) {
+            matchedByPatch.add(record.patchId)
+            next.set(record.patchId, info)
+          } else if (typeof record.entryId === 'string' && wanted.has(record.entryId) && !next.has(record.entryId)) {
+            next.set(record.entryId, info)
+          }
         }
         infos = next
       }, () => undefined)

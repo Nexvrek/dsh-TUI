@@ -259,13 +259,15 @@ export function FilePreviewScene({ close, host }: Pick<TuiSceneProps, 'close' | 
   const path = request?.path ?? ''
   const target = request?.line
   const { columns, rows } = useTerminalSize()
-  const [load, setLoad] = React.useState<FilePreviewLoad | undefined>(undefined)
+  // The result is tagged with the path it was read for: a frame rendered for a
+  // new path shows "loading", never the previous file under the new name.
+  const [loaded, setLoaded] = React.useState<{ readonly path: string; readonly result: FilePreviewLoad } | undefined>(undefined)
+  const load = loaded?.path === path ? loaded.result : undefined
 
   React.useEffect(() => {
     if (path === '') return
     let alive = true
-    setLoad(undefined)
-    void loadFilePreview(path).then(result => { if (alive) setLoad(result) })
+    void loadFilePreview(path).then(result => { if (alive) setLoaded({ path, result }) })
     return () => { alive = false }
   }, [path])
 
