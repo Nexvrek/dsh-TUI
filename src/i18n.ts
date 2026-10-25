@@ -1268,6 +1268,7 @@ const dict = {
   'settings-plugin-multiline': { zh: '多行文本：\\n 表示换行，\\\\ 表示反斜杠', en: 'Multi-line text: \\n is a line break, \\\\ a backslash' },
   'settings-plugin-items': { zh: '{{count}} 项', en: { one: '{{count}} item', other: '{{count}} items' } },
   'settings-plugin-keys': { zh: '{{count}} 个键', en: { one: '{{count}} key', other: '{{count}} keys' } },
+  'settings-plugin-keys-many': { zh: '{{count}}+ 个键', en: '{{count}}+ keys' },
   'settings-plugin-more-fields': { zh: '另有 {{count}} 个字段', en: { one: '{{count}} more field', other: '{{count}} more fields' } },
   'settings-plugin-more-hint': { zh: '字段太多，未全部列出：请在 {{path}} 中编辑', en: 'Too many fields to list here — edit them in {{path}}' },
   'settings-plugin-other-fields': { zh: '其他字段（非即时）', en: 'Other fields (not live)' },

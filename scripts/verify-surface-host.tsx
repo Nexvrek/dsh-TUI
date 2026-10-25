@@ -163,8 +163,11 @@ if (process.platform !== 'win32') {
   check('params: the host preview in one composition does not reach another',
     JSON.stringify(surface.getSurfaceParams(scenesMod.sceneParamsKeyFor(scenesA, scenesMod.HOST_FILE_PREVIEW_SCENE_ID))) === '{"path":"/a/one.txt"}'
       && surface.getSurfaceParams(scenesMod.sceneParamsKeyFor(scenesB, scenesMod.HOST_FILE_PREVIEW_SCENE_ID)) === undefined)
+  const previewKeyA = scenesMod.sceneParamsKeyFor(scenesA, scenesMod.HOST_FILE_PREVIEW_SCENE_ID)
   rootA.registry.delete(scenesMod.TuiSceneRuntime as never)
   rootB.registry.delete(scenesMod.TuiSceneRuntime as never)
+  await new Promise(resolve => setImmediate(resolve)) // the service's teardown settles a tick later
+  check('params: a disposed composition leaves no preview params behind', surface.getSurfaceParams(previewKeyA) === undefined)
 }
 
 // ── scene host through the outlet ─────────────────────────────────────────

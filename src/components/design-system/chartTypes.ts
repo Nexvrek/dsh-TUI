@@ -134,7 +134,8 @@ export interface TuiLegendItem {
 export interface TuiLegendProps {
   readonly items: readonly TuiLegendItem[]
   readonly width: number
-  /** Rows to use at most; the rest collapses into a `+N` chip. */
+  /** Rows to use at most; the rest collapses into a `+N` chip. `0` lays out
+   *  nothing; omitted, the legend takes the rows it needs. */
   readonly maxRows?: number
 }
 

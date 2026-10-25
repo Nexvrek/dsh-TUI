@@ -48,6 +48,7 @@ import {
   countPluginPanels,
   deletePanelOwnerRecord,
   getPanelOwnerRecord,
+  panelOpenWindowFor,
   requestOwnPanelOpen,
   setPanelOwnerRecord,
   type PanelOwnerRecord,
@@ -636,7 +637,7 @@ export class TuiPanelRuntime extends Service {
     // One record per registration: the rendered panel's host verbs are bound
     // to it, so they refuse once this registration is gone — a reload that
     // registers the same id gets a record of its own.
-    const ownerRecord: PanelOwnerRecord = { id: finalId, caller, owner, pluginId, lastOpenAt: 0 }
+    const ownerRecord: PanelOwnerRecord = { id: finalId, caller, owner, pluginId, openWindow: panelOpenWindowFor(owner) }
     const definition: PanelDefinition = Object.freeze({
       id: finalId,
       title,

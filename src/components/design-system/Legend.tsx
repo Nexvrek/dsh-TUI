@@ -34,7 +34,8 @@ function chip(item: TuiLegendItem | undefined, index: number, width: number): Ch
 /**
  * Lay out legend chips left to right, wrapping by display cells; every row is
  * padded to exactly `width`. With `maxRows`, chips past the last row collapse
- * into a trailing `+N` chip (chips are pulled off that row until it fits);
+ * into a trailing `+N` chip (chips are pulled off that row until it fits),
+ * and a `maxRows` of 0 lays out nothing;
  * items past {@link MAX_CHART_ITEMS} are never laid out and count into it.
  */
 export function layoutLegend(props: TuiLegendProps): ChartRun[][] {
@@ -42,7 +43,9 @@ export function layoutLegend(props: TuiLegendProps): ChartRun[][] {
   const all = Array.isArray(props.items) ? props.items : []
   const items = all.slice(0, MAX_CHART_ITEMS)
   const dropped = all.length - items.length
-  if (width === 0 || items.length === 0) return []
+  // An explicit limit that comes to no rows (0, or a bad number like every
+  // chart count) means no rows — only an omitted one is unbounded.
+  if (width === 0 || items.length === 0 || (props.maxRows !== undefined && cellCount(props.maxRows) === 0)) return []
   const chips = items.map((item, index) => chip(item, index, width))
   const rows: ChartRun[][][] = [[]]
   let used = 0

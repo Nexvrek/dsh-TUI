@@ -960,7 +960,7 @@ check('wp3 params: tuiPanels.open with params accepted', panelsC.open(probeId, {
 check('wp3 params: useParams() sees them on the panel',
   await settled(() => JSON.stringify(probeParams) === '{"tab":"usage","n":1}'), JSON.stringify(probeParams))
 check('wp3 params: what the panel reads is frozen', Object.isFrozen(probeParams))
-const reopen = (): void => { registry.getPanelOwnerRecord(probeId)!.lastOpenAt = 0 }
+const reopen = (): void => { registry.getPanelOwnerRecord(probeId)!.openWindow.lastOpenAt = 0 }
 reopen()
 check('wp3 params: invalid params refused', panelsC.open(probeId, { bad: () => 1 } as never) === false)
 check('wp3 params: a refused call does not burn the rate-limit window', probeHost.openPanel(probeId, { tab: 'files' }) === true)
@@ -971,6 +971,15 @@ probeHost.openPanel(probeId, { tab: 'files' })
 await sleep(30) // 固定窗:探针 深相等的重开不得换掉参数身份（断言不变量）
 check('wp3 params: deep-equal re-open keeps the params identity', probeParams === sameIdentity)
 check('wp3 params: rate limit still applies to host.openPanel', probeHost.openPanel(probeId, { tab: 'x' }) === false)
+{
+  // The window is the activation's: opening a second own panel right after
+  // the first is refused too, and re-registering a panel does not reset it.
+  const disposeSecond = panelsC.register({ apiVersion: 1, id: 'second', title: 'S', component: () => null })
+  const secondId = panelStore.list().find(entry => entry.definition.id.endsWith(':second') && registry.getPanelOwnerRecord(entry.definition.id)?.owner === registry.getPanelOwnerRecord(probeId)?.owner)?.definition.id ?? ''
+  check('wp3 rate limit: one window per activation, not per target panel', secondId !== '' && panelsC.open(secondId) === false)
+  check('wp3 rate limit: the panels share it', registry.getPanelOwnerRecord(secondId)?.openWindow === registry.getPanelOwnerRecord(probeId)?.openWindow)
+  disposeSecond?.()
+}
 let disposeForeign: (() => void) | undefined
 let disposeForeignScene: (() => void) | undefined
 root.inject(['tuiPanels', 'tuiScenes'], ctx => {
@@ -1113,14 +1122,14 @@ check('wp3 lifecycle (useSidePanel): openPanel → opened + focused',
 // 深链一个已在分栏里显示的自己的面板：与场景重开同义——只更新参数、返回
 // true、不计 5s 限速；收起后再开（真正的打开）照旧受限速。
 const probeRecord = registry.getPanelOwnerRecord(probeId)!
-probeRecord.lastOpenAt = Date.now()
-const windowStart = probeRecord.lastOpenAt
+probeRecord.openWindow.lastOpenAt = Date.now()
+const windowStart = probeRecord.openWindow.lastOpenAt
 const panelParams = (): string => JSON.stringify(surface.getSurfaceParams(surface.panelParamsKey(probeId)) ?? null)
 check('wp11 deep link: re-opening the shown own panel updates its params at once',
   panelsC.open(probeId, { tab: 'live-1' }) === true && panelParams() === '{"tab":"live-1"}', panelParams())
 check('wp11 deep link: … again inside the 5s window (host.openPanel, no rate limit while shown)',
   probeHost.openPanel(probeId, { tab: 'live-2' }) === true && panelParams() === '{"tab":"live-2"}', panelParams())
-check('wp11 deep link: the shown re-opens did not use the window', probeRecord.lastOpenAt === windowStart)
+check('wp11 deep link: the shown re-opens did not use the window', probeRecord.openWindow.lastOpenAt === windowStart)
 check('wp11 deep link: invalid params are still refused while shown', panelsC.open(probeId, { n: Number.NaN }) === false && panelParams() === '{"tab":"live-2"}')
 controllerRef!.focusChat()
 check('wp3 lifecycle (useSidePanel): focus back to chat → blurred', await settled(() => lifecycle.join(',') === 'opened:probe,focused:probe,blurred:probe'), lifecycle.join(','))

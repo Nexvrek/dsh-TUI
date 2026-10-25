@@ -344,7 +344,16 @@ function summarize(value: unknown, cells = VALUE_CELLS): string {
   const json = boundedJson(value, cells * 4)
   if (json !== undefined && stringWidth(json) <= cells) return cleanRenderText(json, cells)
   if (Array.isArray(value)) return t('settings-plugin-items', { count: value.length })
-  if (isRecord(value)) return t('settings-plugin-keys', { count: Object.keys(value).length })
+  if (isRecord(value)) {
+    // Counted lazily against the member budget, never by building every key:
+    // past it the row says "N+ keys".
+    let keys = 0
+    for (const key in value) {
+      if (!Object.hasOwn(value, key)) continue
+      if (++keys >= PLUGIN_CONFIG_LIMITS.members) return t('settings-plugin-keys-many', { count: keys })
+    }
+    return t('settings-plugin-keys', { count: keys })
+  }
   return ''
 }
 

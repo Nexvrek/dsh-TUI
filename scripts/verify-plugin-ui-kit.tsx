@@ -171,6 +171,14 @@ check('chart text reads a bounded prefix of a huge string, never half a surrogat
   assert.equal(rowWidth(rows[0]!), 12)
 })
 
+check('Legend: an explicit zero-row limit lays out nothing; an omitted one is unbounded', () => {
+  const items = Array.from({ length: 20 }, (_, index) => ({ color: index, label: 'L' + index }))
+  assert.deepEqual(legend.layoutLegend({ width: 20, items, maxRows: 0 }), [])
+  assert.deepEqual(legend.layoutLegend({ width: 20, items, maxRows: -3 }), [])
+  assert.ok(legend.layoutLegend({ width: 20, items }).length > 1)
+  assert.equal(legend.layoutLegend({ width: 20, items, maxRows: 1 }).length, 1)
+})
+
 check('chart inputs past MAX_CHART_ITEMS are never read', () => {
   const { MAX_CHART_ITEMS } = geometry
   /** `count` entries from `make`, with a trap at `trap` that records a read. */

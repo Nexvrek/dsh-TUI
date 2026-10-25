@@ -487,9 +487,10 @@ export function findCommand<T extends LocalCommand>(list: readonly T[], name: st
 
 /**
  * {@link parseCommandName}, plus `/<pluginId>:<name>` when the catalog
- * resolves it to a plugin (registry) command. Any other colon line stays
- * text, exactly as before qualified names existed — a backend's own
- * `/ns:cmd` keeps reaching the backend verbatim.
+ * resolves it to a plugin (registry) command whose verified owner IS that
+ * `<pluginId>`. Any other colon line stays text, exactly as before qualified
+ * names existed — a backend's own `/ns:cmd` keeps reaching the backend
+ * verbatim, even when the registry lists it unattributed under that name.
  */
 export function parseCatalogCommand(
   line: string,
@@ -498,7 +499,10 @@ export function parseCatalogCommand(
   const plain = parseCommandName(line)
   if (plain !== undefined) return plain
   const match = QUALIFIED_LINE.exec(line)
-  if (match === null || findCommand(list, match[1]!)?.external !== true) return undefined
+  if (match === null) return undefined
+  const qualified = parseQualifiedCommandName(match[1]!)
+  const resolved = findCommand(list, match[1]!)
+  if (qualified === undefined || resolved?.external !== true || resolved.owner !== qualified.owner) return undefined
   return { name: match[1]!, rawInput: line.slice(match[0].length) }
 }
 

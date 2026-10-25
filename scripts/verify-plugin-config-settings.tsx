@@ -184,6 +184,11 @@ const fieldAt = (section: TuiSettingsSection | undefined, path: string): TuiSett
     const shown = tags.format?.(hugeList) ?? ''
     check(!read && shown.includes('1000000'), `a million-item array shows its count without being serialized: ${JSON.stringify(shown)}`)
     check(tags.format?.(['a', 'b']) === '["a","b"]', 'a small array still shows as JSON')
+    const wideValue = Object.fromEntries(Array.from({ length: 1_000_000 }, (_, index) => ['w' + index, index]))
+    const wideShown = tags.format?.(wideValue) ?? ''
+    check(wideShown.includes(String(PLUGIN_CONFIG_LIMITS.members) + '+') && !wideShown.includes('1000000'), `a million-key map is counted only up to the member budget: ${JSON.stringify(wideShown)}`)
+    const modestShown = tags.format?.(Object.fromEntries(Array.from({ length: 30 }, (_, index) => ['k' + index, 'v'.repeat(5)]))) ?? ''
+    check(modestShown.includes('30') && !modestShown.includes('+'), `a modest map still shows its exact key count: ${JSON.stringify(modestShown)}`)
     check(tags.format?.({ when: new Date(0) }) === JSON.stringify({ when: new Date(0) }), 'toJSON values serialize like JSON.stringify')
     check(tags.format?.({ a: undefined, b: 1, c: [undefined] }) === '{"b":1,"c":[null]}', 'undefined members follow JSON.stringify')
   }

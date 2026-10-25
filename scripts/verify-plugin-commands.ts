@@ -454,6 +454,8 @@ const check1 = (name: string, ok: boolean, detail?: string) => {
     { name: 'ctx-extra', description: 'plugin extra', external: true, owner: 'dsh-context' },
     { name: 'plan', description: 'plan mode', external: true },
     { name: 'superpowers:brainstorm', description: 'backend command', skill: true, origin: 'backend' },
+    // An unattributed registry command whose own name has a colon.
+    { name: 'acme:deploy', description: 'unattributed colon command', external: true },
     // The shadowed listing form of a reverse-DNS plugin's `run`.
     { name: 'com.example.echo:run', description: 'echo run', external: true, owner: 'com.example.echo' },
   ]
@@ -464,6 +466,7 @@ const check1 = (name: string, ok: boolean, detail?: string) => {
   check1('a qualified line naming another owner stays text', parseCatalogCommand('/other:ctx-extra', fixture) === undefined)
   check1('a qualified line for an unattributed command stays text', parseCatalogCommand('/dsh-context:plan', fixture) === undefined)
   check1("a backend's own ns:cmd stays text (reaches the backend verbatim)", parseCatalogCommand('/superpowers:brainstorm go', fixture) === undefined)
+  check1('an unattributed registry colon command is not read as owner-qualified', parseCatalogCommand('/acme:deploy now', fixture) === undefined)
   check1('plain lines parse exactly as parseCommandName',
     JSON.stringify(parseCatalogCommand('/plan off', fixture)) === JSON.stringify(parseCommandName('/plan off')))
   check1('a qualified prefix glued to more text is not a command', parseCatalogCommand('/dsh-context:context:x', fixture) === undefined)

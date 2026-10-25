@@ -204,6 +204,10 @@ export class TuiSceneRuntime extends Service {
     })
     sceneStates.set(this, state)
     sceneScopes.set(state.filePreview, state)
+    // The host preview has no registration of its own to clear its params
+    // slot: the composition's teardown does, or every disposed root would
+    // keep its last preview path in the process-wide store.
+    ctx.effect(() => () => { clearSurfaceParams(sceneParamsKey(state, HOST_FILE_PREVIEW_SCENE_ID)) })
   }
 
   /**

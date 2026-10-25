@@ -40,9 +40,29 @@ export interface PanelOwnerRecord {
   /** activationFiber identity — ownership check for every mutating call. */
   readonly owner: object
   readonly pluginId: string
-  /** open() rate limit: at most one open per plugin per 5s (§18.2). */
-  lastOpenAt: number
+  /** open() rate limit: the activation's window ({@link panelOpenWindowFor}),
+   *  shared by every panel it registers — at most one open per plugin per 5s
+   *  (§18.2), however many panels it rotates through. */
+  readonly openWindow: PanelOpenWindow
   storage?: TuiPluginStorage
+}
+
+/** When an activation last opened one of its panels. */
+export interface PanelOpenWindow {
+  lastOpenAt: number
+}
+
+const openWindows = new WeakMap<object, PanelOpenWindow>()
+
+/** The open() window of one activation (`owner`); it outlives the panels, so
+ *  re-registering one does not reset it. */
+export function panelOpenWindowFor(owner: object): PanelOpenWindow {
+  let window = openWindows.get(owner)
+  if (window === undefined) {
+    window = { lastOpenAt: 0 }
+    openWindows.set(owner, window)
+  }
+  return window
 }
 
 const ownerRecords = new Map<string, PanelOwnerRecord>()
@@ -150,7 +170,7 @@ export function requestOwnPanelOpen(caller: Context, owner: object, id: unknown,
     return true
   }
   const now = Date.now()
-  if (now - record.lastOpenAt < PANEL_OPEN_RATE_LIMIT_MS) {
+  if (now - record.openWindow.lastOpenAt < PANEL_OPEN_RATE_LIMIT_MS) {
     caller.logger.warn('dsh-tui: tuiPanels.open dropped "' + String(id) + '" — rate limited to one open per ' + PANEL_OPEN_RATE_LIMIT_MS + 'ms')
     caller.get('tuiEffectLedger')?.record(
       { operation: 'bind', resource: { kind: 'panel', id: String(id) }, result: 'failed', errorCode: 'RATE_LIMITED' },
@@ -164,7 +184,7 @@ export function requestOwnPanelOpen(caller: Context, owner: object, id: unknown,
     setSurfaceParams(key, previous)
     return false
   }
-  record.lastOpenAt = now
+  record.openWindow.lastOpenAt = now
   return true
 }
 
