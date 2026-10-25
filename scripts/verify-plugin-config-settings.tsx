@@ -247,6 +247,22 @@ const fieldAt = (section: TuiSettingsSection | undefined, path: string): TuiSett
 
 // ── Source without a usable host ──────────────────────────────────────────
 {
+  // A huge profile's rows are walked lazily, stopping at the entry budget.
+  let reached = false
+  const wideHost = {
+    get: (name: string) => name === 'settings'
+      ? { describe: () => [{ ns: 'wide-ns', autoGenerate: true, schema: Schema.object({ flag: Schema.boolean() }).toJSON(), value: {}, revision: 0, applies: 'live' }] }
+      : name === 'configEditor'
+        ? { *entries() { for (let index = 0; index < 100_000; index += 1) { if (index === 50_000) reached = true; yield { options: { id: 'row' + index, name: 'x' } } } } }
+        : undefined,
+    on: () => () => {},
+  } as unknown as CordisContext
+  const wideSource = createPluginConfigSource(wideHost, () => {})
+  wideSource.sections(new Set())
+  check(!reached, 'a huge profile is walked lazily up to the entry budget')
+  wideSource.dispose()
+}
+{
   const bare = { get: () => undefined, on: () => () => {} } as unknown as CordisContext
   const source = createPluginConfigSource(bare, () => {})
   check(source.sections(new Set()).length === 0, 'no settings service → no pages')
@@ -514,11 +530,14 @@ try {
       check(await settled(() => screen().includes('Context fixture') || screen().includes('Context fi')), `${layout}: the generated card renders\n${screen()}`)
       check(await focus('Show token'), `${layout}: reach the boolean row\n${screen()}`)
       const before = valueOf('showTokens')
+      const shownBeforeToggle = focusedLine()
       stdin.write('\r')
       check(await settled(() => valueOf('showTokens') === !before), `${layout}: Enter toggles through the real settings service`)
       // A write from outside the open screen (another surface, a reload)
       // must refresh a clean form: the focused row shows the new value with
-      // no key pressed.
+      // no key pressed. The toggled row is captured once it is on screen —
+      // the stored value can flip a frame before the render does.
+      await settled(() => focusedLine() !== shownBeforeToggle)
       const shownAfterToggle = focusedLine()
       const external = formFor()
       external.edit(fieldAt(section, 'showTokens'), String(before))

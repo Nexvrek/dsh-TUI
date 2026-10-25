@@ -57,6 +57,17 @@ export const SESSION_LIST_MIN_INTERVAL_MS = 1_000
 
 /** Title display budget, in terminal cells. */
 const TITLE_CELLS = 200
+/** Source code units a title (or workspace name) is cut to before it is
+ *  sanitized: eight per cell of its budget, far past any real title, so a
+ *  hostile or corrupt one — a zero-width or combining-mark flood — costs a
+ *  bounded clean and measure and never lands whole in a row. */
+const TITLE_SOURCE_UNITS = TITLE_CELLS * 8
+
+function boundTitleSource(text: string): string {
+  if (text.length <= TITLE_SOURCE_UNITS) return text
+  const last = text.charCodeAt(TITLE_SOURCE_UNITS - 1)
+  return text.slice(0, last >= 0xd800 && last <= 0xdbff ? TITLE_SOURCE_UNITS - 1 : TITLE_SOURCE_UNITS)
+}
 /** Listing work slice before yielding to the event loop (render, input). */
 const LIST_SLICE_MS = 8
 /** Keys every listing reads for its own columns: the durable title and the
@@ -275,9 +286,9 @@ function lastPromptAt(value: unknown): number | undefined {
 }
 
 function rowTitle(header: RawSessionHeader, title: unknown): string {
-  const durable = typeof title === 'string' ? cleanRenderText(title, TITLE_CELLS) : ''
+  const durable = typeof title === 'string' ? cleanRenderText(boundTitleSource(title), TITLE_CELLS) : ''
   if (durable !== '') return durable
-  return cleanRenderText(basename(header.cwd ?? ''), TITLE_CELLS) || header.id.slice(0, 8)
+  return cleanRenderText(boundTitleSource(basename(header.cwd ?? '')), TITLE_CELLS) || header.id.slice(0, 8)
 }
 
 /**
@@ -570,7 +581,13 @@ export class TuiSessionDataRuntime extends Service {
    */
   watchProjection(key: string, identity?: Context): TuiProjectionWatch | undefined {
     const state = sessionDataStateFor(this)
-    assertCapabilityShadowPolicy('host.session-data.watch-projection', state.runtime.mode, state.runtime.slices)
+    try {
+      assertCapabilityShadowPolicy('host.session-data.watch-projection', state.runtime.mode, state.runtime.slices)
+    } catch {
+      // A shadow mode refuses like every other refusal here: warn, undefined.
+      this.ctx.logger.warn('dsh-tui: tuiSessionData.watchProjection refused by the adapter shadow policy')
+      return undefined
+    }
     const admitted = admitCaller(this, this.ctx, 'tuiSessionData.watchProjection', identity)
     if (admitted === undefined) return undefined
     const { caller, owner } = admitted
@@ -632,7 +649,12 @@ export class TuiSessionDataRuntime extends Service {
    */
   watchSessionList(options?: TuiSessionListOptions, identity?: Context): TuiSessionListWatch | undefined {
     const state = sessionDataStateFor(this)
-    assertCapabilityShadowPolicy('host.session-data.watch-session-list', state.runtime.mode, state.runtime.slices)
+    try {
+      assertCapabilityShadowPolicy('host.session-data.watch-session-list', state.runtime.mode, state.runtime.slices)
+    } catch {
+      this.ctx.logger.warn('dsh-tui: tuiSessionData.watchSessionList refused by the adapter shadow policy')
+      return undefined
+    }
     const admitted = admitCaller(this, this.ctx, 'tuiSessionData.watchSessionList', identity)
     if (admitted === undefined) return undefined
     const { caller, owner } = admitted

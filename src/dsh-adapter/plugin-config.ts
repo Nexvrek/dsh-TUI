@@ -79,6 +79,8 @@ export const PLUGIN_CONFIG_LIMITS = Object.freeze({
   members: 16_384,
   /** Non-live keys named in the "other fields" row. */
   otherKeys: 64,
+  /** Loader / config-editor rows examined per read, matching or not. */
+  entries: 4096,
 })
 
 const LABEL_CELLS = 40
@@ -807,7 +809,10 @@ function otherConfigKeys(config: unknown, served: ReadonlySet<string>): string[]
   return keys
 }
 
-function liveEntries(ctx: Context): readonly LoaderEntryLike[] {
+/** The rows behind the wanted forms, walked lazily and stopped after
+ *  {@link PLUGIN_CONFIG_LIMITS}.entries rows, matching or not: a huge profile
+ *  is never materialized for a screen that shows at most a few dozen pages. */
+function liveEntries(ctx: Context, wanted: (id: string) => boolean): readonly LoaderEntryLike[] {
   // The config editor's addressable rows are exactly the ones settings serves
   // (unique ids owned by the profile's root Include); the Loader is the
   // fallback for compositions without it.
@@ -815,11 +820,18 @@ function liveEntries(ctx: Context): readonly LoaderEntryLike[] {
   const loader = ctx.get('loader' as never) as { entries?: () => Iterable<LoaderEntryLike> } | undefined
   const source = typeof editor?.entries === 'function' ? editor : typeof loader?.entries === 'function' ? loader : undefined
   if (source === undefined) return []
+  const out: LoaderEntryLike[] = []
   try {
-    return [...source.entries!()]
+    let examined = 0
+    for (const entry of source.entries!()) {
+      if (++examined > PLUGIN_CONFIG_LIMITS.entries) break
+      const id = entry?.options?.id
+      if (typeof id === 'string' && wanted(id)) out.push(entry)
+    }
   } catch {
     return []
   }
+  return out
 }
 
 /** One channel's generated plugin pages, over the host's settings forms. */
@@ -911,7 +923,7 @@ export function createPluginConfigSource(ctx: Context, changed: () => void): Plu
       wanted.set(descriptor.ns, root === undefined ? [] : objectEntries(root).map(([key]) => key))
     }
     const candidates = new Map<string, LoaderEntryLike[]>()
-    for (const entry of liveEntries(ctx)) {
+    for (const entry of liveEntries(ctx, id => wanted.has(id))) {
       const id = entry.options?.id
       if (typeof id !== 'string' || !wanted.has(id)) continue
       if (entry.fiber === undefined || entry.fiber.runtime === null || entry.fiber.runtime === undefined || entry.fiber.state !== 2) continue

@@ -644,6 +644,20 @@ try {
       await assert.rejects(listing, /superseded/, `${shape}: the abort ends the read`)
       assert.ok(!late, `${shape}: header normalization yields and stops at the abort`)
     }
+    // A hostile title (a combining-mark flood that stays within 200 cells) is
+    // cut before it is sanitized: bounded work, and never stored whole.
+    {
+      const flood = 'a' + '\u0301'.repeat(3_000_000)
+      const [floodRow] = await listSessionRows({
+        query: { listSessions: async () => [{ header: { id: 'flood', cwd: '/w/' + 'b' + '\u0301'.repeat(3_000_000), createdAt: 1 } }] },
+        projectionCache: { cachedSnapshot: () => ({ values: { title: flood } }) },
+      }, [], new AbortController().signal)
+      assert.ok(floodRow !== undefined && floodRow.title.length <= 1600, `the title is cut to its source budget (${floodRow?.title.length})`)
+      const [cwdRow] = await listSessionRows({
+        query: { listSessions: async () => [{ header: { id: 'flood-cwd', cwd: '/w/' + 'b' + '\u0301'.repeat(3_000_000), createdAt: 1 } }] },
+      }, [], new AbortController().signal)
+      assert.ok(cwdRow !== undefined && cwdRow.title.length <= 1600, `a workspace-name title is cut too (${cwdRow?.title.length})`)
+    }
     const aborted = new AbortController()
     aborted.abort()
     await assert.rejects(listSessionRows({ query: { listSessions: async () => [] } }, [], aborted.signal), /superseded/)
@@ -665,6 +679,38 @@ try {
     await f.dispose()
   }
   pass('without the DSH kernel: list [] and watch undefined')
+
+  // A shadow mode refuses both watches like any other refusal: a warning and
+  // `undefined` (feature-detectable), never a throw into the plugin.
+  {
+    const savedMode = process.env.DSH_TUI_ADAPTER_MODE
+    process.env.DSH_TUI_ADAPTER_MODE = 'passive-shadow'
+    try {
+      const shadow = new Context()
+      const shadowWarnings: string[] = []
+      ;(shadow.logger as unknown as { warn: (...args: unknown[]) => void }).warn = (...args: unknown[]) => { shadowWarnings.push(args.map(String).join(' ')) }
+      await shadow.plugin(TuiSessionDataRuntime)
+      const g = await activation(shadow, 'plugin-g')
+      let threw: unknown
+      let projection: unknown = 'unset'
+      let list: unknown = 'unset'
+      try {
+        projection = sessionData(g.ctx).watchProjection('contextTimeline')
+        list = sessionData(g.ctx).watchSessionList()
+      } catch (error) {
+        threw = error
+      }
+      assert.equal(threw, undefined, 'a shadow mode never throws at the plugin')
+      assert.equal(projection, undefined)
+      assert.equal(list, undefined)
+      assert.ok(shadowWarnings.some(line => line.includes('shadow policy')), 'the refusal is warned')
+      await g.dispose()
+    } finally {
+      if (savedMode === undefined) delete process.env.DSH_TUI_ADAPTER_MODE
+      else process.env.DSH_TUI_ADAPTER_MODE = savedMode
+    }
+  }
+  pass('a shadow mode refuses both watches with a warning and undefined')
 
   assert.equal(warnings.filter(line => line.includes('projection read failed')).length, 0, 'no read failures on the happy path')
   assert.equal(listWarnings.filter(line => line.includes('session list read failed')).length, 0)
