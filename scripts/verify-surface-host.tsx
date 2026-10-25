@@ -333,8 +333,11 @@ check('scene: openScene with invalid params refused', host.openScene('probe', { 
 check('scene: copy validates', host.copy('') === false)
 
 // openFile over the scene → the preview, then back to the scene.
+const probeClose = lastProps!.close
 check('openFile: relative path opens the preview over the scene',
   host.openFile('sample.ts', { line: 30 }) === true && sceneHost.active?.id === scenesMod.HOST_FILE_PREVIEW_SCENE_ID)
+probeClose()
+check('scene: a close kept past the scene closes nothing else (the preview stays)', sceneHost.active?.id === scenesMod.HOST_FILE_PREVIEW_SCENE_ID)
 check('preview: header shows path, line count and target',
   await settled(() => lines()[0]?.includes('sample.ts') === true && lines()[0]?.includes('40 行') === true && lines()[0]?.includes('L30') === true),
   lines()[0] ?? '')
@@ -367,6 +370,17 @@ writeFileSync(join(dir, 'rtl‮evil.ts'), 'const x = 1\n')
 host.openFile('rtl‮evil.ts')
 check('preview: a bidi override in the file name is shown as U+FFFD in the header, never obeyed',
   await settled(() => lines()[0]?.includes('rtl�evil.ts') === true) && !lines()[0]!.includes('‮'), lines()[0] ?? '')
+{
+  // Holding Right on a huge single line stops at the scroll bound instead of
+  // segmenting ever more of the line on every press.
+  const { FILE_PREVIEW_MAX_LEFT } = previewMod
+  writeFileSync(join(dir, 'wide.txt'), 'a'.repeat(FILE_PREVIEW_MAX_LEFT) + 'MARKER' + 'b'.repeat(200_000) + '\n')
+  host.openFile('wide.txt')
+  await settled(() => lines()[0]?.includes('wide.txt') === true)
+  // Arrow sequences parse as one key each (a run of 'l' arrives as one text chunk).
+  stdin.write('\u001b[C'.repeat(2_000))
+  check('preview: horizontal scroll stops at its bound', await settled(() => lines().some(line => / MARKER/u.test(line))), lines().join('|'))
+}
 await press('q')
 check('preview: closing after several files still returns to the scene', await settled(() => sceneHost.active?.id === 'probe'))
 

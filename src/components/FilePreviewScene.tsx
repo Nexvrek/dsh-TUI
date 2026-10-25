@@ -54,6 +54,10 @@ const TAB_SIZE = 4
  *  cell), so only zero-width floods — one huge combining cluster, a run of
  *  ZWSP — reach it, and they cost a bounded walk instead of the whole line. */
 const SOURCE_UNITS_PER_CELL = 32
+/** Furthest horizontal scroll, in cells (a multiple of the 8-cell step):
+ *  every render segments a line from its start up to the window, so the
+ *  offset is bounded rather than growing with each Right press. */
+export const FILE_PREVIEW_MAX_LEFT = 4096
 const SOURCE_UNITS_FLOOR = 256
 /** Header + footer rows around the body. */
 const CHROME_ROWS = 2
@@ -322,7 +326,7 @@ export function FilePreviewScene({ close, host }: Pick<TuiSceneProps, 'close' | 
     if (key.home || input === 'g') { stop(); setTop(() => 0); return }
     if (key.end || input === 'G') { stop(); setTop(() => maxTop); return }
     if (key.leftArrow || input === 'h') { stop(); setLeft(value => Math.max(0, value - 8)); return }
-    if (key.rightArrow || input === 'l') { stop(); setLeft(value => value + 8); return }
+    if (key.rightArrow || input === 'l') { stop(); setLeft(value => Math.min(FILE_PREVIEW_MAX_LEFT, value + 8)); return }
   })
 
   const shownPath = React.useMemo(() => previewPathText(path), [path])

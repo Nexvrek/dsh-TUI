@@ -1,7 +1,7 @@
 import React from 'react'
 import type { Theme } from '../../theme.js'
 import { chartColorKey } from './chartColor.js'
-import { allocateCells, cellCount, chartValue } from './chartGeometry.js'
+import { allocateCells, cellCount, chartValue, MAX_CHART_ITEMS } from './chartGeometry.js'
 import { chartText, padCells } from './chartFormat.js'
 import { ChartRows, fitRow, pushRun, type ChartRun } from './chartRows.js'
 import type { TuiTableCell, TuiTableColumn, TuiTableProps } from './chartTypes.js'
@@ -59,7 +59,8 @@ function cellParts(cell: TuiTableCell | undefined): { text: string; color?: unkn
  * exactly `width` cells. Cells are folded to one sanitized line and cut with
  * `…` by display cells (CJK/emoji safe), aligned per column. A cell object's
  * color/bold win over the column's color. The selected row is drawn on
- * `selectionBg` edge to edge.
+ * `selectionBg` edge to edge. The table reads at most {@link MAX_CHART_ITEMS}
+ * cells: past that, at its retained column count, rows are left out.
  */
 export function layoutTable(props: TuiTableProps): ChartRun[][] {
   const width = cellCount(props.width)
@@ -90,7 +91,10 @@ export function layoutTable(props: TuiTableProps): ChartRun[][] {
 
   const rows: ChartRun[][] = []
   if (showHeader) rows.push(line(column => ({ text: chartText(column?.title) }), { color: 'inactive', bold: true }, undefined))
-  const entries = (Array.isArray(props.rows) ? props.rows : []).slice(0, MAX_TABLE_ROWS)
+  // One cell budget for the whole table (MAX_CHART_ITEMS, as for every chart's
+  // data), on top of the row cap: wide tables get fewer rows.
+  const rowBudget = Math.min(MAX_TABLE_ROWS, Math.max(1, Math.floor(MAX_CHART_ITEMS / columns.length)))
+  const entries = (Array.isArray(props.rows) ? props.rows : []).slice(0, rowBudget)
   entries.forEach((entry, at) => {
     const record: Readonly<Record<string, TuiTableCell | undefined>> = typeof entry === 'object' && entry !== null ? entry : {}
     const band = at === props.selected ? 'selectionBg' as const : undefined

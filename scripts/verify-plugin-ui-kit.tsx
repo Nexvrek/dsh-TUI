@@ -179,6 +179,18 @@ check('Legend: an explicit zero-row limit lays out nothing; an omitted one is un
   assert.equal(legend.layoutLegend({ width: 20, items, maxRows: 1 }).length, 1)
 })
 
+check('Table: rows and columns share one cell budget', () => {
+  const { MAX_CHART_ITEMS } = geometry
+  const columns = Array.from({ length: 2_000 }, (_, index) => ({ key: 'c' + index, width: 0 }))
+  const rows: Record<string, unknown>[] = Array.from({ length: 1_000 }, () => ({}))
+  let lateRowRead = false
+  Object.defineProperty(rows, 900, { get() { lateRowRead = true; return {} } })
+  const laid = table.layoutTable({ columns, rows, width: 2_000, header: false })
+  assert.ok(!lateRowRead, 'rows past the cell budget are never read')
+  assert.ok(laid.length * Math.min(columns.length, 2_001) <= MAX_CHART_ITEMS, `${laid.length} rows of ${columns.length} columns`)
+  assert.equal(table.layoutTable({ columns: [{ key: 'a' }], rows: Array.from({ length: 500 }, () => ({ a: 1 })), width: 10, header: false }).length, 500, 'a narrow table keeps its rows')
+})
+
 check('Heatmap: the whole grid shares one value budget', () => {
   const { MAX_CHART_ITEMS } = geometry
   const rows: number[][] = Array.from({ length: 200 }, () => Array.from({ length: 2_000 }, (_, x) => x % 2))

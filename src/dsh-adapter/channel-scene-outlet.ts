@@ -46,7 +46,7 @@ export function createChannelSceneOutlet(current: () => TuiSceneDescriptor | und
   return (id: string, channel: ChannelUi, context?: TuiSceneRenderContext): React.ReactNode => {
     const scene = current()
     if (scene?.id !== id) throw new Error(`Scene unavailable: ${id}`)
-    return React.createElement(PluginSceneHost, { key: scene.id, scene, channel, context })
+    return React.createElement(PluginSceneHost, { key: scene.id, scene, channel, context, current })
   }
 }
 
@@ -54,6 +54,8 @@ interface PluginSceneHostProps {
   readonly scene: TuiSceneDescriptor
   readonly channel: ChannelUi
   readonly context: TuiSceneRenderContext | undefined
+  /** The registry's current scene: `close` acts only while it is this one. */
+  readonly current: () => TuiSceneDescriptor | undefined
 }
 
 /** A service the registering activation reaches through its own ctx (same
@@ -90,12 +92,16 @@ function sceneStorage(record: SceneOwnerRecord | undefined): TuiPluginStorage | 
  * the registration drops it, so a callback the scene kept past its unload
  * (a pending promise, a timer) acts as no one and every verb refuses.
  */
-function PluginSceneHost({ scene, channel, context }: PluginSceneHostProps): React.ReactNode {
+function PluginSceneHost({ scene, channel, context, current }: PluginSceneHostProps): React.ReactNode {
   const writeRaw = React.useContext(TerminalWriteContext)
   const activity = context?.activity
   const approvals = context?.attention?.approvals ?? 0
   const questions = context?.attention?.questions ?? 0
-  const close = React.useCallback(() => { channel.closePluginScene() }, [channel])
+  // Bound to this scene: a `close` kept across an await must not close the
+  // preview or another scene opened over it since.
+  const close = React.useCallback(() => {
+    if (current() === scene) channel.closePluginScene()
+  }, [channel, current, scene])
   // The scene's params slot in ITS registry (scene ids are per composition).
   const paramsKey = React.useMemo(() => sceneParamsKeyOf(scene), [scene])
   const host = React.useMemo<TuiSceneHostApi>(() => {

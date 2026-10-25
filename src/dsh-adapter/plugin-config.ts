@@ -49,6 +49,7 @@ import type {
 } from '../adapter/ports/channel-settings.js'
 import { getLang, t, type Lang } from '../i18n.js'
 import { stringWidth } from '../ink/stringWidth.js'
+import { concreteService } from './host-access.js'
 import { isCompositionOwned } from './plugin-declaration.js'
 import { pluginManagerOf, pluginTitleIn } from './plugin-manager.js'
 import { cleanRenderText, cleanStatusFieldText } from './sanitize.js'
@@ -802,6 +803,8 @@ interface LoaderEntryLike {
 interface Snapshot {
   readonly generation: number
   readonly at: number
+  /** The settings service the snapshot came from, by its concrete instance:
+   *  every `ctx.get` of a Cordis service is a fresh traceable proxy. */
   readonly settings: object
   readonly descriptors: readonly unknown[]
   readonly entries: ReadonlyMap<string, { moduleName: string; otherKeys: readonly string[] }>
@@ -908,6 +911,9 @@ export function createPluginConfigSource(ctx: Context, changed: () => void): Plu
   const resetTitles = (): void => {
     titlesGeneration += 1
     looked.clear()
+    // Advance the built-sections key too: the next read must rebuild (and so
+    // ask for titles again), not serve the sections built before the change.
+    infoVersion += 1
   }
 
   const notify = (): void => {
@@ -943,7 +949,8 @@ export function createPluginConfigSource(ctx: Context, changed: () => void): Plu
     const settings = ctx.get('settings' as never) as SettingsFormsLike | undefined
     if (settings === undefined || settings === null || typeof settings.describe !== 'function') return undefined
     const now = Date.now()
-    if (snapshot !== undefined && snapshot.generation === generation && snapshot.settings === settings && now - snapshot.at < SNAPSHOT_TTL_MS) {
+    const service = concreteService(settings)
+    if (snapshot !== undefined && snapshot.generation === generation && snapshot.settings === service && now - snapshot.at < SNAPSHOT_TTL_MS) {
       return snapshot
     }
     let described: unknown
@@ -990,7 +997,7 @@ export function createPluginConfigSource(ctx: Context, changed: () => void): Plu
     }
     // Capture the generation after describe(): the update events describe()
     // itself emits describe exactly this snapshot.
-    snapshot = { generation, at: now, settings, descriptors, entries, documentPath, writable }
+    snapshot = { generation, at: now, settings: service, descriptors, entries, documentPath, writable }
     return snapshot
   }
 

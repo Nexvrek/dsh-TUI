@@ -530,14 +530,48 @@ try {
   // The manager row mounting later announces itself through `internal/service`.
   const originalPlugins: unknown[] = [{ entryId: 'fixture-context', patchId: 'fixture-context', moduleName: contextModule, enabled: true, fiberPhase: 'active', meta: { title: { en: 'Context fixture', zh: '上下文样例' } } }]
   let managerPlugins = originalPlugins
-  root.provide('pluginManager', { listPlugins: async () => managerPlugins })
+  let listCalls = 0
+  root.provide('pluginManager', { listPlugins: async () => { listCalls += 1; return managerPlugins } })
   channel.settingsSections()
   const titleOf = (): string | undefined => channel!.settingsSections().find(entry => entry.ns === 'fixture-context')?.title
   check(await settled(() => titleOf() === 'Context fixture'), 'the manager title replaces the package name')
   check(emits > 0, 'the title arrival re-renders the channel')
-  // The same manager reporting a change: the title is looked up again …
+  // The same manager reporting a change: the title is looked up again on the
+  // very next read (not after the snapshot TTL) …
   managerPlugins = [{ ...(managerPlugins[0] as object), meta: { title: { en: 'Renamed fixture', zh: '改名样例' } } }]
+  await settled(() => false, { timeoutMs: 50 }) // let any lookup in flight land
+  // Start from a fresh describe() snapshot so the next reads are well inside
+  // its TTL: a reread then serves the built sections unless the key moved.
+  root.emit('settings/document-updated' as never)
+  channel.settingsSections()
+  await new Promise(resolve => setImmediate(resolve))
+  // The snapshot is really reused within its TTL: every ctx.get of the
+  // settings service is a fresh proxy, so the source compares the instance.
+  // Counted on a source of its own (the channel's built-in sections call
+  // describe() too).
+  {
+    const concreteSettings = (await import('../src/dsh-adapter/host-access.js')).concreteService(root.get('settings' as never) as object) as { describe: (...args: unknown[]) => unknown }
+    const describeOriginal = concreteSettings.describe
+    let describes = 0
+    concreteSettings.describe = function counted(this: unknown, ...args: unknown[]) { describes += 1; return describeOriginal.apply(this, args) }
+    const ttlSource = createPluginConfigSource({ get: (name: string) => services.includes(name) ? root.get(name as never) : undefined, on: () => () => {} } as unknown as CordisContext, () => {})
+    try {
+      ttlSource.sections(new Set())
+      ttlSource.sections(new Set())
+      ttlSource.sections(new Set())
+    } finally {
+      concreteSettings.describe = describeOriginal
+      ttlSource.dispose()
+    }
+    check(describes === 1, `reads inside the TTL reuse one describe() snapshot (${describes} calls)`)
+  }
+  await new Promise(resolve => setImmediate(resolve)) // that source's own title lookup lands first
+  const callsBeforeChange = listCalls
   root.emit('plugin-manager/changed' as never)
+  channel.settingsSections()
+  // The lookup starts on a microtask: one macrotask turn flushes it.
+  await new Promise(resolve => setImmediate(resolve))
+  check(listCalls > callsBeforeChange, `the next read asks the manager again at once (${listCalls - callsBeforeChange} calls)`)
   check(await settled(() => titleOf() === 'Renamed fixture'), `a manager change refreshes the title: ${titleOf()}`)
   // … and a plugin it no longer lists keeps no stale title.
   managerPlugins = []
