@@ -199,10 +199,15 @@ check('Legend: chips past the last allowed row are counted, never built', () => 
   assert.ok(more !== null && Number(more[1]) + shown === 10_000, `+N still counts every hidden item (${more?.[1]} + ${shown})`)
 })
 
-check('Sparkline: a negative explicit ceiling counts as 0, like every chart number', () => {
-  const negative = sparkline.layoutSparkline({ width: 3, values: [1, 2, 3], max: -5 })
-  const zero = sparkline.layoutSparkline({ width: 3, values: [1, 2, 3], max: 0 })
-  assert.deepEqual(negative, zero)
+check('an explicit ceiling that is negative or non-finite counts as 0 (omitted still auto-scales)', () => {
+  const zeroSpark = sparkline.layoutSparkline({ width: 3, values: [1, 2, 3], max: 0 })
+  for (const max of [-5, Number.POSITIVE_INFINITY, Number.NaN]) {
+    assert.deepEqual(sparkline.layoutSparkline({ width: 3, values: [1, 2, 3], max }), zeroSpark, `Sparkline max ${max}`)
+    assert.deepEqual(heatmap.layoutHeatmap({ rows: [[1, 2, 3]], max }), heatmap.layoutHeatmap({ rows: [[1, 2, 3]], max: 0 }), `Heatmap max ${max}`)
+    assert.deepEqual(column.layoutColumnChart({ height: 3, columns: [{ segments: [{ value: 1, color: 0 }] }, { segments: [{ value: 3, color: 0 }] }], max }),
+      column.layoutColumnChart({ height: 3, columns: [{ segments: [{ value: 1, color: 0 }] }, { segments: [{ value: 3, color: 0 }] }], max: 0 }), `ColumnChart max ${max}`)
+  }
+  assert.notDeepEqual(sparkline.layoutSparkline({ width: 3, values: [1, 2, 3] }), zeroSpark, 'an omitted ceiling auto-scales')
 })
 
 check('Table: a cell reads only what its column can show (4 source units per cell)', () => {

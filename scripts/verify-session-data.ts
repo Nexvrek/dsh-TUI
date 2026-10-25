@@ -635,6 +635,10 @@ try {
       }
       const expected = many.map(entry => entry.header).slice().sort((a, b) => b.createdAt - a.createdAt).map(header => header.id)
       assert.deepEqual(sorted.map(row => row.id), expected, 'the yielding sort keeps the stable newest-first order')
+      // An already-ordered history runs every merge through its tails.
+      const ordered = Array.from({ length: 20_000 }, (_, index) => ({ header: { id: 'o' + index, cwd: '/w/o', createdAt: 20_000 - index } }))
+      const orderedRows = await listSessionRows({ query: { listSessions: async () => ordered } }, [], new AbortController().signal)
+      assert.deepEqual(orderedRows.map(row => row.id), ordered.map(entry => entry.header.id), 'an already-ordered history stays in order through the merge tails')
       assert.ok(largest <= 256, `no single native sort over the whole history (largest ${largest})`)
     }
     // Normalizing a huge host answer is sliced too, and a superseding abort is
@@ -668,6 +672,10 @@ try {
         query: { listSessions: async () => [{ header: { id: 'deep-cwd', cwd: '/deep/' + 'x'.repeat(5_000_000) + '/proj', createdAt: 1 } }] },
       }, [], new AbortController().signal)
       assert.equal(deepRow?.title, 'proj', 'the workspace name comes from the path tail, however long the path')
+      const [idRow] = await listSessionRows({
+        query: { listSessions: async () => [{ header: { id: '\u001b[31mevil\u202eid', cwd: '/', createdAt: 1 } }] },
+      }, [], new AbortController().signal)
+      assert.ok(idRow !== undefined && !/[\u0000-\u001f\u202e]/u.test(idRow.title) && idRow.title.length > 0, `the id fallback is sanitized too: ${JSON.stringify(idRow?.title)}`)
     }
     const aborted = new AbortController()
     aborted.abort()

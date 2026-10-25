@@ -178,7 +178,12 @@ export function useSidePanel(options: UseSidePanelOptions): SidePanelController 
     ? activeIdState
     : enabledPanelIds[0]
 
-  const splitAvailable = fullscreen && !editorOpen && splitEnabled && canSplit(columns)
+  // Only compact-only panels enabled: the split has no body to show and their
+  // rows already sit above the prompt, so it stays collapsed rather than open
+  // an empty column that takes the keyboard. (Nothing enabled at all keeps
+  // the column and its empty-state hint.)
+  const onlyCompact = enabledPanelIds.length === 0 && compactPanelIds.length > 0
+  const splitAvailable = fullscreen && !editorOpen && splitEnabled && canSplit(columns) && !onlyCompact
   const open = openSetting && splitAvailable
   const geometry = React.useMemo(
     () => resolveSidePanelGeometry({ columns, open, zoom, ratio }),

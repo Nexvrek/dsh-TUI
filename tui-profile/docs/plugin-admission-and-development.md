@@ -1898,7 +1898,7 @@ ctx.tuiPanels.subscribe(event => {
 - **位置**：提示框上方，与富状态视图（接缝十一 `registerView`）同一排、紧跟其后。分栏
   显示时有完整视图的面板 compact 行隐藏，面板自己在右栏说话（与 Goal/Todo 底栏让位给 todo 面板
   同一条规则）；只给了 `compact`、没给 `component` 的面板没有右栏视图，不进分栏标签页，分栏
-  显示时它的 compact 行照样留在提示框上方。
+  显示时它的 compact 行照样留在提示框上方；启用集合里只剩这类面板时分栏不展开（没有可显示的右栏）。
 - **哪些、什么顺序**：跟随同一个启用集合（`sidePanel.panels`，`*` = 全部已注册），按启用
   顺序；用户在 `/settings` 取消勾选面板，它的 compact 行也消失。
 - **预算**：所有 compact 行合计 **3 行**；放不下自己 `maxRows` 的面板整个跳过（不挤压），

@@ -57,7 +57,8 @@ export interface TuiSparklineProps {
   readonly color?: TuiChartColor
   /** Scale floor; defaults to 0. */
   readonly min?: number
-  /** Scale ceiling; defaults to the largest value. */
+  /** Scale ceiling; defaults to the largest value. An explicit non-finite or
+   *  negative ceiling counts as 0, like every chart number. */
   readonly max?: number
   /** More values than cells: `bucket` keeps each bucket's peak (default), `tail` keeps the newest. */
   readonly fit?: 'bucket' | 'tail'
@@ -98,7 +99,8 @@ export interface TuiColumnChartProps {
   readonly columnWidth?: number
   /** Cells between columns; defaults to 0. */
   readonly gap?: number
-  /** Scale ceiling; defaults to the tallest column. */
+  /** Scale ceiling; defaults to the tallest column. An explicit non-finite or
+   *  negative ceiling counts as 0, like every chart number. */
   readonly max?: number
   /**
    * Index of a highlighted column: a selection band behind it and a `▾` on
@@ -119,7 +121,8 @@ export interface TuiHeatmapProps {
   readonly levels?: number
   /** Cells per grid cell; defaults to 2 (square-ish). */
   readonly cell?: 1 | 2
-  /** Scale ceiling; defaults to the largest value. */
+  /** Scale ceiling; defaults to the largest value. An explicit non-finite or
+   *  negative ceiling counts as 0, like every chart number. */
   readonly max?: number
   readonly selected?: { readonly row: number; readonly col: number }
 }

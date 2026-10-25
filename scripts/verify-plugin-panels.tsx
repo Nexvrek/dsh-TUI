@@ -1130,6 +1130,23 @@ await settled(() => controllerRef !== undefined)
     JSON.stringify({ tabs: controllerRef!.enabledPanelIds, compact: controllerRef!.compactPanelIds }))
   controllerRef!.openPanel(compactOnlyId)
   check('compact-only: opening it never makes it the active tab', controllerRef!.activePanelId !== compactOnlyId)
+  // Enabled alone (a persistable id: the admitted activation's), it leaves
+  // the split nothing to show: the split stays collapsed (its row is already
+  // above the prompt) instead of an empty column that takes the keyboard.
+  const disposeStored = panelsA.register({ apiVersion: 1, id: 'ctl-compact-stored', title: 'Stored compact', compact: { maxRows: 1, component: () => null } })
+  const storedId = panelStore.list().find(entry => entry.definition.id.endsWith(':ctl-compact-stored'))?.definition.id ?? ''
+  const savedPanels = getSidePanelPanels()
+  applySidePanelPanels(storedId)
+  // Temporary panels are always enabled unless hidden for the run.
+  const temporaryTabs = controllerRef!.enabledPanelIds.filter(id => isTemporarySidePanelId(id))
+  for (const id of temporaryTabs) setTemporarySidePanelHidden(id, true)
+  check('compact-only: enabled alone, the split is not available',
+    storedId !== '' && await settled(() => controllerRef!.enabledPanelIds.length === 0 && controllerRef!.compactPanelIds.includes(storedId) && !controllerRef!.splitAvailable && !controllerRef!.open),
+    JSON.stringify({ split: controllerRef!.splitAvailable, open: controllerRef!.open, tabs: controllerRef!.enabledPanelIds, stored: getSidePanelPanels() }))
+  for (const id of temporaryTabs) setTemporarySidePanelHidden(id, false)
+  applySidePanelPanels(savedPanels)
+  disposeStored?.()
+  await settled(() => controllerRef!.enabledPanelIds.length > 0)
   disposeCompactOnly?.()
 }
 controllerRef!.openPanel(probeId, { focus: true })

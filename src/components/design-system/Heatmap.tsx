@@ -32,7 +32,8 @@ export function layoutHeatmap(props: TuiHeatmapProps): ChartRun[][] {
   const grid = rows.slice(0, Math.max(1, Math.floor(MAX_CHART_ITEMS / columns))).map(row => (Array.isArray(row) ? row : []).slice(0, columns))
 
   let scale = 0
-  if (typeof props.max === 'number' && Number.isFinite(props.max)) scale = chartValue(props.max)
+  // An explicit ceiling is a chart number like any other (non-finite → 0).
+  if (typeof props.max === 'number') scale = chartValue(props.max)
   else for (const row of grid) for (const value of row) scale = Math.max(scale, chartValue(value))
   const levels = Math.max(1, cellCount(props.levels ?? 4))
   const color = chartColorKey(props.color, seriesColor(0))

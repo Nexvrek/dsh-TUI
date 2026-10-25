@@ -104,7 +104,8 @@ export function layoutColumnChart(props: TuiColumnChartProps): ChartRun[][] {
     totals = columns.map(sumOf)
   }
   let scale = 0
-  if (typeof props.max === 'number' && Number.isFinite(props.max)) scale = chartValue(props.max) / factor
+  // An explicit ceiling is a chart number like any other (non-finite → 0).
+  if (typeof props.max === 'number') scale = chartValue(props.max) / factor
   else for (const total of totals) scale = Math.max(scale, total)
 
   const stacks: ColumnStack[] = columns.map((column, at) => {

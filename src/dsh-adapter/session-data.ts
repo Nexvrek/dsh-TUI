@@ -223,8 +223,16 @@ async function sortYielding<T>(items: readonly T[], compare: (a: T, b: T) => num
         target[k++] = compare(source[j]!, source[i]!) < 0 ? source[j++]! : source[i++]!
         if ((k & 1023) === 0) await pause()
       }
-      while (i < middle) target[k++] = source[i++]!
-      while (j < end) target[k++] = source[j++]!
+      // The tails copy up to half the list on an already-ordered input: they
+      // keep to the same slices as the comparisons.
+      while (i < middle) {
+        target[k++] = source[i++]!
+        if ((k & 1023) === 0) await pause()
+      }
+      while (j < end) {
+        target[k++] = source[j++]!
+        if ((k & 1023) === 0) await pause()
+      }
       await pause()
     }
     const merged = target
@@ -305,7 +313,15 @@ function workspaceName(cwd: string): string {
 function rowTitle(header: RawSessionHeader, title: unknown): string {
   const durable = typeof title === 'string' ? cleanRenderText(boundTitleSource(title), TITLE_CELLS) : ''
   if (durable !== '') return durable
-  return cleanRenderText(workspaceName(header.cwd ?? ''), TITLE_CELLS) || header.id.slice(0, 8)
+  return cleanRenderText(workspaceName(header.cwd ?? ''), TITLE_CELLS) || cleanRenderText(idPrefix(header.id), TITLE_CELLS)
+}
+
+/** The first eight code units of a session id (never half a surrogate pair):
+ *  ids are host strings too, sanitized like every other title source. */
+function idPrefix(id: string): string {
+  const prefix = id.slice(0, 8)
+  const last = prefix.charCodeAt(prefix.length - 1)
+  return last >= 0xd800 && last <= 0xdbff ? prefix.slice(0, -1) : prefix
 }
 
 /**

@@ -22,7 +22,8 @@ export function layoutSparkline(props: TuiSparklineProps): ChartRun[] {
   const series = resample(recent, width, props.fit === 'tail' ? 'tail' : 'bucket')
   const floor = chartValue(props.min)
   let ceiling = 0
-  if (typeof props.max === 'number' && Number.isFinite(props.max)) ceiling = chartValue(props.max)
+  // An explicit ceiling is a chart number like any other (non-finite → 0).
+  if (typeof props.max === 'number') ceiling = chartValue(props.max)
   else for (const value of series) ceiling = Math.max(ceiling, value)
   const span = ceiling - floor
   const color = chartColorKey(props.color, seriesColor(0))
