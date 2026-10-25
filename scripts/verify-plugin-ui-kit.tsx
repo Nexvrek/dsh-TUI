@@ -160,6 +160,17 @@ check('StackedBar occupancy and ColumnChart stacks survive a sum that overflows'
   assert.equal(plot.map(line => line[1]).join(''), '  ██', `the half-height column keeps its ratio: ${JSON.stringify(plot)}`)
 })
 
+check('chart text reads a bounded prefix of a huge string, never half a surrogate pair', () => {
+  const { chartText } = chartFormatModule
+  const huge = chartText('x'.repeat(5_000_000))
+  assert.ok(huge.length <= MAX_CHART_CELLS * 8 + 1 && huge.endsWith('…'), `a 5M-unit label is cut to the source budget (${huge.length})`)
+  const atEdge = chartText('a'.repeat(MAX_CHART_CELLS * 8 - 1) + '😀' + 'tail')
+  assert.ok(!/[\ud800-\udbff]…$/.test(atEdge) && atEdge.endsWith('…'), 'the cut never strands a high surrogate')
+  assert.equal(chartText('short \u001b[31mred\u001b[0m'), 'short red', 'ordinary text is untouched')
+  const rows = table.layoutTable({ columns: [{ key: 'a' }], rows: [{ a: 'y'.repeat(3_000_000) }], width: 12 })
+  assert.equal(rowWidth(rows[0]!), 12)
+})
+
 check('chart inputs past MAX_CHART_ITEMS are never read', () => {
   const { MAX_CHART_ITEMS } = geometry
   /** `count` entries from `make`, with a trap at `trap` that records a read. */

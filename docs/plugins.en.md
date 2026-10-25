@@ -72,7 +72,8 @@ Also an experimental public surface:
   mounted**: whenever the split is not showing (sidebar collapsed, inline mode,
   content narrower than 93 columns, the full-page editor) it renders above the
   prompt, after the rich status views, 3 rows in total, following the
-  `sidePanel.panels` enabled set; compact components also receive `snapshot()`
+  `sidePanel.panels` enabled set (a panel with `compact` but no `component` is
+  never a split tab and keeps its row while the split shows); compact components also receive `snapshot()`
   (the panels' snapshot, `usage` included, without the `version` that moves on
   every streamed delta); `opened` / `closed` / `focused` / `blurred` events arrive through
   `subscribe`; keys arrive through `host.onKey` (Ctrl/Alt combos never reach a
@@ -119,7 +120,7 @@ Also an experimental public surface:
   `copy(text)` (at most once per second per plugin activation, always refused
   in the adapter shadow modes; `false` when refused),
   `openScene` / `openPanel(id, params?)` with `useParams()` deep-link params
-  (JSON, ≤16 KiB, ≤32 levels, frozen deep copy; re-opening one's own panel or
+  (JSON, ≤16 KiB, ≤32 levels, at most 65,536 properties visited, frozen deep copy; re-opening one's own panel or
   scene while it shows only updates the params, and for a panel that neither
   counts against the 5s limit nor moves focus) and `toast`; a scene's `host`
   also has `snapshot()` and `storage`. Scene props are only added to.

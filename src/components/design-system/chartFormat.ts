@@ -19,20 +19,29 @@ import { stringWidth } from '../../ink/stringWidth.js'
 import { cleanRenderText } from '../../channel/sanitize.js'
 import { formatDuration, formatTokens } from '../../terminal-utils/format.js'
 import { getGraphemeSegmenter } from '../../utils/intl.js'
-import { cellCount, chartValue } from './chartGeometry.js'
+import { cellCount, chartValue, MAX_CHART_CELLS } from './chartGeometry.js'
 import type { TuiChartFormat } from './chartTypes.js'
 
 const ELLIPSIS = '…'
+/** Source code units {@link chartText} reads: eight per cell of the widest
+ *  track, far more than any line a chart can show, so one generated string
+ *  costs a bounded sanitize and measure instead of passes over all of it. */
+const CHART_TEXT_UNITS = MAX_CHART_CELLS * 8
 
 /**
  * Plugin text → one display-safe line: ANSI/OSC sequences removed, control
  * characters and whitespace runs folded to single spaces. Finite numbers
- * print plainly; anything else (non-finite numbers, objects) is empty.
+ * print plainly; anything else (non-finite numbers, objects) is empty. Only
+ * the first {@link CHART_TEXT_UNITS} code units are read (never half a
+ * surrogate pair); a cut shows as a trailing `…`.
  */
 export function chartText(value: unknown): string {
   if (typeof value === 'number') return Number.isFinite(value) ? String(value) : ''
   if (typeof value !== 'string') return ''
-  return cleanRenderText(value, Number.POSITIVE_INFINITY)
+  if (value.length <= CHART_TEXT_UNITS) return cleanRenderText(value, Number.POSITIVE_INFINITY)
+  const last = value.charCodeAt(CHART_TEXT_UNITS - 1)
+  const end = last >= 0xd800 && last <= 0xdbff ? CHART_TEXT_UNITS - 1 : CHART_TEXT_UNITS
+  return cleanRenderText(value.slice(0, end), Number.POSITIVE_INFINITY) + ELLIPSIS
 }
 
 /** The longest grapheme prefix of `text` that fits in `cells`, with its width. */

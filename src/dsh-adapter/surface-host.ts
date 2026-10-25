@@ -76,6 +76,10 @@ export interface TuiSceneRenderContext {
 export const SURFACE_PARAMS_MAX_BYTES = 16 * 1024
 /** Nesting cap: deeper values are refused rather than walked. */
 export const SURFACE_PARAMS_MAX_DEPTH = 32
+/** Own properties one params value may make the copy visit, dropped
+ *  `undefined` ones included: the work bound beside the size bound (a
+ *  property JSON drops costs no bytes, but visiting it still costs time). */
+export const SURFACE_PARAMS_MAX_PROPERTIES = 4 * SURFACE_PARAMS_MAX_BYTES
 /** `openSession` rate limit per plugin activation. */
 export const OPEN_SESSION_RATE_LIMIT_MS = 2_000
 /** `copy` text cap (UTF-16 code units). */
@@ -94,9 +98,11 @@ export type SurfaceParamsResult =
 
 class ParamsError extends Error {}
 
-/** Running lower bound of the serialized size, spent while copying. */
+/** Running lower bound of the serialized size, spent while copying, and the
+ *  own properties visited so far. */
 interface CopyBudget {
   used: number
+  properties: number
 }
 
 /**
@@ -153,7 +159,12 @@ function copyJson(value: unknown, depth: number, ancestors: Set<object>, budget:
     spend(budget, 2)
     const out: Record<string, TuiJsonValue> = {}
     let entries = 0
-    for (const key of Object.keys(value)) {
+    // `for…in` with an early exit, not `Object.keys`: the walk stops at the
+    // property bound instead of first building every key of a wide object.
+    for (const key in value) {
+      if (!Object.hasOwn(value, key)) continue
+      budget.properties += 1
+      if (budget.properties > SURFACE_PARAMS_MAX_PROPERTIES) throw new ParamsError('more than ' + SURFACE_PARAMS_MAX_PROPERTIES + ' properties')
       const item: unknown = (value as Record<string, unknown>)[key]
       // JSON drops undefined properties; so do we (they cost nothing).
       if (item === undefined) continue
@@ -175,13 +186,15 @@ function copyJson(value: unknown, depth: number, ancestors: Set<object>, budget:
  * symbols, bigints, cycles, class instances and non-finite numbers are
  * refused; so is anything over {@link SURFACE_PARAMS_MAX_BYTES} serialized —
  * refused during the copy as soon as a running lower bound passes the budget,
- * then confirmed exactly on the (by then bounded) copy.
+ * then confirmed exactly on the (by then bounded) copy — and anything that
+ * makes the copy visit more than {@link SURFACE_PARAMS_MAX_PROPERTIES} own
+ * properties (dropped `undefined` ones count: they cost time, not bytes).
  */
 export function freezeSurfaceParams(input: unknown): SurfaceParamsResult {
   if (input === undefined) return { ok: true, value: undefined }
   let value: TuiJsonValue
   try {
-    value = copyJson(input, 0, new Set(), { used: 0 })
+    value = copyJson(input, 0, new Set(), { used: 0, properties: 0 })
   } catch (error) {
     if (error instanceof ParamsError) return { ok: false, reason: error.message }
     return { ok: false, reason: 'unreadable value' }

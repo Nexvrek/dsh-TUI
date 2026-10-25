@@ -648,6 +648,7 @@ export class TuiPanelRuntime extends Service {
       // v2.1：插件 Panel 强制 active 挂载（防常驻面板烧资源）。
       mountPolicy: 'active',
       component: makePluginPanelComponent(finalId, (d.component ?? (() => null)) as React.ComponentType<TuiPanelProps>, ownerRecord),
+      ...(d.component === undefined ? { compactOnly: true as const } : {}),
       compact: compactMaxRows === undefined
         ? undefined
         : {

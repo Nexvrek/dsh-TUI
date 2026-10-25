@@ -244,17 +244,69 @@ export function unescapeText(text: string): string {
   })
 }
 
+/**
+ * `JSON.stringify(value)` while it stays within `limit` characters, else
+ * undefined — built piece by piece, so a large array or map is given up on
+ * after `limit` characters of work instead of being serialized whole (and a
+ * long string is never stringified at all). Config values are JSON data.
+ */
+function boundedJson(value: unknown, limit: number): string | undefined {
+  const out: string[] = []
+  let used = 0
+  const emit = (text: string): boolean => {
+    used += text.length
+    if (used > limit) return false
+    out.push(text)
+    return true
+  }
+  const skipped = (item: unknown): boolean => item === undefined || typeof item === 'function' || typeof item === 'symbol'
+  const walk = (current: unknown, depth: number): boolean => {
+    if (depth > 32) return false
+    if (isRecord(current) && typeof current.toJSON === 'function') {
+      try {
+        current = (current.toJSON as () => unknown)()
+      } catch {
+        return false
+      }
+    }
+    if (current === null || typeof current === 'boolean') return emit(String(current))
+    if (typeof current === 'number') return emit(Number.isFinite(current) ? String(current) : 'null')
+    if (typeof current === 'string') return current.length + 2 <= limit - used && emit(JSON.stringify(current))
+    if (Array.isArray(current)) {
+      if (!emit('[')) return false
+      for (let index = 0; index < current.length; index += 1) {
+        if (index > 0 && !emit(',')) return false
+        const item: unknown = current[index]
+        if (!(skipped(item) ? emit('null') : walk(item, depth + 1))) return false
+      }
+      return emit(']')
+    }
+    if (!isRecord(current)) return false
+    if (!emit('{')) return false
+    let first = true
+    for (const key in current) {
+      if (!Object.hasOwn(current, key) || skipped(current[key])) continue
+      if (!first && !emit(',')) return false
+      first = false
+      if (key.length + 3 > limit - used || !emit(JSON.stringify(key) + ':') || !walk(current[key], depth + 1)) return false
+    }
+    return emit('}')
+  }
+  try {
+    return walk(value, 0) ? out.join('') : undefined
+  } catch {
+    return undefined
+  }
+}
+
 /** A short render-safe rendition of any value (read-only rows, defaults). */
 function summarize(value: unknown, cells = VALUE_CELLS): string {
   if (value === undefined) return ''
   if (typeof value === 'string') return cleanRenderText(escapeText(value), cells)
   if (typeof value === 'number' || typeof value === 'boolean' || value === null) return String(value)
-  let json: string | undefined
-  try {
-    json = JSON.stringify(value)
-  } catch {
-    json = undefined
-  }
+  // A display cell is at least one character of JSON in practice; four per
+  // cell leaves room for zero-width text without serializing a whole value.
+  const json = boundedJson(value, cells * 4)
   if (json !== undefined && stringWidth(json) <= cells) return cleanRenderText(json, cells)
   if (Array.isArray(value)) return t('settings-plugin-items', { count: value.length })
   if (isRecord(value)) return t('settings-plugin-keys', { count: Object.keys(value).length })
@@ -740,10 +792,18 @@ export function createPluginConfigSource(ctx: Context, changed: () => void): Plu
   let disposed = false
   let scheduled = false
   /** Plugin-manager records by entry id, for localized titles. */
-  const infos = new Map<string, unknown>()
+  let infos = new Map<string, unknown>()
   const looked = new Set<string>()
   let lookup: Promise<void> | undefined
   let infoVersion = 0
+  /** Bumped when the manager's records may have changed: every namespace is
+   *  looked up again, the next answer replaces the whole cache, and an answer
+   *  to a lookup started before the change is dropped. */
+  let titlesGeneration = 0
+  const resetTitles = (): void => {
+    titlesGeneration += 1
+    looked.clear()
+  }
 
   const notify = (): void => {
     if (scheduled || disposed) return
@@ -762,8 +822,13 @@ export function createPluginConfigSource(ctx: Context, changed: () => void): Plu
     offs.push(ctx.on('settings/document-updated' as never, (() => { invalidate() }) as never))
     offs.push(ctx.on('internal/service' as never, ((name: unknown) => {
       // A manager that (re)appears may know titles an earlier lookup missed.
-      if (name === 'pluginManager') looked.clear()
+      if (name === 'pluginManager') resetTitles()
       if (name === 'settings' || name === 'configEditor' || name === 'pluginManager') invalidate()
+    }) as never))
+    // The same manager reporting changed metadata (an update, a rename).
+    offs.push(ctx.on('plugin-manager/changed' as never, (() => {
+      resetTitles()
+      notify()
     }) as never))
   } catch {
     // A context without events still serves TTL-bounded snapshots.
@@ -829,17 +894,25 @@ export function createPluginConfigSource(ctx: Context, changed: () => void): Plu
       for (const ns of pending) looked.add(ns)
       return
     }
+    const asked = titlesGeneration
     lookup = Promise.resolve()
       .then(() => manager.listPlugins())
       .then(list => {
+        if (asked !== titlesGeneration) return
+        // The manager lists every plugin: its answer replaces the cache, so
+        // a plugin it no longer lists keeps no stale title.
+        const next = new Map<string, unknown>()
         for (const info of Array.isArray(list) ? list : []) {
           const record = info as { patchId?: unknown; entryId?: unknown }
-          if (typeof record.patchId === 'string') infos.set(record.patchId, info)
-          else if (typeof record.entryId === 'string' && !infos.has(record.entryId)) infos.set(record.entryId, info)
+          if (typeof record.patchId === 'string') next.set(record.patchId, info)
+          else if (typeof record.entryId === 'string' && !next.has(record.entryId)) next.set(record.entryId, info)
         }
+        infos = next
       }, () => undefined)
       .finally(() => {
-        for (const ns of pending) looked.add(ns)
+        // A change during the lookup: nothing is marked looked, so the
+        // re-render below asks again.
+        if (asked === titlesGeneration) for (const ns of pending) looked.add(ns)
         lookup = undefined
         infoVersion += 1
         notify()

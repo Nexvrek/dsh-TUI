@@ -57,7 +57,8 @@
   没有 manifest 的包只拿到一次性的 `session:actN:` 前缀（`ctx.inject` / `ctx.plugin` 嵌套
   fiber 沿用最近一个已准入祖先的身份）。compact 行（`compact`，1–3 行）**已挂载渲染**：
   分栏没有显示时（侧栏收起、inline、内容区窄于 93 列、整页编辑器）画在提示框上方、富状态
-  视图之后，合计 3 行，按 `sidePanel.panels` 启用集合取；compact 组件也拿到 `snapshot()`
+  视图之后，合计 3 行，按 `sidePanel.panels` 启用集合取（只有 `compact`、没有 `component` 的面板不进分栏
+  标签页，分栏显示时它的行照样留着）；compact 组件也拿到 `snapshot()`
   （与面板同一份快照，含 `usage`，不含随每个流式增量跳动的 `version`）；`opened` / `closed` / `focused` / `blurred` 事件经 `subscribe` 投递；
   键盘经 `host.onKey`（Ctrl/Alt 组合不进面板）。`host.snapshot().usage` 给出与底栏
   `ctx` 同源的占用、组成、token 与花费。`sendToChat` 需要 `panels.chat.attach`
@@ -87,7 +88,7 @@
   `openSession(id)`（走 `/resume` 同一路径，每插件 2s 一次）、`openFile(path, { line? })`
   （宿主只读文件预览 `dsh-tui:file-preview`，插件不能注册或替换它）、`copy(text)`（每个插件
   activation 每秒至多 1 次，adapter shadow 模式下一律拒绝，被拒返回 `false`）、`openScene` /
-  `openPanel(id, params?)` 与 `useParams()` 深链参数（JSON，≤16 KiB、≤32 层，冻结深拷贝；对
+  `openPanel(id, params?)` 与 `useParams()` 深链参数（JSON，≤16 KiB、≤32 层、拷贝至多访问 65,536 个属性，冻结深拷贝；对
   正在显示的自己的面板/场景再次打开只更新参数，面板这样做不计入 5s 限速、不改焦点）、`toast`；
   场景的 `host` 另有 `snapshot()` 与 `storage`。场景 props 只加不改。重注册一个正在显示的面板
   会给新注册重放 `opened`（有焦点时再加 `focused`）；compact 组件只在宽度、角标或它读过的快照

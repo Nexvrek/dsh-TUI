@@ -173,6 +173,20 @@ const fieldAt = (section: TuiSettingsSection | undefined, path: string): TuiSett
   checks += 1
   const cyclic = pluginConfigSections(input([descriptor('third', { uid: 1, refs: { 1: { type: 'object', dict: { self: 1, flag: 2 } }, 2: { type: 'boolean' } } })]))
   check(fieldAt(cyclic[0], 'self.flag').kind === 'boolean' && fieldAt(cyclic[0], 'self.self').readOnly === true, 'self-referencing schemas stop at one nested level')
+  // A large read-only value is summarized, never serialized whole: the walk
+  // gives up after the row's character budget (the trap is never reached).
+  {
+    const listed = pluginConfigSections(input([descriptor('third', Schema.object({ tags: Schema.array(String) }).toJSON())]))
+    const tags = fieldAt(listed[0], 'tags')
+    const hugeList: unknown[] = Array.from({ length: 1_000_000 }, (_, index) => 'item-' + index)
+    let read = false
+    Object.defineProperty(hugeList, 500_000, { get() { read = true; return 'trap' } })
+    const shown = tags.format?.(hugeList) ?? ''
+    check(!read && shown.includes('1000000'), `a million-item array shows its count without being serialized: ${JSON.stringify(shown)}`)
+    check(tags.format?.(['a', 'b']) === '["a","b"]', 'a small array still shows as JSON')
+    check(tags.format?.({ when: new Date(0) }) === JSON.stringify({ when: new Date(0) }), 'toJSON values serialize like JSON.stringify')
+    check(tags.format?.({ a: undefined, b: 1, c: [undefined] }) === '{"b":1,"c":[null]}', 'undefined members follow JSON.stringify')
+  }
   // An intersection that lists itself eight times: re-expanding every
   // reference to the depth cap is ~8^9 calls; each node is expanded once.
   const selfListing = { uid: 1, refs: { 1: { type: 'intersect', list: [1, 1, 1, 1, 1, 1, 1, 1, 2] }, 2: { type: 'object', dict: { flag: 3 } }, 3: { type: 'boolean' } } }
@@ -402,10 +416,24 @@ try {
   let emits = 0
   const unsubscribe = channel.subscribe(() => { emits += 1 })
   // The manager row mounting later announces itself through `internal/service`.
-  root.provide('pluginManager', { listPlugins: async () => [{ entryId: 'fixture-context', patchId: 'fixture-context', moduleName: contextModule, enabled: true, fiberPhase: 'active', meta: { title: { en: 'Context fixture', zh: '上下文样例' } } }] })
+  const originalPlugins: unknown[] = [{ entryId: 'fixture-context', patchId: 'fixture-context', moduleName: contextModule, enabled: true, fiberPhase: 'active', meta: { title: { en: 'Context fixture', zh: '上下文样例' } } }]
+  let managerPlugins = originalPlugins
+  root.provide('pluginManager', { listPlugins: async () => managerPlugins })
   channel.settingsSections()
-  check(await settled(() => channel!.settingsSections().find(entry => entry.ns === 'fixture-context')?.title === 'Context fixture'), 'the manager title replaces the package name')
+  const titleOf = (): string | undefined => channel!.settingsSections().find(entry => entry.ns === 'fixture-context')?.title
+  check(await settled(() => titleOf() === 'Context fixture'), 'the manager title replaces the package name')
   check(emits > 0, 'the title arrival re-renders the channel')
+  // The same manager reporting a change: the title is looked up again …
+  managerPlugins = [{ ...(managerPlugins[0] as object), meta: { title: { en: 'Renamed fixture', zh: '改名样例' } } }]
+  root.emit('plugin-manager/changed' as never)
+  check(await settled(() => titleOf() === 'Renamed fixture'), `a manager change refreshes the title: ${titleOf()}`)
+  // … and a plugin it no longer lists keeps no stale title.
+  managerPlugins = []
+  root.emit('plugin-manager/changed' as never)
+  check(await settled(() => titleOf() !== 'Renamed fixture'), `a plugin the manager dropped falls back to its package name: ${titleOf()}`)
+  managerPlugins = originalPlugins
+  root.emit('plugin-manager/changed' as never)
+  check(await settled(() => titleOf() === 'Context fixture'), 'the manager listing it again restores its title')
   unsubscribe()
 
   // Registered/curated precedence at the channel level: the claim suppresses the page.

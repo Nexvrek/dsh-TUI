@@ -1153,7 +1153,8 @@ interface TuiSceneHostApi extends TuiSurfaceHostApi {
   bigint、循环引用、`NaN`/`Infinity`、`Date`/`Map` 等类实例 → 整次调用被拒绝（`false` +
   warn）；数组里的 `undefined` 拒绝，对象里值为 `undefined` 的键照 JSON 丢弃。
 - 序列化后 ≤ 16 KiB，嵌套 ≤ 32 层；预算在拷贝过程中累计，一超出即拒绝（共享引用造成的
-  指数膨胀，如 `x = [x, x]` 嵌套多层，也会立刻被拒而不是先展开）。宿主保存**冻结的深
+  指数膨胀，如 `x = [x, x]` 嵌套多层，也会立刻被拒而不是先展开）；拷贝至多访问 65,536 个
+  自有属性，值为 `undefined`、被丢弃的属性也计入（它们不占字节、但要花时间）。宿主保存**冻结的深
   拷贝**；`__proto__` 之类的键只是普通数据键。
 - 不带参数地打开 = 参数清空（`useParams()` 回到 `undefined`）；用户从标签栏点开面板不改
   参数。注册撤下时参数一并清除。
@@ -1895,8 +1896,9 @@ ctx.tuiPanels.subscribe(event => {
 四种情况：用户收起了侧栏、inline 模式、内容区窄于 93 列、整页编辑器打开：
 
 - **位置**：提示框上方，与富状态视图（接缝十一 `registerView`）同一排、紧跟其后。分栏
-  显示时 compact 行全部隐藏，面板自己在右栏说话（与 Goal/Todo 底栏让位给 todo 面板同一条
-  规则）。
+  显示时有完整视图的面板 compact 行隐藏，面板自己在右栏说话（与 Goal/Todo 底栏让位给 todo 面板
+  同一条规则）；只给了 `compact`、没给 `component` 的面板没有右栏视图，不进分栏标签页，分栏
+  显示时它的 compact 行照样留在提示框上方。
 - **哪些、什么顺序**：跟随同一个启用集合（`sidePanel.panels`，`*` = 全部已注册），按启用
   顺序；用户在 `/settings` 取消勾选面板，它的 compact 行也消失。
 - **预算**：所有 compact 行合计 **3 行**；放不下自己 `maxRows` 的面板整个跳过（不挤压），
@@ -1929,7 +1931,7 @@ compact 行不再出现、发出 `disabled` 事件），重启后恢复。边界
 | `host.openSession` | 每个插件 activation 每 2s 至多 1 次 | `false` + warn |
 | `host.copy` | 每个插件 activation 每秒至多 1 次；文本 ≤1,048,576 个 UTF-16 码元；shadow 模式一律拒绝 | `false` + warn（不提示、不写剪贴板；参数非法的调用**不消耗**窗口）；成功时宿主总会提示 |
 | `host.openFile` | 路径 ≤4096 字符 | `false` + warn |
-| 深链参数 | 序列化 ≤16 KiB、嵌套 ≤32 层 | 整次调用 `false` |
+| 深链参数 | 序列化 ≤16 KiB、嵌套 ≤32 层、至多访问 65,536 个属性 | 整次调用 `false` |
 | 注册 | 每 activation ≤4 个面板，全局 ≤32 个 | `undefined`，台账 `PANEL_BUDGET_EXCEEDED` |
 | compact 行 | 合计 3 行 | 放不下的面板跳过 |
 

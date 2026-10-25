@@ -329,13 +329,15 @@ await widePopup.close()
         { name: 'com.example.echo:review', description: 'review', external: true, owner: 'com.example.echo' },
         // A backend's own colon command: its root stays exact.
         { name: 'ns:cmd', description: 'backend' },
+        // Unshadowed attributed command: listed bare, typed qualified too.
+        { name: 'ctx-extra', description: 'extra', external: true, owner: 'dsh-context' },
       ],
     }) as never,
     themeHost: {} as never,
     commandTrees: {
       children: (path: readonly string[]) => {
         asked.push([...path])
-        return path.length === 1 && (path[0] === 'review' || path[0] === 'ns:cmd') ? [{ name: 'fast', description: 'fast' }] : []
+        return path.length === 1 && (path[0] === 'review' || path[0] === 'ns:cmd' || path[0] === 'ctx-extra') ? [{ name: 'fast', description: 'fast' }] : []
       },
     },
     workspaceCommands: () => [],
@@ -355,6 +357,12 @@ await widePopup.close()
   const backendRows = completion('/ns:cmd ').map(row => row.name)
   check('a backend\'s own colon command keeps its exact root',
     JSON.stringify(backendRows) === JSON.stringify(['ns:cmd fast']) && asked.every(path => path[0] === 'ns:cmd'), JSON.stringify({ backendRows, asked }))
+  asked.length = 0
+  const unlistedRows = completion('/dsh-context:ctx-extra ').map(row => row.name)
+  check('the unlisted qualified form of a bare plugin command completes from its tree',
+    JSON.stringify(unlistedRows) === JSON.stringify(['dsh-context:ctx-extra fast']) && asked.some(path => path.join(' ') === 'ctx-extra'), JSON.stringify({ unlistedRows, asked }))
+  check('a qualified form naming another owner completes nothing',
+    completion('/other.plugin:ctx-extra ').length === 0)
 }
 
 console.log(`verify-plugin-completions OK (${passed} checks)`)

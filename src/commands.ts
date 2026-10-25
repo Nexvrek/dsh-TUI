@@ -563,8 +563,11 @@ export function completeCommands(
 
   const canonicalPath: string[] = []
   let candidates: readonly CommandCompletionNode[] = roots
-  for (const token of tokens) {
-    const resolved = resolveCompletionNode(candidates, token)
+  for (const [at, token] of tokens.entries()) {
+    // A root may also be the `/<pluginId>:<name>` form of a plugin command
+    // listed under its bare name ({@link findCommand}'s rule): its tree is
+    // the bare command's, while the rows keep the typed token.
+    const resolved = resolveCompletionNode(candidates, token) ?? (at === 0 ? findCommand(roots, token) : undefined)
     if (resolved === undefined) return []
     canonicalPath.push(resolved.name)
     candidates = children(canonicalPath)

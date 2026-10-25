@@ -934,6 +934,15 @@ check('wp11 params: a value exactly at the budget still passes',
 check('wp11 params: one byte over is refused', !surface.freezeSurfaceParams({ s: 'x'.repeat(surface.SURFACE_PARAMS_MAX_BYTES - 7) }).ok)
 check('wp11 params: dropped undefined properties cost nothing',
   surface.freezeSurfaceParams(Object.fromEntries([...Array.from({ length: 20_000 }, (_, index) => ['k' + String(index), undefined]), ['a', 1]])).ok)
+{
+  // …but they still cost work: a million of them is refused at the property
+  // bound instead of scanned whole and accepted as `{}`.
+  const wide = Object.fromEntries(Array.from({ length: 1_000_000 }, (_, index) => ['u' + String(index), undefined]))
+  const started = performance.now()
+  const refusedWide = surface.freezeSurfaceParams(wide)
+  check('wp11 params: a million dropped properties are refused at the work bound',
+    !refusedWide.ok && refusedWide.reason.includes(String(surface.SURFACE_PARAMS_MAX_PROPERTIES)), JSON.stringify(refusedWide) + ' ' + (performance.now() - started).toFixed(0) + 'ms')
+}
 check('wp11 params: escapes past the budget are still caught by the exact check',
   !surface.freezeSurfaceParams({ s: '\u0001'.repeat(4000) }).ok)
 check('wp11 params: a huge array is refused before its elements are walked',
@@ -1081,6 +1090,23 @@ const ctrlApp = await render(<ControllerProbe />, {
   patchConsole: false,
 })
 await settled(() => controllerRef !== undefined)
+{
+  // A compact-only panel has no body: never a tab of the split, still part of
+  // the enabled set its compact row follows.
+  let disposeCompactOnly: (() => void) | undefined
+  root.inject(['tuiPanels'], ctx => {
+    disposeCompactOnly = (ctx.get('tuiPanels') as PanelsService).register({ apiVersion: 1, id: 'ctl-compact', title: 'Compact only', compact: { maxRows: 1, component: () => null } })
+  })
+  await new Promise(resolve => setImmediate(resolve))
+  const compactOnlyId = panelStore.list().find(entry => entry.definition.id.endsWith(':ctl-compact'))?.definition.id ?? ''
+  check('compact-only: registered as compact-only', compactOnlyId !== '' && panelStore.get(compactOnlyId)?.definition.compactOnly === true)
+  check('compact-only: not a tab of the split, still in the compact set',
+    await settled(() => controllerRef!.compactPanelIds.includes(compactOnlyId) && !controllerRef!.enabledPanelIds.includes(compactOnlyId)),
+    JSON.stringify({ tabs: controllerRef!.enabledPanelIds, compact: controllerRef!.compactPanelIds }))
+  controllerRef!.openPanel(compactOnlyId)
+  check('compact-only: opening it never makes it the active tab', controllerRef!.activePanelId !== compactOnlyId)
+  disposeCompactOnly?.()
+}
 controllerRef!.openPanel(probeId, { focus: true })
 check('wp3 lifecycle (useSidePanel): openPanel → opened + focused',
   await settled(() => lifecycle.join(',') === 'opened:probe,focused:probe'), lifecycle.join(','))
@@ -1209,8 +1235,17 @@ check('wp3 compact: props carry React, width, badge and the row kit',
   && seenUi.Meter === tuiChartRowKit.Meter && seenUi.format === tuiChartRowKit.format
   && typeof seenUi.Box === 'function' && typeof seenUi.Text === 'function')
 check('wp3 compact: the row kit has no multi-row primitives', seenUi !== undefined && !('ColumnChart' in seenUi) && !('ScrollBox' in seenUi) && !('Table' in seenUi))
-compactApp.rerender(compactTree(true, compactIds))
-check('wp3 compact: hidden while the split renders', await settled(() => !compactLines().some(line => line.includes('compact-one'))))
+// While the split renders, a panel with a body is shown there instead; the
+// compact-only ones (c1–c3 have no body) keep their row above the prompt.
+const disposeCFull = panelsC.register({ apiVersion: 1, id: 'cfull', title: 'CF', component: () => null, compact: { maxRows: 1, component: compactRow('compact-full') } })
+compactApp.rerender(compactTree(false, [cId('cfull'), ...compactIds]))
+check('wp3 compact: a panel with a body has a compact row while the split is hidden',
+  await settled(() => compactLines().some(line => line.includes('compact-full'))), compactLines().join('|'))
+compactApp.rerender(compactTree(true, [cId('cfull'), ...compactIds]))
+check('wp3 compact: its row is hidden while the split renders', await settled(() => !compactLines().some(line => line.includes('compact-full'))), compactLines().join('|'))
+check('wp3 compact: compact-only rows stay while the split renders',
+  compactLines().some(line => line.includes('compact-one')) && compactLines().some(line => line.includes('compact-three')), compactLines().join('|'))
+disposeCFull?.()
 compactApp.rerender(compactTree(false, [cId('boomc'), compactIds[2]!]))
 check('wp3 compact: a crashing row shows a one-line error, the others keep rendering',
   await settled(() => compactLines().some(line => line.includes('面板渲染出错') && line.includes('compact boom')) && compactLines().some(line => line.includes('compact-three'))),

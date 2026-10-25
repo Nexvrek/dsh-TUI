@@ -7299,7 +7299,7 @@ export function Chat({
             </Box>
           </PluginStatusViewBoundary>
         ))}
-        {/* 侧栏面板的 compact 行（§18.1）：分栏不在渲染时与富状态视图同排。 */}
+        {/* 侧栏面板的 compact 行（§18.1）：分栏不在渲染时与富状态视图同排；只有紧凑形态的面板分栏时也留在这里。 */}
         {activePreview === null && (
           <PanelCompactRows
             controller={sidePanel}

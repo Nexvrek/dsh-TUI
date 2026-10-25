@@ -67,6 +67,10 @@ export interface PanelDefinition {
     readonly maxRows: 1 | 2 | 3
     readonly component: React.ComponentType<PanelCompactProps>
   }
+  /** 只有紧凑形态（插件注册时没给 component）：不进分栏的标签页，分栏显示时
+   *  它的紧凑行照样留在提示框上方——否则打开侧栏只会多一个空白页、丢掉它
+   *  唯一的内容。 */
+  readonly compactOnly?: true
 }
 
 export type PanelOwner = 'builtin' | { readonly pluginId: string; readonly activation?: unknown }

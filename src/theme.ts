@@ -1299,6 +1299,24 @@ interface NormalizedThemeCacheEntry {
 
 const normalizedThemeCache = new WeakMap<object, NormalizedThemeCacheEntry>()
 
+const CHART_SLOTS = Object.keys(CHART_DARK_RAMP) as (keyof ChartRamp)[]
+
+/** The built-in chart ramp for a palette that has no chart slots: the 16-colour
+ *  one for ANSI ink, otherwise light or dark by ink luminance — the same rule
+ *  {@link isLightThemeActive} uses for custom palettes. */
+function chartRampFor(palette: Record<string, unknown>): ChartRamp {
+  const text = typeof palette.text === 'string' ? palette.text : undefined
+  if (text?.startsWith('ansi:') === true) return CHART_ANSI_RAMP
+  return inkIsDark(text) ? CHART_LIGHT_RAMP : CHART_DARK_RAMP
+}
+
+/** Dark ink (luminance under 140) means a light background; unparseable ink
+ *  (`ansi:*`, a malformed value) counts as light ink on a dark one. */
+function inkIsDark(text: string | undefined): boolean {
+  const ink = parseFixedColor(text)
+  return ink !== undefined && 0.299 * ink[0] + 0.587 * ink[1] + 0.114 * ink[2] < 140
+}
+
 /** Include every own value so a mutable legacy resolver cannot serve stale data. */
 function themeObjectSignature(raw: Record<string, unknown>): string {
   return Object.keys(raw)
@@ -1312,14 +1330,17 @@ function themeObjectSignature(raw: Record<string, unknown>): string {
  * process-local extension points, so an already loaded plugin may still
  * return the pre-semantic keys after this package has been upgraded. Canonical
  * keys win when both forms are present; aliases are removed from the resolved
- * palette so every consumer sees one stable Theme shape.
+ * palette so every consumer sees one stable Theme shape. A palette from before
+ * the chart slots gets the built-in ramp that matches its ink
+ * ({@link chartRampFor}) for every slot it lacks.
  */
 export function normalizeThemePalette(value: unknown): Theme | undefined {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) return undefined
   const raw = value as Record<string, unknown>
   const hasDeprecatedKey = (Object.keys(DEPRECATED_THEME_KEY_ALIASES) as DeprecatedThemeKey[])
     .some(key => Object.prototype.hasOwnProperty.call(raw, key))
-  if (!hasDeprecatedKey && !Object.keys(raw).some(isRetiredThemeKey)) return value as Theme
+  const lacksChartSlot = CHART_SLOTS.some(key => typeof raw[key] !== 'string')
+  if (!hasDeprecatedKey && !lacksChartSlot && !Object.keys(raw).some(isRetiredThemeKey)) return value as Theme
   const signature = themeObjectSignature(raw)
   const cached = normalizedThemeCache.get(raw)
   if (cached?.signature === signature) return cached.palette
@@ -1330,6 +1351,10 @@ export function normalizeThemePalette(value: unknown): Theme | undefined {
       normalized[canonical] = normalized[deprecated]
     }
     delete normalized[deprecated]
+  }
+  if (lacksChartSlot) {
+    const ramp = chartRampFor(normalized)
+    for (const key of CHART_SLOTS) if (typeof normalized[key] !== 'string') normalized[key] = ramp[key]
   }
   const palette = Object.freeze(normalized as Theme)
   normalizedThemeCache.set(raw, { signature, palette })
@@ -1437,9 +1462,7 @@ export function isLightThemeActive(themeName: ThemeName): boolean {
   // 调色板的 background 字段是徽标填充色而非终端背景，不能作判据。墨色走
   // `parseFixedColor`：校验器放行的写法（hex、带空白的 `rgb()`）都判得出来，只认紧凑
   // `rgb()` 会把 hex 墨的浅色主题按深色算；`ansi:*` 没有绝对通道值，维持按深色算。
-  const ink = parseFixedColor(theme.text)
-  if (ink === undefined) return false
-  return 0.299 * ink[0] + 0.587 * ink[1] + 0.114 * ink[2] < 140
+  return inkIsDark(theme.text)
 }
 
 /**

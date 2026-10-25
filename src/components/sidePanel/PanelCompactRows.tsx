@@ -6,8 +6,9 @@
  * split is NOT rendering — inline mode, a terminal narrower than the split
  * threshold, the column collapsed, the full-page editor open — Chat mounts it
  * above the prompt, in the same band as the rich plugin status views. While
- * the split renders it is empty: the panels speak for themselves there (the
- * same rule the bottom Goal/Todo chrome follows for the todo panel).
+ * the split renders only compact-only panels (no body, so no tab) keep their
+ * row: the others speak for themselves there (the same rule the bottom
+ * Goal/Todo chrome follows for the todo panel).
  *
  * Membership follows the ONE enabled set (`sidePanel.panels`, `*` = every
  * registered panel), in its order: deselecting a panel in /settings removes
@@ -46,11 +47,12 @@ export interface PanelCompactSnapshotSources {
 }
 
 export interface PanelCompactRowsProps extends PanelCompactSnapshotSources {
-  /** The side-panel controller's view: whether the split renders, and the enabled set. */
-  readonly controller: { readonly split: boolean; readonly enabledPanelIds: readonly string[] }
+  /** The side-panel controller's view: whether the split renders, and the
+   *  enabled set (`compactPanelIds` when the caller has it: compact-only
+   *  panels included). */
+  readonly controller: { readonly split: boolean; readonly enabledPanelIds: readonly string[]; readonly compactPanelIds?: readonly string[] }
 }
 
-const NO_ROWS: readonly PanelEntry[] = Object.freeze([])
 /** The memo key of a row that has not called `snapshot()` yet: never changes. */
 const UNUSED_SNAPSHOT_INPUTS: readonly unknown[] = Object.freeze(new Array<unknown>(PANEL_SNAPSHOT_INPUT_COUNT).fill(undefined))
 
@@ -77,9 +79,12 @@ export function selectCompactEntries(
 export function PanelCompactRows({ controller, channel, activity, approvals = 0, questions = 0 }: PanelCompactRowsProps): React.ReactNode {
   const entries = React.useSyncExternalStore(panelStore.subscribe, () => panelStore.list())
   const { columns } = useTerminalSize()
-  const { split, enabledPanelIds } = controller
+  const { split } = controller
+  const enabledPanelIds = controller.compactPanelIds ?? controller.enabledPanelIds
+  // While the split shows, a panel's own body stands in for its compact row —
+  // except a compact-only one, which has no body: its row stays.
   const rows = React.useMemo(
-    () => (split ? NO_ROWS : selectCompactEntries(entries, enabledPanelIds)),
+    () => selectCompactEntries(split ? entries.filter(entry => entry.definition.compactOnly === true) : entries, enabledPanelIds),
     [split, entries, enabledPanelIds],
   )
   if (rows.length === 0) return null
