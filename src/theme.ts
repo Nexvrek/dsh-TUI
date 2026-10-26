@@ -485,9 +485,9 @@ const claudeDarkTheme: Theme = {
   syntaxPunctuation: rgb('#817C74'),
   syntaxConstant: rgb('#D96B5F'),
   // ── diff（去蓝调，随新板）──
-  diffAdded: rgb('#24291F'),
+  diffAdded: rgb('#1F5C31'),
   diffAddedDimmed: rgb('#262A21'),
-  diffRemoved: rgb('#2B1F1E'),
+  diffRemoved: rgb('#6E2026'),
   diffRemovedDimmed: rgb('#271F1E'),
   diffAddedWord: rgb('#81966A'),
   diffRemovedWord: rgb('#D96B5F'),

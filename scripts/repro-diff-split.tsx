@@ -16,7 +16,7 @@
  *
  * Each covered fix has a one-line negative control rather than an in-suite
  * switch (restore the line with `git checkout` afterwards); every revert turns
- * only its own cases red, out of 56 assertions:
+ * only its own cases red, out of the suite's assertions:
  * - dropping the `<= budget` guard in clippedGraphemes → 3 FAILED (the 54- and
  *   55-cell counts and the NFD cluster count);
  * - `take = height` in its paint loop → 2 FAILED (the giant single line, which
@@ -84,8 +84,8 @@ async function renderAt(cols, tool, diffLayout = 'auto', toolBackground = 'none'
     React.createElement(AssistantToolUseMessage, { tool, marginTopOnTurn: false, verbose, fullscreen, diffLayout, toolBackground }),
     { stdout: new FakeStdout(), debug: true, exitOnCtrlC: false },
   )
-  // 固定窗:pacing cli-highlight 首次使用才懒加载，其后的补色重绘没有
-  // 调用方可观测的完成条件，只能留出落地时间再读色。
+  await getCliHighlightPromise()
+  // 固定窗:pacing cli-highlight 首次使用才懒加载，其后的补色重绘没有调用方可观测的完成条件，留出落地时间读色。
   await sleep(settleMs)
   const buf = term.buffer.active
   const lines = []
@@ -111,7 +111,7 @@ async function renderAt(cols, tool, diffLayout = 'auto', toolBackground = 'none'
     check('左栏（old）改动行底色为暗红系', bgAt(6, pairRow) === 0x362b2c, `bg=${bgAt(6, pairRow).toString(16)}`)
     check('右栏（new）改动行底色为暗绿系', bgAt(dividerX + 2, pairRow) === 0x2b352c, `bg=${bgAt(dividerX + 2, pairRow).toString(16)}`)
     const markX = lines[pairRow]!.indexOf('mark="!"')
-    check('右栏改动词组使用亮绿词色', markX > 0 && fgAt(markX, pairRow) === 0x57956b, `fg=${fgAt(Math.max(markX, 0), pairRow).toString(16)}`)
+    check('右栏改动词组使用文字色 + 绿块底', markX > 0 && fgAt(markX, pairRow) === 0xe8e6e0 && bgAt(markX, pairRow) === 0x27392c, `fg=${fgAt(Math.max(markX, 0), pairRow).toString(16)} bg=${bgAt(Math.max(markX, 0), pairRow).toString(16)}`)
     const defX = lines[pairRow]!.indexOf('def')
     check('关键字使用语法色（syntaxKeyword）', defX > 0 && fgAt(defX, pairRow) === 0x78a0d6, `fg=${fgAt(Math.max(defX, 0), pairRow).toString(16)}`)
   }
@@ -149,6 +149,38 @@ async function renderAt(cols, tool, diffLayout = 'auto', toolBackground = 'none'
       `bg=${bgAt(lines[bodyRow]!.indexOf('# tail'), bodyRow).toString(16)}`)
     check('默认 none 档：统一式卡体无底色（行尾）', bgAt(69, bodyRow) === 0xffffff,
       `bg=${bgAt(69, bodyRow).toString(16)}`)
+  }
+}
+
+// ---- 3b. Long files keep three rows of context either side of a change.
+{
+  const longOld = Array.from({ length: 30 }, (_, i) => `L${String(i + 1).padStart(2, '0')}`).join('\n')
+  const longLines = longOld.split('\n')
+  longLines[14] = 'L15 changed'
+  longLines.splice(15, 0, 'L15b inserted')
+  const longTool = {
+    ...editTool,
+    callId: 'c-long',
+    callView: {
+      card: 'diff',
+      title: 'Edit /tmp/long.txt',
+      diffs: [{ path: '/tmp/long.txt', oldText: longOld, newText: longLines.join('\n') }],
+    },
+  }
+  {
+    const { lines, bgAt } = await renderAt(70, longTool, 'auto', 'none', { verbose: true })
+    const s = lines.join('\n')
+    check('统一式裁剪：只保留变更前后三行', s.includes('L12') && s.includes('L18') && !s.includes('L01') && !s.includes('L30'))
+    check('统一式裁剪：未变更段出现 ⋯', s.includes('⋯'))
+    const row = lines.findIndex(line => line.includes('L15 changed'))
+    const x = row >= 0 ? lines[row]!.indexOf('changed') : -1
+    check('统一式变更词：文字色 + 绿块底', x > 0 && bgAt(x, row) === 0x27392c, `bg=${x > 0 ? bgAt(x, row).toString(16) : 'n/a'}`)
+  }
+  {
+    const { lines } = await renderAt(120, longTool, 'auto', 'none', { verbose: true })
+    const s = lines.join('\n')
+    check('双栏裁剪：只保留变更前后三行', s.includes('L12') && s.includes('L18') && !s.includes('L01') && !s.includes('L30'))
+    check('双栏裁剪：未变更段出现 ⋯', s.includes('⋯'))
   }
 }
 
