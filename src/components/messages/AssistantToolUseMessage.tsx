@@ -1,11 +1,12 @@
 import React from 'react'
+import * as JsDiff from 'diff'
 import { extname } from 'node:path'
 import { Box, Text, useTerminalSize } from '../../ui.js'
 import { stringWidth } from '../../ink/stringWidth.js'
 import { useAnimationFrame } from '../../ink/hooks/use-animation-frame.js'
 import type { ToolCallView, ToolFileDiff, ToolResultView, ToolRow } from '../../dsh-adapter/channel.js'
 import { ToolUseLoader } from '../ToolUseLoader.js'
-import { SplitDiffView } from '../SplitDiffView.js'
+import { SplitDiffView, wordSegments, type Segment } from '../SplitDiffView.js'
 import { SyntaxText } from '../SyntaxText.js'
 import { useTooltip } from '../Tooltip.js'
 import { formatDuration } from '../../terminal-utils/format.js'
@@ -244,6 +245,10 @@ type BodyLine = {
   readonly target?: string
   /** `path` rows: dim text after the path (a patch file's `(+N -M)`). */
   readonly suffix?: string
+  /** `add`/`del` rows with a paired counterpart: the marker split from the
+   *  content so only the changed words can carry a stronger tint. */
+  readonly prefix?: string
+  readonly segments?: readonly Segment[]
 }
 
 /** The collapsed text body keeps three lines. */
@@ -286,16 +291,6 @@ export function toolNameColor(raw: string, category?: 'mutate' | 'exec' | 'other
   return 'accent'
 }
 
-/** One side's text → display lines (upstream contentLines rule: empty text
- *  is zero lines; a single trailing newline is a terminator, not a line;
- *  interior blanks survive). */
-function sideLines(text: string): string[] {
-  if (text === '') return []
-  const lines = text.split('\n')
-  if (lines[lines.length - 1] === '') lines.pop()
-  return lines
-}
-
 /** A patch file → its header and numbered hunk rows: each line carries
  *  its real line number (old for a removed line, new otherwise) in a gutter
  *  as wide as the file's largest number; `⋯` separates hunks. A patch with
@@ -326,7 +321,9 @@ function patchLines(diff: ToolPatchDiff, multiFile: boolean): BodyLine[] {
 /** Diff hunks → add/del rows. The header already carries the path for the
  *  common single-hunk case; with several hunks a path row separates files
  *  and `⋯` separates scattered hunks of one file (upstream DiffBlock). A
- *  patch file (`ToolFileDiff.patch`) renders through {@link patchLines}. */
+ *  patch file (`ToolFileDiff.patch`) renders through {@link patchLines}.
+ *  Old/new text pairs go through jsdiff so the unified body shows the real
+ *  changed lines plus three rows of context. */
 function diffLines(diffs: readonly ToolFileDiff[]): BodyLine[] {
   const out: BodyLine[] = []
   let prevPath: string | undefined
@@ -341,12 +338,86 @@ function diffLines(diffs: readonly ToolFileDiff[]): BodyLine[] {
       else out.push(dim('⋯'))
     }
     prevPath = diff.path
-    if (diff.oldText !== null) {
-      for (const line of sideLines(diff.oldText)) out.push(del(`- ${line}`))
+    const rows: DiffBodyRow[] = []
+    for (const part of JsDiff.diffLines(diff.oldText ?? '', diff.newText)) {
+      if (part.value === '') continue
+      const tone: DiffBodyRow['tone'] = part.added ? 'add' : part.removed ? 'del' : 'plain'
+      for (const line of part.value.replace(/\n$/, '').split('\n')) rows.push({ text: line, tone })
     }
-    for (const line of sideLines(diff.newText)) out.push(add(`+ ${line}`))
+    attachWordSegments(rows)
+    for (const row of clipDiffContext(rows)) {
+      if ('omit' in row) {
+        out.push(dim('⋯'))
+        continue
+      }
+      const marker = row.tone === 'add' ? '+' : row.tone === 'del' ? '-' : ' '
+      out.push({
+        text: `${marker} ${row.text}`,
+        tone: row.tone,
+        ...(row.segments === undefined ? {} : { prefix: `${marker} `, segments: row.segments }),
+      })
+    }
   }
   return out
+}
+
+/** One row of the unified diff before it becomes a BodyLine. */
+type DiffBodyRow = {
+  text: string
+  tone: 'add' | 'del' | 'plain'
+  segments?: readonly Segment[]
+}
+
+/** Pair adjacent removed/added rows and split each pair at word level so the
+ *  unified body can tint only the changed words. Unpaired rows keep their
+ *  plain text. */
+function attachWordSegments(rows: DiffBodyRow[]): void {
+  let index = 0
+  while (index < rows.length) {
+    if (rows[index]!.tone !== 'del') {
+      index += 1
+      continue
+    }
+    let delEnd = index
+    while (delEnd < rows.length && rows[delEnd]!.tone === 'del') delEnd += 1
+    let addEnd = delEnd
+    while (addEnd < rows.length && rows[addEnd]!.tone === 'add') addEnd += 1
+    const pairs = Math.min(delEnd - index, addEnd - delEnd)
+    for (let at = 0; at < pairs; at += 1) {
+      const halves = wordSegments(rows[index + at]!.text, rows[delEnd + at]!.text)
+      rows[index + at]!.segments = halves.old
+      rows[delEnd + at]!.segments = halves.new
+    }
+    index = addEnd
+  }
+}
+
+/** Keep three rows either side of every change and collapse the untouched
+ *  run between them into one `⋯` row. A pair with no changes keeps its rows
+ *  as-is (the caller only builds diff cards for real edits). */
+function clipDiffContext(rows: DiffBodyRow[], context = 3): (DiffBodyRow | { readonly omit: true })[] {
+  const keep = new Array<boolean>(rows.length).fill(false)
+  let changed = false
+  rows.forEach((row, index) => {
+    if (row.tone !== 'add' && row.tone !== 'del') return
+    changed = true
+    const from = Math.max(0, index - context)
+    const to = Math.min(rows.length - 1, index + context)
+    for (let at = from; at <= to; at += 1) keep[at] = true
+  })
+  if (!changed) return rows
+  const clipped: (DiffBodyRow | { readonly omit: true })[] = []
+  for (let index = 0; index < rows.length; index += 1) {
+    if (keep[index] === true) {
+      clipped.push(rows[index]!)
+      continue
+    }
+    let at = index
+    while (at < rows.length && keep[at] !== true) at += 1
+    clipped.push({ omit: true })
+    index = at - 1
+  }
+  return clipped
 }
 
 /** Join the text blocks of a view's content payload (read/generic cards). */
@@ -452,7 +523,7 @@ function foldBodyLines(lines: BodyLine[]): { lines: BodyLine[]; hiddenChars: num
       continue
     }
     out ??= lines.slice(0, index)
-    out.push({ ...line, text: folded.text })
+    out.push({ ...line, text: folded.text, segments: undefined, prefix: undefined })
     hiddenChars += folded.hiddenChars
   }
   return out === undefined ? { lines, hiddenChars: 0 } : { lines: out, hiddenChars }
@@ -1014,7 +1085,7 @@ export function AssistantToolUseMessage({
                   {index === 0 ? GUTTER_FIRST : GUTTER_REST}
                 </Text>
               </Box>
-              <Box flexGrow={1}>
+              <Box flexGrow={1} backgroundColor={line.tone === 'add' ? 'diffAddedDimmed' : line.tone === 'del' ? 'diffRemovedDimmed' : undefined}>
                 {line.tone === 'path' && onOpenFile !== undefined ? (
                   <Box
                     onClick={(event: ClickEvent) => {
@@ -1045,10 +1116,25 @@ export function AssistantToolUseMessage({
                     dimColor={(line.tone === 'dim' && !(line.revealOnHover === true && hovered)) || line.tone === 'live'}
                     wrap={line.tone === 'live' ? 'truncate-end' : 'wrap'}
                   >
-                    {line.tone === 'plain' && syntaxLanguage !== undefined ? (
-                      <SyntaxText text={line.text} sourceText={bodySource} lineIndex={index} language={syntaxLanguage} />
+                    {line.segments === undefined ? (
+                      line.tone === 'plain' && syntaxLanguage !== undefined ? (
+                        <SyntaxText text={line.text} sourceText={bodySource} lineIndex={index} language={syntaxLanguage} />
+                      ) : (
+                        line.text === '' ? ' ' : line.text
+                      )
                     ) : (
-                      line.text === '' ? ' ' : line.text
+                      <>
+                        {line.prefix}
+                        {line.segments.map((segment, si) =>
+                          segment.changed ? (
+                            <Text key={si} color="text" bold backgroundColor={line.tone === 'del' ? 'diffRemoved' : 'diffAdded'}>
+                              {segment.text}
+                            </Text>
+                          ) : (
+                            segment.text
+                          ),
+                        )}
+                      </>
                     )}
                     {line.suffix !== undefined && <Text dimColor>{line.suffix}</Text>}
                   </Text>

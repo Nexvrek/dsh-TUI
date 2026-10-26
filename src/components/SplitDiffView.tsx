@@ -63,7 +63,7 @@ import { isPatchDiff, parseFilePatch, patchHeader, patchHeaderText, type ParsedP
  */
 
 /** One styled run inside a pane line. */
-interface Segment {
+export interface Segment {
   readonly text: string
   /** Word-level diff change: renders in the bright word palette, bold. */
   readonly changed: boolean
@@ -129,7 +129,7 @@ function mergeRuns(
 
 /** Strip the shared leading whitespace before word-diffing: otherwise the
  *  whole indent reads as one changed blob (pi's renderIntraLineDiff trick). */
-function wordSegments(oldLine: string, newLine: string): { old: Segment[]; new: Segment[] } {
+export function wordSegments(oldLine: string, newLine: string): { old: Segment[]; new: Segment[] } {
   const oldIndent = /^\s*/.exec(oldLine)?.[0] ?? ''
   const newIndent = /^\s*/.exec(newLine)?.[0] ?? ''
   const sharedIndent = oldIndent === newIndent ? oldIndent : ''
@@ -257,6 +257,35 @@ function alignFileDiff(fileIndex: number, oldText: string | null, newText: strin
     }
   }
   return rows
+}
+
+/** Keep three aligned rows either side of every change and collapse the
+ *  untouched run between them into one `⋯` separator, so a long file's few
+ *  edits are not buried under its unchanged body. Rows keep their old/new
+ *  indexes, so the side texts and wrapping stay valid. */
+function clipAlignedContext(rows: DiffRow[], context = 3): (DiffRow | { readonly separator: string })[] {
+  const keep = new Array<boolean>(rows.length).fill(false)
+  let changed = false
+  rows.forEach((row, index) => {
+    if (row.kind === 'context') return
+    changed = true
+    const from = Math.max(0, index - context)
+    const to = Math.min(rows.length - 1, index + context)
+    for (let at = from; at <= to; at += 1) keep[at] = true
+  })
+  if (!changed) return rows
+  const clipped: (DiffRow | { readonly separator: string })[] = []
+  for (let index = 0; index < rows.length; index += 1) {
+    if (keep[index] === true) {
+      clipped.push(rows[index]!)
+      continue
+    }
+    let at = index
+    while (at < rows.length && keep[at] !== true) at += 1
+    clipped.push({ separator: '⋯' })
+    index = at - 1
+  }
+  return clipped
 }
 
 /** A patch file's hunks aligned into rows (the same pairing rules as
@@ -524,7 +553,6 @@ function PaneLine({
       : tone === 'old'
         ? 'diffRemovedDimmed'
         : 'diffAddedDimmed'
-  const wordColor = tone === 'old' ? 'diffRemovedWord' : 'diffAddedWord'
   return (
     <Box width={width} flexShrink={0} backgroundColor={backgroundColor} selectionPane={paneId} noSelect={padding} softWrapContinuation={continuation}>
       <Box noSelect><Text dimColor backgroundColor={backgroundColor}>{prefix}</Text></Box>
@@ -537,7 +565,7 @@ function PaneLine({
         <Text wrap="truncate" backgroundColor={backgroundColor}>
           {segments.map((segment, index) =>
             segment.changed ? (
-              <Text key={index} color={wordColor} bold backgroundColor={backgroundColor}>
+              <Text key={index} color="text" bold backgroundColor={tone === 'old' ? 'diffRemoved' : 'diffAdded'}>
                 {segment.text}
               </Text>
             ) : (
@@ -619,7 +647,7 @@ export function SplitDiffView({
       else rows.push({ separator: '⋯' })
     }
     prevPath = diff.path
-    rows.push(...alignFileDiff(fileIndex, diff.oldText, diff.newText))
+    rows.push(...clipAlignedContext(alignFileDiff(fileIndex, diff.oldText, diff.newText)))
   })
 
   // Determine each file's sides from its complete alignment, before folding
